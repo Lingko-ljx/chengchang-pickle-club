@@ -28,6 +28,20 @@ test("server renders the finished pickleball club page", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
+  assert.match(html, /<form[^>]+id="booking-form"[^>]+method="post"/i);
+  assert.match(html, /name="preferred_date"/);
+  assert.match(html, /name="preferred_time"/);
+  assert.match(html, /name="party_size"/);
+  assert.match(html, /name="name"/);
+  assert.match(html, /name="phone"/);
+  assert.match(html, /name="privacy_consent"/);
+  assert.match(html, /name="status"[^>]+value="pending"/);
+  assert.match(
+    html,
+    /name="source"[^>]+value="chengchang-public-site"/,
+  );
+  assert.match(html, /预约意向提交后仍需人工确认/);
+  assert.doesNotMatch(html, /当前为演示预约|信息没有被保存或发送/);
   assert.match(html, /<title>澄场 PICKLE CLUB/);
   assert.match(html, /匹克球介绍/);
   assert.match(html, /场地介绍/);

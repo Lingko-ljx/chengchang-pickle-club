@@ -1,4 +1,15 @@
-import { BookingPanel } from "./BookingPanel";
+import { BookingForm } from "./BookingForm";
+import {
+  resolveBookingEndpoint,
+  resolveBookingScriptSrc,
+} from "./booking-config";
+
+const formEndpoint = resolveBookingEndpoint(
+  process.env.NEXT_PUBLIC_FORMSPREE_ENDPOINT,
+);
+const bookingScriptSrc = resolveBookingScriptSrc(
+  process.env.PAGES_BASE_PATH,
+);
 
 const values = [
   {
@@ -300,7 +311,10 @@ export default function Home() {
             <span>05</span>
             <p>预约体验</p>
           </div>
-          <BookingPanel />
+          <BookingForm
+            formEndpoint={formEndpoint}
+            scriptSrc={bookingScriptSrc}
+          />
         </div>
       </section>
 
