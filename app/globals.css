@@ -1802,7 +1802,24 @@ select:focus-visible {
 @supports not (aspect-ratio: 1 / 1) {
   .venue-board {
     height: 0;
-    padding-bottom: 74%;
+    padding-bottom: 64.516129%;
+    padding-top: 0;
+  }
+
+  @media (max-width: 860px) {
+    .venue-board {
+      height: 0;
+      padding-bottom: 74.074074%;
+      padding-top: 0;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .venue-board {
+      height: 0;
+      padding-bottom: 105.263158%;
+      padding-top: 0;
+    }
   }
 
   .coach-portrait {

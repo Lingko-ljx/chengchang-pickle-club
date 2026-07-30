@@ -30,6 +30,49 @@ function declarationsFor(container, selector) {
   return declarations;
 }
 
+function directDeclarationsFor(container, selector) {
+  const declarations = new Map();
+  for (const rule of container.nodes ?? []) {
+    if (rule.type !== "rule") continue;
+    const selectors = rule.selectors.map((value) => value.trim());
+    if (!selectors.includes(selector)) continue;
+    rule.walkDecls((declaration) => {
+      declarations.set(declaration.prop, declaration.value);
+    });
+  }
+  return declarations;
+}
+
+function findAtRule(container, name, params) {
+  let match;
+  container.walkAtRules(name, (rule) => {
+    if (rule.params === params) match = rule;
+  });
+  return match;
+}
+
+function findDirectAtRule(container, name, params) {
+  return (container.nodes ?? []).find(
+    (rule) => rule.type === "atrule" && rule.name === name && rule.params === params,
+  );
+}
+
+function ratioFor(container, selector) {
+  const value = directDeclarationsFor(container, selector).get("aspect-ratio");
+  assert.ok(value, `expected ${selector} to define an aspect ratio`);
+  const [width, height = "1"] = value.split("/").map(Number);
+  return width / height;
+}
+
+function assertAspectFallback(declarations, ratio) {
+  assert.equal(declarations.get("height"), "0");
+  assert.equal(declarations.get("padding-top"), "0");
+  assert.match(declarations.get("padding-bottom") ?? "", /%$/);
+  assert.ok(
+    Math.abs(Number.parseFloat(declarations.get("padding-bottom")) - 100 / ratio) < 0.0001,
+  );
+}
+
 test("critical modern CSS has old-browser fallbacks with matching semantics", async () => {
   const css = await readFile(
     new URL("../app/globals.css", import.meta.url),
@@ -75,26 +118,43 @@ test("critical modern CSS has old-browser fallbacks with matching semantics", as
     }
   });
 
-  function findSupports(params) {
-    let match;
-    root.walkAtRules("supports", (rule) => {
-      if (rule.params === params) match = rule;
-    });
-    return match;
-  }
-
-  const aspectFallback = findSupports("not (aspect-ratio: 1 / 1)");
+  const aspectFallback = findAtRule(root, "supports", "not (aspect-ratio: 1 / 1)");
   assert.ok(aspectFallback);
-  assert.deepEqual(declarationsFor(aspectFallback, ".venue-board"), new Map([
-    ["height", "0"],
-    ["padding-bottom", "74%"],
-  ]));
-  assert.deepEqual(declarationsFor(aspectFallback, ".coach-portrait"), new Map([
+  const tablet = findDirectAtRule(root, "media", "(max-width: 860px)");
+  const mobile = findDirectAtRule(root, "media", "(max-width: 620px)");
+  const tabletFallback = findDirectAtRule(
+    aspectFallback,
+    "media",
+    "(max-width: 860px)",
+  );
+  const mobileFallback = findDirectAtRule(
+    aspectFallback,
+    "media",
+    "(max-width: 620px)",
+  );
+
+  assert.ok(tablet);
+  assert.ok(mobile);
+  assert.ok(tabletFallback);
+  assert.ok(mobileFallback);
+  assertAspectFallback(
+    directDeclarationsFor(aspectFallback, ".venue-board"),
+    ratioFor(root, ".venue-board"),
+  );
+  assertAspectFallback(
+    directDeclarationsFor(tabletFallback, ".venue-board"),
+    ratioFor(tablet, ".venue-board"),
+  );
+  assertAspectFallback(
+    directDeclarationsFor(mobileFallback, ".venue-board"),
+    ratioFor(mobile, ".venue-board"),
+  );
+  assert.deepEqual(directDeclarationsFor(aspectFallback, ".coach-portrait"), new Map([
     ["height", "0"],
     ["padding-bottom", "122%"],
   ]));
 
-  const gapFallback = findSupports("not (gap: 1rem)");
+  const gapFallback = findAtRule(root, "supports", "not (gap: 1rem)");
   assert.ok(gapFallback);
   for (const selector of [
     ".booking-layout > * + *",
