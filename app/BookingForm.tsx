@@ -121,6 +121,7 @@ export function BookingForm({
             className="booking-success-message"
             hidden
             role="status"
+            tabIndex={-1}
           >
             已收到预约意向，我们会尽快电话联系你确认。
           </div>
