@@ -357,12 +357,24 @@ git commit -m "feat: replace booking demo with native form"
 - Create: `public/booking-form.js`
 - Create: `tests/booking-enhancement-contract.test.mjs`
 - Modify: `app/BookingForm.tsx`
+- Modify: `package.json`
+- Modify: `package-lock.json`
 
 **Interfaces:**
 - Consumes: DOM ids `booking-form`, `booking-error`, and `booking-success`.
 - Produces: progressive enhancement that sends FormData with XMLHttpRequest and never blocks native submission when required APIs are absent.
 
-- [ ] **Step 1: Write the compatibility contract test**
+- [ ] **Step 1: Add the ES5 parser used by the compatibility test**
+
+Run:
+
+```powershell
+npm install --save-dev acorn
+```
+
+Expected: `acorn` is a direct development dependency and the lockfile is updated.
+
+- [ ] **Step 2: Write the compatibility behavior test**
 
 Create `tests/booking-enhancement-contract.test.mjs`:
 
@@ -370,24 +382,96 @@ Create `tests/booking-enhancement-contract.test.mjs`:
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
+import { parse } from "acorn";
 
-test("booking enhancement stays parseable by old Android WebView", async () => {
+test("booking enhancement parses as ES5 and submits through XHR", async () => {
   const source = await readFile(
     new URL("../public/booking-form.js", import.meta.url),
     "utf8",
   );
 
-  assert.doesNotMatch(source, /\b(?:const|let|class|async)\b/);
-  assert.doesNotMatch(source, /=>|\?\.|\?\?|`/);
-  assert.doesNotMatch(source, /\bfetch\s*\(|\bPromise\b/);
-  assert.doesNotMatch(source, /Object\.hasOwn|\.at\s*\(/);
-  assert.match(source, /new XMLHttpRequest\(\)/);
-  assert.match(source, /new FormData\(form\)/);
-  assert.match(source, /Accept", "application\/json"/);
+  assert.doesNotThrow(() => parse(source, { ecmaVersion: 5 }));
+
+  var submitHandler;
+  var request;
+  var resetCount = 0;
+  var prevented = false;
+  var submitButton = { disabled: false };
+  var errorBox = { hidden: true, textContent: "" };
+  var successBox = { hidden: true, focus: function () {} };
+  var form = {
+    action: "https://formspree.io/f/testcontract",
+    addEventListener: function (name, handler) {
+      if (name === "submit") submitHandler = handler;
+    },
+    checkValidity: function () {
+      return true;
+    },
+    querySelector: function () {
+      return submitButton;
+    },
+    reset: function () {
+      resetCount += 1;
+    },
+  };
+
+  function XMLHttpRequest() {
+    request = this;
+    this.headers = {};
+  }
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.method = method;
+    this.url = url;
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    this.headers[name] = value;
+  };
+  XMLHttpRequest.prototype.send = function () {
+    this.status = 200;
+    this.readyState = 4;
+    this.onreadystatechange();
+  };
+  function FormData(receivedForm) {
+    this.form = receivedForm;
+  }
+
+  vm.runInNewContext(source, {
+    document: {
+      getElementById: function (id) {
+        if (id === "booking-form") return form;
+        if (id === "booking-error") return errorBox;
+        if (id === "booking-success") return successBox;
+        return null;
+      },
+    },
+    FormData: FormData,
+    XMLHttpRequest: XMLHttpRequest,
+    window: {
+      FormData: FormData,
+      XMLHttpRequest: XMLHttpRequest,
+    },
+  });
+
+  assert.equal(typeof submitHandler, "function");
+  submitHandler({
+    preventDefault: function () {
+      prevented = true;
+    },
+  });
+
+  assert.equal(prevented, true);
+  assert.equal(request.method, "POST");
+  assert.equal(request.url, form.action);
+  assert.equal(request.headers.Accept, "application/json");
+  assert.equal(resetCount, 1);
+  assert.equal(successBox.hidden, false);
+  assert.equal(errorBox.hidden, true);
+  assert.equal(submitButton.disabled, false);
 });
 ```
 
-- [ ] **Step 2: Run the test and verify failure**
+- [ ] **Step 3: Run the test and verify failure**
 
 Run:
 
@@ -397,7 +481,7 @@ node --test tests/booking-enhancement-contract.test.mjs
 
 Expected: FAIL because `public/booking-form.js` does not exist.
 
-- [ ] **Step 3: Implement the enhancement**
+- [ ] **Step 4: Implement the enhancement**
 
 Create `public/booking-form.js`:
 
@@ -483,7 +567,7 @@ Create `public/booking-form.js`:
 
 In `app/BookingForm.tsx`, add `tabIndex={-1}` to `booking-success` so `.focus()` creates an announced, visible success state without entering normal keyboard order.
 
-- [ ] **Step 4: Run the contract test**
+- [ ] **Step 5: Run the contract test**
 
 Run:
 
@@ -493,10 +577,10 @@ node --test tests/booking-enhancement-contract.test.mjs
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
-git add public/booking-form.js app/BookingForm.tsx tests/booking-enhancement-contract.test.mjs
+git add public/booking-form.js app/BookingForm.tsx tests/booking-enhancement-contract.test.mjs package.json package-lock.json
 git commit -m "feat: progressively enhance booking submission"
 ```
 
@@ -507,12 +591,24 @@ git commit -m "feat: progressively enhance booking submission"
 **Files:**
 - Create: `tests/css-compatibility.test.mjs`
 - Modify: `app/globals.css`
+- Modify: `package.json`
+- Modify: `package-lock.json`
 
 **Interfaces:**
 - Produces: fixed-value fallbacks before `clamp()`, physical-position fallbacks for logical properties, and explicit aspect-ratio/gap fallbacks.
 - Consumed by: both Sites and GitHub Pages builds.
 
-- [ ] **Step 1: Write the CSS fallback test**
+- [ ] **Step 1: Add the CSS parser used by the compatibility test**
+
+Run:
+
+```powershell
+npm install --save-dev postcss
+```
+
+Expected: `postcss` is a direct development dependency and the lockfile is updated.
+
+- [ ] **Step 2: Write the semantic CSS fallback test**
 
 Create `tests/css-compatibility.test.mjs`:
 
@@ -520,31 +616,79 @@ Create `tests/css-compatibility.test.mjs`:
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import postcss from "postcss";
 
 test("critical modern CSS has an old-browser fallback", async () => {
   const css = await readFile(
     new URL("../app/globals.css", import.meta.url),
     "utf8",
   );
+  const root = postcss.parse(css);
 
-  const clampCount = [...css.matchAll(/font-size:\s*clamp\(/g)].length;
-  const pairedFallbackCount = [
-    ...css.matchAll(
-      /font-size:\s*[^;\n]+;\s*\n\s*font-size:\s*clamp\(/g,
-    ),
-  ].length;
+  root.walkDecls("font-size", (declaration) => {
+    if (!declaration.value.includes("clamp(")) return;
 
-  assert.equal(pairedFallbackCount, clampCount);
-  assert.match(css, /@supports not \(aspect-ratio: 1 \/ 1\)/);
-  assert.match(css, /\.venue-board\s*\{[^}]*padding-bottom:/s);
-  assert.match(css, /\.coach-portrait\s*\{[^}]*padding-bottom:/s);
-  assert.match(css, /@supports not \(gap: 1rem\)/);
-  assert.match(css, /margin-left:\s*auto;[\s\S]*margin-inline:\s*auto;/);
-  assert.match(css, /padding-left:[^;]+;[\s\S]*padding-inline:/);
+    let previous = declaration.prev();
+    while (previous && previous.type === "comment") previous = previous.prev();
+
+    assert.equal(previous?.type, "decl");
+    assert.equal(previous?.prop, "font-size");
+    assert.equal(previous.value.includes("clamp("), false);
+  });
+
+  function findSupports(params) {
+    let match;
+    root.walkAtRules("supports", (rule) => {
+      if (rule.params === params) match = rule;
+    });
+    return match;
+  }
+
+  function declarationsFor(container, selector) {
+    const declarations = new Map();
+    container.walkRules((rule) => {
+      const selectors = rule.selectors.map((value) => value.trim());
+      if (!selectors.includes(selector)) return;
+      rule.walkDecls((declaration) => {
+        declarations.set(declaration.prop, declaration.value);
+      });
+    });
+    return declarations;
+  }
+
+  const aspectFallback = findSupports("not (aspect-ratio: 1 / 1)");
+  assert.ok(aspectFallback);
+  assert.ok(declarationsFor(aspectFallback, ".venue-board").has("padding-bottom"));
+  assert.ok(
+    declarationsFor(aspectFallback, ".coach-portrait").has("padding-bottom"),
+  );
+
+  const gapFallback = findSupports("not (gap: 1rem)");
+  assert.ok(gapFallback);
+  for (const selector of [
+    ".booking-layout > * + *",
+    ".contact-layout > * + *",
+    ".honors-layout > * + *",
+    ".input-grid > * + *",
+  ]) {
+    assert.ok(declarationsFor(gapFallback, selector).has("margin-top"));
+  }
+
+  root.walkDecls(/^(margin|padding)-inline$/, (logical) => {
+    const base = logical.prop.startsWith("margin") ? "margin" : "padding";
+    const earlierProperties = [];
+    let previous = logical.prev();
+    while (previous) {
+      if (previous.type === "decl") earlierProperties.push(previous.prop);
+      previous = previous.prev();
+    }
+    assert.ok(earlierProperties.includes(`${base}-left`));
+    assert.ok(earlierProperties.includes(`${base}-right`));
+  });
 });
 ```
 
-- [ ] **Step 2: Run the test and verify failure**
+- [ ] **Step 3: Run the test and verify failure**
 
 Run:
 
@@ -554,7 +698,7 @@ node --test tests/css-compatibility.test.mjs
 
 Expected: FAIL because the existing stylesheet has unpaired `clamp()` declarations and no aspect-ratio/gap fallback blocks.
 
-- [ ] **Step 3: Add fallback values next to modern declarations**
+- [ ] **Step 4: Add fallback values next to modern declarations**
 
 For every existing declaration shaped like:
 
@@ -595,7 +739,7 @@ top: 0;
 inset: 0;
 ```
 
-- [ ] **Step 4: Add explicit aspect-ratio and gap fallback blocks**
+- [ ] **Step 5: Add explicit aspect-ratio and gap fallback blocks**
 
 Append before the reduced-motion block:
 
@@ -660,7 +804,7 @@ Add styles for the new native controls, honeypot, consent, error, and success st
 }
 ```
 
-- [ ] **Step 5: Run the CSS and page tests**
+- [ ] **Step 6: Run the CSS and page tests**
 
 Run:
 
@@ -672,10 +816,10 @@ node --test tests/rendered-html.test.mjs
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```powershell
-git add app/globals.css tests/css-compatibility.test.mjs
+git add app/globals.css tests/css-compatibility.test.mjs package.json package-lock.json
 git commit -m "fix: add legacy browser CSS fallbacks"
 ```
 
@@ -835,13 +979,25 @@ git commit -m "build: publish script-light pages output"
 - Create: `tests/pages-workflow.test.mjs`
 - Modify: `.github/workflows/pages.yml`
 - Modify: `README.md`
+- Modify: `package.json`
+- Modify: `package-lock.json`
 
 **Interfaces:**
 - Consumes: GitHub Actions variable `FORMSPREE_ENDPOINT`.
 - Produces: build-time environment variable `NEXT_PUBLIC_FORMSPREE_ENDPOINT`.
 - External output: a verified Formspree form that stores submissions and emails the user-provided recipient.
 
-- [ ] **Step 1: Write the workflow contract test**
+- [ ] **Step 1: Add the YAML parser used by the workflow test**
+
+Run:
+
+```powershell
+npm install --save-dev yaml
+```
+
+Expected: `yaml` is a direct development dependency and the lockfile is updated.
+
+- [ ] **Step 2: Write the parsed workflow contract test**
 
 Create `tests/pages-workflow.test.mjs`:
 
@@ -849,22 +1005,27 @@ Create `tests/pages-workflow.test.mjs`:
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { parse } from "yaml";
 
 test("Pages build receives the public Formspree endpoint", async () => {
-  const workflow = await readFile(
+  const workflowSource = await readFile(
     new URL("../.github/workflows/pages.yml", import.meta.url),
     "utf8",
   );
+  const workflow = parse(workflowSource);
+  const steps = workflow.jobs.build.steps;
+  const buildStep = steps.find((step) => step.name === "Build static site");
+  const verifyStep = steps.find((step) => step.name === "Verify static site");
 
-  assert.match(
-    workflow,
-    /NEXT_PUBLIC_FORMSPREE_ENDPOINT:\s*\$\{\{\s*vars\.FORMSPREE_ENDPOINT\s*\}\}/,
+  assert.equal(
+    buildStep.env.NEXT_PUBLIC_FORMSPREE_ENDPOINT,
+    "${{ vars.FORMSPREE_ENDPOINT }}",
   );
-  assert.match(workflow, /run:\s*npm run test:pages/);
+  assert.equal(verifyStep.run, "npm run test:pages");
 });
 ```
 
-- [ ] **Step 2: Run the workflow test and verify failure**
+- [ ] **Step 3: Run the workflow test and verify failure**
 
 Run:
 
@@ -874,7 +1035,7 @@ node --test tests/pages-workflow.test.mjs
 
 Expected: FAIL because the workflow does not inject `FORMSPREE_ENDPOINT`.
 
-- [ ] **Step 3: Add the repository variable to the build environment**
+- [ ] **Step 4: Add the repository variable to the build environment**
 
 In `.github/workflows/pages.yml`, extend the existing “Build static site” environment:
 
@@ -901,7 +1062,7 @@ Also extend the explicit `test` script in `package.json` so the new workflow con
 "test": "npm run build && node --test tests/booking-config.test.mjs tests/booking-enhancement-contract.test.mjs tests/css-compatibility.test.mjs tests/pages-workflow.test.mjs tests/rendered-html.test.mjs"
 ```
 
-- [ ] **Step 4: Document the operational setup**
+- [ ] **Step 5: Document the operational setup**
 
 Add a “真实预约配置” section to `README.md` stating:
 
@@ -918,7 +1079,7 @@ Formspree 目标邮箱和后台登录信息只在 Formspree 中管理，不写�
 或迁移。
 ```
 
-- [ ] **Step 5: Run the workflow and full source tests**
+- [ ] **Step 6: Run the workflow and full source tests**
 
 Run:
 
@@ -930,7 +1091,7 @@ npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 6: Create and secure the Formspree form**
+- [ ] **Step 7: Create and secure the Formspree form**
 
 Using the user’s chosen receiving email:
 
@@ -944,7 +1105,7 @@ Using the user’s chosen receiving email:
 
 Expected: the dashboard shows one active form whose endpoint passes the `resolveBookingEndpoint()` contract.
 
-- [ ] **Step 7: Configure the GitHub repository variable**
+- [ ] **Step 8: Configure the GitHub repository variable**
 
 In repository `Lingko-ljx/chengchang-pickle-club`:
 
@@ -954,10 +1115,10 @@ In repository `Lingko-ljx/chengchang-pickle-club`:
 
 Expected: the workflow can read `vars.FORMSPREE_ENDPOINT`; no recipient email credentials are added to GitHub.
 
-- [ ] **Step 8: Commit source changes**
+- [ ] **Step 9: Commit source changes**
 
 ```powershell
-git add .github/workflows/pages.yml tests/pages-workflow.test.mjs README.md
+git add .github/workflows/pages.yml tests/pages-workflow.test.mjs README.md package.json package-lock.json
 git commit -m "ci: configure production booking endpoint"
 ```
 
