@@ -10,7 +10,7 @@
     "build": "vinext build",
     "build:pages": "next build && node scripts/prepare-pages-output.mjs",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/booking-config.test.mjs tests/booking-enhancement-contract.test.mjs tests/css-compatibility.test.mjs tests/rendered-html.test.mjs",
+    "test": "npm run build && node --test tests/booking-config.test.mjs tests/booking-enhancement-contract.test.mjs tests/css-compatibility.test.mjs tests/pages-workflow.test.mjs tests/rendered-html.test.mjs",
     "test:pages": "node --test tests/pages-static-export.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
@@ -39,7 +39,8 @@
     "typescript": "5.9.3",
     "vinext": "0.0.50",
     "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "wrangler": "4.92.0",
+    "yaml": "^2.9.0"
   },
   "type": "module"
 }

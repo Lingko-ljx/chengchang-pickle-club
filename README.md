@@ -92,6 +92,17 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 
+## 真实预约配置
+
+生产构建需要 `NEXT_PUBLIC_FORMSPREE_ENDPOINT`，其值必须匹配
+`^https://formspree\.io/f/[A-Za-z0-9_-]+$`。GitHub Pages 通过
+仓库变量 `FORMSPREE_ENDPOINT` 注入该值。
+
+Formspree 目标邮箱和后台登录信息只在 Formspree 中管理，不写入仓库。
+当前预约是待人工确认的意向收集，不管理实时余位。免费方案当前提供
+每月 50 次提交和 30 天提交历史；正式长期运营前应根据业务量决定升级
+或迁移。
+
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
