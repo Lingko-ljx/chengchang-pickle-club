@@ -51,7 +51,7 @@ export function BookingForm({
             type="hidden"
             value="chengchang-public-site"
           />
-          <label className="honeypot-field" aria-hidden="true">
+          <label className="honeypot-field" hidden>
             请勿填写
             <input autoComplete="off" name="_gotcha" tabIndex={-1} />
           </label>

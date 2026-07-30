@@ -35,6 +35,10 @@ test("server renders the finished pickleball club page", async () => {
   assert.match(html, /name="name"/);
   assert.match(html, /name="phone"/);
   assert.match(html, /name="privacy_consent"/);
+  assert.match(
+    html,
+    /<label(?=[^>]*class="honeypot-field")(?=[^>]*\shidden="")/i,
+  );
   assert.match(html, /name="status"[^>]+value="pending"/);
   assert.match(
     html,
