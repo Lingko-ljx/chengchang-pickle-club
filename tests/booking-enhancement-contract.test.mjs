@@ -39,6 +39,7 @@ function loadEnhancement(source, options) {
   };
 
   function XMLHttpRequest() {
+    if (options.constructorThrows) throw new Error("constructor failed");
     requests.push(this);
     this.headers = {};
   }
@@ -185,16 +186,29 @@ test("booking enhancement preserves form contents for asynchronous errors", asyn
   }
 });
 
-test("booking enhancement keeps native submission available after a synchronous send failure", async () => {
+test("booking enhancement keeps native submission available after synchronous setup failures", async () => {
   const source = await readEnhancement();
-  const page = loadEnhancement(source, { sendThrows: true, successHidden: false });
+  const cases = [
+    { name: "constructor", options: { constructorThrows: true } },
+    { name: "open", options: { openThrows: true } },
+    { name: "setRequestHeader", options: { headerThrows: true } },
+    { name: "FormData", options: { formDataThrows: true } },
+    { name: "send", options: { sendThrows: true } },
+  ];
 
-  page.submit();
+  for (const entry of cases) {
+    const page = loadEnhancement(source, {
+      ...entry.options,
+      successHidden: false,
+    });
 
-  assert.equal(page.prevented(), false);
-  assert.equal(page.resetCount(), 0);
-  assert.equal(page.submitButton.disabled, false);
-  assert.equal(page.successBox.hidden, true);
+    page.submit();
+
+    assert.equal(page.prevented(), false, entry.name);
+    assert.equal(page.resetCount(), 0, entry.name);
+    assert.equal(page.submitButton.disabled, false, entry.name);
+    assert.equal(page.successBox.hidden, true, entry.name);
+  }
 });
 
 test("booking enhancement preserves native submission without required APIs", async () => {
