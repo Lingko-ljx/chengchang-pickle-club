@@ -48,10 +48,13 @@ function setup(options = {}) {
   };
   const repository = new MemoryBookingRepository({
     courts: courtIds.map((id) => ({ id, enabled: id !== options.disabledCourtId, version: 1 })),
-    sessionTemplates: [
-      { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
-      { id: "slot-0800", startTime: "08:00", endTime: "09:00", enabled: true, version: 1 },
-    ],
+    sessionTemplates:
+      options.sessionTemplates ??
+      [
+        { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
+        { id: "slot-0800", startTime: "08:00", endTime: "09:00", enabled: true, version: 1 },
+      ],
+    fault: options.fault,
   });
   return {
     clock,
@@ -119,7 +122,7 @@ test("disabled courts are never assigned", async () => {
 test("first use snapshots a session and later template changes do not rewrite it", async () => {
   const { repository, service } = setup();
   const first = await service.create(command({ idempotencyKey: "snapshot-1" }));
-  await service.setSessionTemplateEnabled("slot-0700", false, "staff-1");
+  await service.setSessionTemplateEnabled("slot-0700", false, "staff-1", 1);
   const second = await service.create(command({ idempotencyKey: "snapshot-2" }));
   const snapshot = await repository.runTransaction((transaction) => transaction.getSession(MORNING));
 
@@ -260,6 +263,10 @@ test("completion stamps terminalAt once and terminal records cannot mutate", asy
     (await getBooking(repository, booking.id)).terminalAt,
     "2099-01-02T00:00:00.000Z",
   );
+  const allocation = await getAllocation(repository, MORNING, booking.courtId);
+  assert.deepEqual(allocation.bookingIds, []);
+  assert.equal(allocation.occupiedPlayers, 0);
+  assert.equal(allocation.mode, "empty");
 });
 
 test("stale lifecycle versions fail before changing the booking", async () => {
@@ -272,23 +279,120 @@ test("stale lifecycle versions fail before changing the booking", async () => {
   assert.deepEqual(await getBooking(repository, booking.id), booking);
 });
 
-test("lookup normalizes codes and redaction removes personal lookup data", async () => {
+test("lookup requires the normalized reserved phone", async () => {
+  const { service } = setup();
+  const booking = await service.create(command({ phone: "138 0013-8000" }));
+
+  assert.equal(
+    (await service.lookup(`  ${booking.code.toLowerCase()} `, "13800138000")).id,
+    booking.id,
+  );
+  assert.equal(await service.lookup(booking.code, "13900139000"), null);
+  assert.equal(await service.lookup(booking.code), null);
+});
+
+test("redaction removes personal lookup data at the expected version", async () => {
   const { service } = setup();
   const booking = await service.create(command());
-  assert.equal((await service.lookup(`  ${booking.code.toLowerCase()} `)).id, booking.id);
   const cancelled = await service.cancel({
     bookingId: booking.id,
     expectedVersion: booking.version,
     actorType: "staff",
     actorId: "staff-1",
   });
-  await service.redactPersonalData(cancelled.id, "retention-worker");
-  assert.equal(await service.lookup(booking.code), null);
+  await service.redactPersonalData(cancelled.id, "retention-worker", cancelled.version);
+  assert.equal(await service.lookup(booking.code, booking.phone), null);
   const redacted = (await service.listBookings({ query: booking.id }))[0];
   assert.equal(redacted.name, undefined);
   assert.equal(redacted.phone, undefined);
   assert.equal(redacted.email, undefined);
   assert.ok(redacted.personalDataRedactedAt);
+});
+
+test("stale redaction versions fail before deleting personal lookup data", async () => {
+  const { service } = setup();
+  const booking = await service.create(command());
+  const cancelled = await service.cancel({
+    bookingId: booking.id,
+    expectedVersion: booking.version,
+    actorType: "staff",
+    actorId: "staff-1",
+  });
+
+  await assert.rejects(
+    () => service.redactPersonalData(cancelled.id, "retention-worker", booking.version),
+    /CONFLICT/,
+  );
+  assert.equal((await service.lookup(booking.code, booking.phone)).id, booking.id);
+});
+
+test("stale court-management versions fail before changing availability", async () => {
+  const { repository, service } = setup();
+  await assert.rejects(
+    () => service.setCourtEnabled("01", false, "staff-1", 0),
+    /CONFLICT/,
+  );
+  assert.deepEqual(
+    await repository.runTransaction((transaction) => transaction.getCourts(["01"])),
+    [{ id: "01", enabled: true, version: 1 }],
+  );
+  await service.setCourtEnabled("01", false, "staff-1", 1);
+  assert.deepEqual(
+    await repository.runTransaction((transaction) => transaction.getCourts(["01"])),
+    [{ id: "01", enabled: false, version: 2 }],
+  );
+});
+
+test("stale template-management versions fail before disabling a template", async () => {
+  const { repository, service } = setup();
+  await assert.rejects(
+    () => service.setSessionTemplateEnabled("slot-0700", false, "staff-1", 0),
+    /CONFLICT/,
+  );
+  assert.deepEqual(
+    await repository.runTransaction((transaction) => transaction.getSessionTemplate("slot-0700")),
+    { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
+  );
+  await service.setSessionTemplateEnabled("slot-0700", false, "staff-1", 1);
+  assert.deepEqual(
+    await repository.runTransaction((transaction) => transaction.getSessionTemplate("slot-0700")),
+    { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: false, version: 2 },
+  );
+});
+
+test("session snapshots reject every template that is not exactly sixty minutes", async () => {
+  const malformedTemplates = [
+    { id: "slot-0700", startTime: "07:00", endTime: "07:30", enabled: true, version: 1 },
+    { id: "slot-0700", startTime: "07:00", endTime: "08:30", enabled: true, version: 1 },
+    { id: "slot-0700", startTime: "08:00", endTime: "07:00", enabled: true, version: 1 },
+  ];
+  for (const [index, template] of malformedTemplates.entries()) {
+    const { service } = setup({ sessionTemplates: [template] });
+    await assert.rejects(
+      () => service.create(command({ idempotencyKey: `malformed-${index}` })),
+      /SESSION_CLOSED/,
+    );
+  }
+});
+
+test("a late Outbox failure rolls back every transactional create write", async () => {
+  const { repository, service } = setup({
+    fault: { operation: "enqueueNotification", times: 1 },
+  });
+
+  await assert.rejects(() => service.create(command()), /INJECTED_FAILURE/);
+  assert.equal(await service.lookup("TESTCODE000000000000000000000001", "13800138000"), null);
+  assert.deepEqual(await service.listBookings({}), []);
+  assert.equal(
+    await repository.runTransaction((transaction) => transaction.getSession(MORNING)),
+    null,
+  );
+  assert.equal(await getAllocation(repository, MORNING, "01"), null);
+
+  const retried = await service.create(command());
+  assert.equal(retried.id, "booking-2");
+  assert.equal(retried.courtId, "01");
+  assert.deepEqual((await getAllocation(repository, MORNING, "01")).bookingIds, ["booking-2"]);
 });
 
 test("reassign moves a booking to a specifically enabled empty court", async () => {

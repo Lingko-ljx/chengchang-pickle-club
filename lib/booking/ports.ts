@@ -32,9 +32,19 @@ export interface BookingRepository {
   listAvailability(date: string): Promise<AvailabilitySlot[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
   listExpiredPersonalData(cutoff: string, limit: number): Promise<BookingRecord[]>;
-  redactBooking(bookingId: string, actorId: string): Promise<void>;
-  setCourtEnabled(courtId: string, enabled: boolean, actorId: string): Promise<void>;
-  setSessionTemplateEnabled(templateId: string, enabled: boolean, actorId: string): Promise<void>;
+  redactBooking(bookingId: string, actorId: string, expectedVersion: number): Promise<void>;
+  setCourtEnabled(
+    courtId: string,
+    enabled: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<void>;
+  setSessionTemplateEnabled(
+    templateId: string,
+    enabled: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<void>;
 }
 
 export interface Clock {

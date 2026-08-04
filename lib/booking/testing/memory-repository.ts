@@ -35,6 +35,10 @@ export interface MemoryBookingSeed {
   allocations?: CourtAllocation[];
   auditLogs?: AuditLog[];
   notifications?: NotificationEvent[];
+  fault?: {
+    operation: "appendAudit" | "enqueueNotification";
+    times?: number;
+  };
 }
 
 function cloneValue<T>(value: T): T {
@@ -72,9 +76,14 @@ function shanghaiTime(instant: string): string {
 
 class MemoryBookingTransaction implements BookingTransaction {
   private readonly state: MemoryState;
+  private readonly injectFault: (operation: "appendAudit" | "enqueueNotification") => void;
 
-  constructor(state: MemoryState) {
+  constructor(
+    state: MemoryState,
+    injectFault: (operation: "appendAudit" | "enqueueNotification") => void,
+  ) {
     this.state = state;
+    this.injectFault = injectFault;
   }
 
   async getBooking(id: string): Promise<BookingRecord | null> {
@@ -133,10 +142,12 @@ class MemoryBookingTransaction implements BookingTransaction {
   }
 
   async appendAudit(value: AuditLog): Promise<void> {
+    this.injectFault("appendAudit");
     this.state.auditLogs.set(value.id, cloneValue(value));
   }
 
   async enqueueNotification(value: NotificationEvent): Promise<void> {
+    this.injectFault("enqueueNotification");
     this.state.notifications.set(value.id, cloneValue(value));
   }
 }
@@ -144,6 +155,8 @@ class MemoryBookingTransaction implements BookingTransaction {
 export class MemoryBookingRepository implements BookingRepository {
   private state: MemoryState;
   private queue: Promise<void> = Promise.resolve();
+  private readonly faultOperation?: "appendAudit" | "enqueueNotification";
+  private remainingFaults: number;
 
   constructor(seed: MemoryBookingSeed = {}) {
     const bookingCodes =
@@ -152,6 +165,8 @@ export class MemoryBookingRepository implements BookingRepository {
         codeHash: bookingCodeId(booking.code),
         bookingId: booking.id,
       }));
+    this.faultOperation = seed.fault?.operation;
+    this.remainingFaults = seed.fault?.times ?? (seed.fault ? 1 : 0);
     this.state = {
       bookings: new Map((seed.bookings ?? []).map((value) => [value.id, cloneValue(value)])),
       bookingCodes: new Map(bookingCodes.map((value) => [value.codeHash, value.bookingId])),
@@ -172,7 +187,9 @@ export class MemoryBookingRepository implements BookingRepository {
   runTransaction<T>(work: (transaction: BookingTransaction) => Promise<T>): Promise<T> {
     return this.serialized(async () => {
       const next = cloneState(this.state);
-      const result = await work(new MemoryBookingTransaction(next));
+      const result = await work(
+        new MemoryBookingTransaction(next, (operation) => this.injectFault(operation)),
+      );
       this.state = next;
       return cloneValue(result);
     });
@@ -256,11 +273,12 @@ export class MemoryBookingRepository implements BookingRepository {
       .map(cloneValue);
   }
 
-  redactBooking(bookingId: string, actorId: string): Promise<void> {
+  redactBooking(bookingId: string, actorId: string, expectedVersion: number): Promise<void> {
     return this.serialized(async () => {
       const next = cloneState(this.state);
       const booking = next.bookings.get(bookingId);
       if (!booking) throw new BookingError("BOOKING_NOT_FOUND");
+      if (booking.version !== expectedVersion) throw new BookingError("CONFLICT");
       const now = new Date().toISOString();
       next.bookingCodes.delete(bookingCodeId(booking.code));
       if (booking.idempotencyKeyHash) next.idempotency.delete(booking.idempotencyKeyHash);
@@ -290,23 +308,35 @@ export class MemoryBookingRepository implements BookingRepository {
     });
   }
 
-  setCourtEnabled(courtId: string, enabled: boolean, actorId: string): Promise<void> {
+  setCourtEnabled(
+    courtId: string,
+    enabled: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<void> {
     return this.serialized(async () => {
       void actorId;
       const next = cloneState(this.state);
       const court = next.courts.get(courtId);
       if (!court) throw new BookingError("SESSION_NOT_FOUND");
+      if (court.version !== expectedVersion) throw new BookingError("CONFLICT");
       next.courts.set(courtId, { ...court, enabled, version: court.version + 1 });
       this.state = next;
     });
   }
 
-  setSessionTemplateEnabled(templateId: string, enabled: boolean, actorId: string): Promise<void> {
+  setSessionTemplateEnabled(
+    templateId: string,
+    enabled: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<void> {
     return this.serialized(async () => {
       void actorId;
       const next = cloneState(this.state);
       const template = next.sessionTemplates.get(templateId);
       if (!template) throw new BookingError("SESSION_NOT_FOUND");
+      if (template.version !== expectedVersion) throw new BookingError("CONFLICT");
       next.sessionTemplates.set(templateId, {
         ...template,
         enabled,
@@ -323,5 +353,12 @@ export class MemoryBookingRepository implements BookingRepository {
       () => undefined,
     );
     return result;
+  }
+
+  private injectFault(operation: "appendAudit" | "enqueueNotification"): void {
+    if (this.faultOperation === operation && this.remainingFaults > 0) {
+      this.remainingFaults -= 1;
+      throw new Error(`INJECTED_FAILURE:${operation}`);
+    }
   }
 }

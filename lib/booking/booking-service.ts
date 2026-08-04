@@ -32,6 +32,12 @@ function hash(value: string): string {
   return createHash("sha256").update(value.trim()).digest("hex");
 }
 
+function normalizePhone(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\D/g, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
 function encodeBookingCode(bytes: Uint8Array): string {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   let bits = 0;
@@ -177,6 +183,8 @@ export class BookingService {
 
   async create(input: unknown): Promise<BookingRecord> {
     const command = validateCreateBooking(input);
+    const phone = normalizePhone(command.phone);
+    if (!phone) throw new BookingError("INVALID_INPUT");
     const parsed = parseSessionId(command.sessionId);
     const now = this.clock.now().toISOString();
     const bookingId = this.ids.bookingId();
@@ -214,8 +222,8 @@ export class BookingService {
         partySize: command.partySize,
         status: "pending",
         name: command.name.trim(),
-        phone: command.phone.trim(),
-        phoneHash: hash(command.phone),
+        phone,
+        phoneHash: hash(phone),
         ...(command.email === undefined ? {} : { email: command.email.trim() }),
         ...(command.note === undefined ? {} : { note: command.note.trim() }),
         privacyConsentAt: now,
@@ -238,11 +246,15 @@ export class BookingService {
     });
   }
 
-  async lookup(code: string): Promise<BookingRecord | null> {
-    if (typeof code !== "string" || code.trim() === "") return null;
+  async lookup(code: string, phone: string): Promise<BookingRecord | null> {
+    const normalizedPhone = normalizePhone(phone);
+    if (typeof code !== "string" || code.trim() === "" || !normalizedPhone) return null;
+    const requestedPhoneHash = hash(normalizedPhone);
     return this.repository.runTransaction(async (transaction) => {
       const id = await transaction.getBookingIdByCodeHash(bookingCodeId(code));
-      return id ? transaction.getBooking(id) : null;
+      if (!id) return null;
+      const booking = await transaction.getBooking(id);
+      return booking?.phoneHash === requestedPhoneHash ? booking : null;
     });
   }
 
@@ -466,8 +478,8 @@ export class BookingService {
     });
   }
 
-  redactPersonalData(bookingId: string, actorId: string): Promise<void> {
-    return this.repository.redactBooking(bookingId, actorId);
+  redactPersonalData(bookingId: string, actorId: string, expectedVersion: number): Promise<void> {
+    return this.repository.redactBooking(bookingId, actorId, expectedVersion);
   }
 
   listAvailability(date: string): Promise<AvailabilitySlot[]> {
@@ -478,12 +490,27 @@ export class BookingService {
     return this.repository.listBookings(filter);
   }
 
-  setCourtEnabled(courtId: string, enabled: boolean, actorId: string): Promise<void> {
-    return this.repository.setCourtEnabled(courtId, enabled, actorId);
+  setCourtEnabled(
+    courtId: string,
+    enabled: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<void> {
+    return this.repository.setCourtEnabled(courtId, enabled, actorId, expectedVersion);
   }
 
-  setSessionTemplateEnabled(templateId: string, enabled: boolean, actorId: string): Promise<void> {
-    return this.repository.setSessionTemplateEnabled(templateId, enabled, actorId);
+  setSessionTemplateEnabled(
+    templateId: string,
+    enabled: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<void> {
+    return this.repository.setSessionTemplateEnabled(
+      templateId,
+      enabled,
+      actorId,
+      expectedVersion,
+    );
   }
 
   private async changeStatus(
@@ -521,12 +548,17 @@ export class BookingService {
       const template = await transaction.getSessionTemplate(parsed.templateId);
       if (!template) throw new BookingError("SESSION_NOT_FOUND");
       if (!template.enabled) throw new BookingError("SESSION_CLOSED");
+      const startAt = shanghaiInstant(parsed.date, template.startTime);
+      const endAt = shanghaiInstant(parsed.date, template.endTime);
+      if (Date.parse(endAt) - Date.parse(startAt) !== 60 * 60 * 1000) {
+        throw new BookingError("SESSION_CLOSED");
+      }
       session = {
         id: sessionId,
         date: parsed.date,
         templateId: parsed.templateId,
-        startAt: shanghaiInstant(parsed.date, template.startTime),
-        endAt: shanghaiInstant(parsed.date, template.endTime),
+        startAt,
+        endAt,
         status: "open",
         enabledCourtIds: currentCourts.filter((court) => court.enabled).map((court) => court.id),
         version: 1,
