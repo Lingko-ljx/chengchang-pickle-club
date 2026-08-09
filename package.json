@@ -7,8 +7,9 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build",
-    "build:pages": "next build && node scripts/prepare-pages-output.mjs",
+    "build:clients": "node scripts/build-browser-clients.mjs",
+    "build": "npm run build:clients && vinext build",
+    "build:pages": "npm run build:clients && next build && node scripts/prepare-pages-output.mjs",
     "build:cloudbase:public": "node scripts/build-cloudbase-functions.mjs booking-public-api",
     "build:cloudbase:admin": "node scripts/build-cloudbase-functions.mjs booking-admin-api",
     "build:cloudbase:mailer": "node scripts/build-cloudbase-functions.mjs booking-mailer",
@@ -17,10 +18,11 @@
     "test": "npm run build && npm run test:unit",
     "test:unit": "node scripts/run-unit-tests.mjs",
     "test:pages": "node --test tests/pages-static-export.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern public/admin-app.js",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@cloudbase/js-sdk": "^2.32.0",
     "@cloudbase/node-sdk": "^3.18.3",
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",

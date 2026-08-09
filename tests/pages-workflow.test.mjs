@@ -12,7 +12,7 @@ async function readPagesWorkflow() {
   return { source: workflowSource, workflow: parse(workflowSource) };
 }
 
-test("Pages build receives only the public booking API base URL", async () => {
+test("Pages build receives the public booking API and CloudBase env identifiers", async () => {
   const { source, workflow } = await readPagesWorkflow();
   const buildStep = workflow.jobs.build.steps.find(
     (step) => step.name === "Build static site",
@@ -22,6 +22,10 @@ test("Pages build receives only the public booking API base URL", async () => {
   assert.equal(
     buildStep.env?.NEXT_PUBLIC_BOOKING_API_BASE_URL,
     "${{ vars.BOOKING_API_BASE_URL }}",
+  );
+  assert.equal(
+    buildStep.env?.NEXT_PUBLIC_CLOUDBASE_ENV_ID,
+    "${{ vars.CLOUDBASE_ENV_ID }}",
   );
   assert.doesNotMatch(source, /FORMSPREE/i);
 });
