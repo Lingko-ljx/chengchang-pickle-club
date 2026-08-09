@@ -330,6 +330,10 @@ export default function Home() {
             scriptSrc={bookingScriptSrc}
             statusPath={bookingStatusPath(basePath)}
           />
+          <div className="booking-status-entry">
+            <span>已经提交过预约？</span>
+            <a href={bookingStatusPath(basePath)}>查询状态、取消或回应改期 →</a>
+          </div>
         </div>
       </section>
 

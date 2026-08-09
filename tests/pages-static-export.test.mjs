@@ -41,3 +41,31 @@ test("exports the real booking form without a framework client runtime", async (
   assert.equal(scriptTags.length, 1);
   assert.match(scriptTags[0], /data-booking-form-client/);
 });
+
+test("exports result and status pages with only their ES5 clients", async () => {
+  const pages = [
+    {
+      file: "../out/booking/result/index.html",
+      marker: /id="booking-result-shell"/,
+      script: /src="\/chengchang-pickle-club\/booking-result\.js"/,
+      client: /data-booking-result-client/,
+    },
+    {
+      file: "../out/booking/status/index.html",
+      marker: /id="booking-status-shell"/,
+      script: /src="\/chengchang-pickle-club\/booking-status\.js"/,
+      client: /data-booking-status-client/,
+    },
+  ];
+
+  for (const page of pages) {
+    const html = await readFile(new URL(page.file, import.meta.url), "utf8");
+    assert.match(html, page.marker);
+    assert.match(html, page.script);
+    assert.doesNotMatch(html, /_next\/static\/chunks\/[^\"]+\.js/);
+    assert.doesNotMatch(html, /self\.__next|__next_f|modulepreload/);
+    const scripts = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
+    assert.equal(scripts.length, 1);
+    assert.match(scripts[0], page.client);
+  }
+});
