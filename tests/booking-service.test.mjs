@@ -360,6 +360,37 @@ test("stale template-management versions fail before disabling a template", asyn
   );
 });
 
+test("configuration writes roll back when their required audit cannot be appended", async () => {
+  // Catches memory configuration updates being committed separately from staff audit records.
+  const courtSetup = setup({ fault: { operation: "appendAudit", times: 1 } });
+  await assert.rejects(
+    () => courtSetup.service.setCourtEnabled("01", false, "profile-staff-7", 1),
+    /INJECTED_FAILURE:appendAudit/,
+  );
+  assert.deepEqual(
+    await courtSetup.repository.runTransaction((transaction) => transaction.getCourts(["01"])),
+    [{ id: "01", enabled: true, version: 1 }],
+  );
+
+  const templateSetup = setup({ fault: { operation: "appendAudit", times: 1 } });
+  await assert.rejects(
+    () =>
+      templateSetup.service.setSessionTemplateEnabled(
+        "slot-0700",
+        false,
+        "profile-staff-7",
+        1,
+      ),
+    /INJECTED_FAILURE:appendAudit/,
+  );
+  assert.deepEqual(
+    await templateSetup.repository.runTransaction((transaction) =>
+      transaction.getSessionTemplate("slot-0700"),
+    ),
+    { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
+  );
+});
+
 test("session snapshots reject every template that is not exactly sixty minutes", async () => {
   const malformedTemplates = [
     { id: "slot-0700", startTime: "07:00", endTime: "07:30", enabled: true, version: 1 },

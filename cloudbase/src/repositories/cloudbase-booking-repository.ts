@@ -315,8 +315,15 @@ export class CloudBaseBookingRepository implements BookingRepository {
     actorId: string,
     expectedVersion: number,
   ): Promise<void> {
-    void actorId;
-    return this.updateEnabled("courts", courtId, enabled, expectedVersion);
+    return this.updateEnabled(
+      "courts",
+      "court",
+      "court_enabled_changed",
+      courtId,
+      enabled,
+      actorId,
+      expectedVersion,
+    );
   }
 
   setSessionTemplateEnabled(
@@ -325,14 +332,24 @@ export class CloudBaseBookingRepository implements BookingRepository {
     actorId: string,
     expectedVersion: number,
   ): Promise<void> {
-    void actorId;
-    return this.updateEnabled("session_templates", templateId, enabled, expectedVersion);
+    return this.updateEnabled(
+      "session_templates",
+      "session-template",
+      "session_template_enabled_changed",
+      templateId,
+      enabled,
+      actorId,
+      expectedVersion,
+    );
   }
 
   private updateEnabled(
     collectionName: "courts" | "session_templates",
+    entity: "court" | "session-template",
+    action: "court_enabled_changed" | "session_template_enabled_changed",
     id: string,
     enabled: boolean,
+    actorId: string,
     expectedVersion: number,
   ): Promise<void> {
     return this.db.runTransaction(async (transaction) => {
@@ -340,7 +357,19 @@ export class CloudBaseBookingRepository implements BookingRepository {
       const record = await getDocument<{ version: number }>(document);
       if (!record) throw new BookingError("SESSION_NOT_FOUND");
       if (record.version !== expectedVersion) throw new BookingError("CONFLICT");
-      await document.update({ enabled, version: record.version + 1 });
+      const version = record.version + 1;
+      const at = this.clock.now().toISOString();
+      const audit: AuditLog = {
+        id: `config-${entity}-${encodeURIComponent(id)}-v${version}`,
+        bookingId: `${entity}:${id}`,
+        action,
+        actorType: "staff",
+        actorId,
+        at,
+        metadata: { entity, id, enabled, version },
+      };
+      await document.update({ enabled, version });
+      await transaction.collection("audit_logs").doc(audit.id).set(audit);
     }, 3);
   }
 

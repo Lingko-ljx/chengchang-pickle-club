@@ -315,12 +315,23 @@ export class MemoryBookingRepository implements BookingRepository {
     expectedVersion: number,
   ): Promise<void> {
     return this.serialized(async () => {
-      void actorId;
       const next = cloneState(this.state);
       const court = next.courts.get(courtId);
       if (!court) throw new BookingError("SESSION_NOT_FOUND");
       if (court.version !== expectedVersion) throw new BookingError("CONFLICT");
-      next.courts.set(courtId, { ...court, enabled, version: court.version + 1 });
+      const version = court.version + 1;
+      const at = new Date().toISOString();
+      next.courts.set(courtId, { ...court, enabled, version });
+      this.injectFault("appendAudit");
+      next.auditLogs.set(`config-court-${encodeURIComponent(courtId)}-v${version}`, {
+        id: `config-court-${encodeURIComponent(courtId)}-v${version}`,
+        bookingId: `court:${courtId}`,
+        action: "court_enabled_changed",
+        actorType: "staff",
+        actorId,
+        at,
+        metadata: { entity: "court", id: courtId, enabled, version },
+      });
       this.state = next;
     });
   }
@@ -332,16 +343,35 @@ export class MemoryBookingRepository implements BookingRepository {
     expectedVersion: number,
   ): Promise<void> {
     return this.serialized(async () => {
-      void actorId;
       const next = cloneState(this.state);
       const template = next.sessionTemplates.get(templateId);
       if (!template) throw new BookingError("SESSION_NOT_FOUND");
       if (template.version !== expectedVersion) throw new BookingError("CONFLICT");
+      const version = template.version + 1;
+      const at = new Date().toISOString();
       next.sessionTemplates.set(templateId, {
         ...template,
         enabled,
-        version: template.version + 1,
+        version,
       });
+      this.injectFault("appendAudit");
+      next.auditLogs.set(
+        `config-session-template-${encodeURIComponent(templateId)}-v${version}`,
+        {
+          id: `config-session-template-${encodeURIComponent(templateId)}-v${version}`,
+          bookingId: `session-template:${templateId}`,
+          action: "session_template_enabled_changed",
+          actorType: "staff",
+          actorId,
+          at,
+          metadata: {
+            entity: "session-template",
+            id: templateId,
+            enabled,
+            version,
+          },
+        },
+      );
       this.state = next;
     });
   }

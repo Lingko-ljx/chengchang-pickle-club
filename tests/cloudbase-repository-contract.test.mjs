@@ -276,6 +276,51 @@ test("redaction atomically removes both lookup documents and personal fields", a
   assert.equal(database.whereCalls, 0);
 });
 
+test("court and template updates append deterministic staff audits in their transactions", async () => {
+  // Catches dropping the authenticated actor or committing configuration without its audit.
+  const database = new FakeCloudBaseDatabase({
+    courts: { "01": { id: "01", enabled: true, version: 1 } },
+    session_templates: {
+      "slot-1900": {
+        id: "slot-1900",
+        startTime: "19:00",
+        endTime: "20:00",
+        enabled: true,
+        version: 4,
+      },
+    },
+  });
+  const service = serviceFor(database);
+
+  await service.setCourtEnabled("01", false, "profile-staff-7", 1);
+  await service.setSessionTemplateEnabled("slot-1900", false, "profile-staff-7", 4);
+
+  assert.deepEqual(database.value("audit_logs", "config-court-01-v2"), {
+    id: "config-court-01-v2",
+    bookingId: "court:01",
+    action: "court_enabled_changed",
+    actorType: "staff",
+    actorId: "profile-staff-7",
+    at: "2026-08-01T00:00:00.000Z",
+    metadata: { entity: "court", id: "01", enabled: false, version: 2 },
+  });
+  assert.deepEqual(database.value("audit_logs", "config-session-template-slot-1900-v5"), {
+    id: "config-session-template-slot-1900-v5",
+    bookingId: "session-template:slot-1900",
+    action: "session_template_enabled_changed",
+    actorType: "staff",
+    actorId: "profile-staff-7",
+    at: "2026-08-01T00:00:00.000Z",
+    metadata: {
+      entity: "session-template",
+      id: "slot-1900",
+      enabled: false,
+      version: 5,
+    },
+  });
+  assert.equal(database.whereCalls, 0);
+});
+
 test("function target map exposes the three exact source and output pairs", () => {
   // Catches a target being wired to another function's entry or output directory.
   assert.deepEqual(functionTargets, {
