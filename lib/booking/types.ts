@@ -99,16 +99,32 @@ export interface AuditLog {
   metadata: Record<string, string | number | boolean | null>;
 }
 
+export type NotificationKind =
+  | "created"
+  | "confirmed"
+  | "reschedule_proposed"
+  | "reschedule_accepted"
+  | "reschedule_rejected"
+  | "cancelled";
+
 export interface NotificationEvent {
   id: string;
   bookingId: string;
-  kind: string;
-  recipientType: "customer" | "staff";
+  kind: NotificationKind;
+  recipientType: "staff" | "customer";
   status: "pending" | "sending" | "retry" | "sent" | "failed";
   attemptCount: number;
   nextAttemptAt: string;
+  leaseOwner?: string;
+  leaseToken?: string;
   leaseUntil?: string;
+  providerRequestId?: string;
+  providerMessageId?: string;
+  lastErrorCode?: string;
+  sentAt?: string;
+  failedAt?: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface AvailabilitySlot {

@@ -26,6 +26,8 @@ interface DatabaseCommand {
   remove(): unknown;
   gte(value: unknown): QueryCommand;
   lte(value: unknown): QueryCommand;
+  lt(value: unknown): QueryCommand;
+  exists(value: boolean): QueryCommand;
 }
 
 interface DocumentReference {
@@ -193,6 +195,10 @@ export class CloudBaseBookingRepository implements BookingRepository {
     );
   }
 
+  getBookingById(bookingId: string): Promise<BookingRecord | null> {
+    return getDocument(this.db.collection("bookings").doc(bookingId));
+  }
+
   async listAvailability(date: string): Promise<AvailabilitySlot[]> {
     const sessions = await this.query<SessionRecord>(
       "sessions",
@@ -328,18 +334,20 @@ export class CloudBaseBookingRepository implements BookingRepository {
   }
 
   async listExpiredPersonalData(cutoff: string, limit: number): Promise<BookingRecord[]> {
-    const [cancelled, completed] = await Promise.all([
-      this.query<BookingRecord>("bookings", { status: "cancelled" }, 500),
-      this.query<BookingRecord>("bookings", { status: "completed" }, 500),
-    ]);
+    const boundedLimit = Math.max(0, Math.floor(limit));
+    if (boundedLimit === 0) return [];
+    const [cancelled, completed] = await Promise.all(
+      (["cancelled", "completed"] as const).map((status) =>
+        this.queryExpiredStatus(status, cutoff, boundedLimit),
+      ),
+    );
     return [...cancelled, ...completed]
-      .filter(
-        (booking) =>
-          Boolean(booking.terminalAt && booking.terminalAt < cutoff) &&
-          !booking.personalDataRedactedAt,
+      .sort(
+        (left, right) =>
+          (left.terminalAt ?? "").localeCompare(right.terminalAt ?? "") ||
+          left.id.localeCompare(right.id),
       )
-      .sort((left, right) => (left.terminalAt ?? "").localeCompare(right.terminalAt ?? ""))
-      .slice(0, Math.max(0, limit));
+      .slice(0, boundedLimit);
   }
 
   redactBooking(
@@ -474,5 +482,36 @@ export class CloudBaseBookingRepository implements BookingRepository {
       values.push(...page);
       if (page.length < pageSize) return values;
     }
+  }
+
+  private async queryExpiredStatus(
+    status: "cancelled" | "completed",
+    cutoff: string,
+    limit: number,
+  ): Promise<BookingRecord[]> {
+    const pageSize = 100;
+    const values: BookingRecord[] = [];
+    let offset = 0;
+    while (values.length < limit) {
+      const requested = Math.min(pageSize, limit - values.length);
+      const page = rows<BookingRecord>(
+        await this.db
+          .collection("bookings")
+          .where({
+            status,
+            terminalAt: this.db.command.lt(cutoff),
+            personalDataRedactedAt: this.db.command.exists(false),
+          })
+          .orderBy("terminalAt", "asc")
+          .orderBy("id", "asc")
+          .skip(offset)
+          .limit(requested)
+          .get(),
+      );
+      values.push(...page);
+      offset += page.length;
+      if (page.length < requested) break;
+    }
+    return values;
   }
 }

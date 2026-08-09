@@ -12,6 +12,7 @@ import type {
   CourtAllocation,
   CourtRecord,
   NotificationEvent,
+  NotificationKind,
   SessionRecord,
   SessionTemplateRecord,
 } from "./types.ts";
@@ -37,6 +38,10 @@ function normalizePhone(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.replace(/\D/g, "");
   return normalized.length > 0 ? normalized : null;
+}
+
+function hasNotificationEmail(booking: Pick<BookingRecord, "email">): boolean {
+  return typeof booking.email === "string" && booking.email.trim() !== "";
 }
 
 function encodeBookingCode(bytes: Uint8Array): string {
@@ -187,6 +192,7 @@ export class BookingService {
     const command = validateCreateBooking(input);
     const phone = normalizePhone(command.phone);
     if (!phone) throw new BookingError("INVALID_INPUT");
+    const email = command.email?.trim();
     const parsed = parseSessionId(command.sessionId);
     const now = this.clock.now().toISOString();
     const bookingId = this.ids.bookingId();
@@ -194,7 +200,8 @@ export class BookingService {
     const codeHash = bookingCodeId(code);
     const idempotencyKeyHash = hash(command.idempotencyKey);
     const auditId = this.ids.eventId();
-    const notificationId = this.ids.eventId();
+    const staffNotificationId = this.ids.eventId();
+    const customerNotificationId = email ? this.ids.eventId() : undefined;
 
     return this.repository.runTransaction(async (transaction) => {
       const previousId = await transaction.getIdempotency(idempotencyKeyHash);
@@ -226,7 +233,7 @@ export class BookingService {
         name: command.name.trim(),
         phone,
         phoneHash: hash(phone),
-        ...(command.email === undefined ? {} : { email: command.email.trim() }),
+        ...(email ? { email } : {}),
         ...(command.note === undefined ? {} : { note: command.note.trim() }),
         privacyConsentAt: now,
         canCancelUntil: prepared.session.startAt,
@@ -243,7 +250,14 @@ export class BookingService {
       await transaction.appendAudit(
         this.audit(auditId, booking, "created", "system", now, undefined, "pending"),
       );
-      await transaction.enqueueNotification(this.notification(notificationId, booking.id, "created", now));
+      await transaction.enqueueNotification(
+        this.notification(staffNotificationId, booking.id, "created", "staff", now),
+      );
+      if (customerNotificationId) {
+        await transaction.enqueueNotification(
+          this.notification(customerNotificationId, booking.id, "created", "customer", now),
+        );
+      }
       return booking;
     });
   }
@@ -304,9 +318,17 @@ export class BookingService {
       await transaction.appendAudit(
         this.audit(auditId, booking, "reschedule_proposed", "staff", now, booking.status, updated.status, command.actorId),
       );
-      await transaction.enqueueNotification(
-        this.notification(notificationId, booking.id, "reschedule_proposed", now),
-      );
+      if (hasNotificationEmail(booking)) {
+        await transaction.enqueueNotification(
+          this.notification(
+            notificationId,
+            booking.id,
+            "reschedule_proposed",
+            "customer",
+            now,
+          ),
+        );
+      }
       return updated;
     });
   }
@@ -374,9 +396,17 @@ export class BookingService {
           command.actorId,
         ),
       );
-      await transaction.enqueueNotification(
-        this.notification(notificationId, booking.id, command.accept ? "reschedule_accepted" : "reschedule_rejected", now),
-      );
+      if (hasNotificationEmail(booking)) {
+        await transaction.enqueueNotification(
+          this.notification(
+            notificationId,
+            booking.id,
+            command.accept ? "reschedule_accepted" : "reschedule_rejected",
+            "customer",
+            now,
+          ),
+        );
+      }
       return updated;
     });
   }
@@ -413,7 +443,11 @@ export class BookingService {
       await transaction.appendAudit(
         this.audit(auditId, booking, "cancelled", command.actorType, now, booking.status, "cancelled", command.actorId),
       );
-      await transaction.enqueueNotification(this.notification(notificationId, booking.id, "cancelled", now));
+      if (hasNotificationEmail(booking)) {
+        await transaction.enqueueNotification(
+          this.notification(notificationId, booking.id, "cancelled", "customer", now),
+        );
+      }
       return updated;
     });
   }
@@ -421,7 +455,6 @@ export class BookingService {
   async complete(command: StaffMutationCommand): Promise<BookingRecord> {
     const now = this.clock.now().toISOString();
     const auditId = this.ids.eventId();
-    const notificationId = this.ids.eventId();
     return this.repository.runTransaction(async (transaction) => {
       const booking = requireBooking(await transaction.getBooking(command.bookingId));
       requireVersion(booking, command.expectedVersion);
@@ -439,7 +472,6 @@ export class BookingService {
       await transaction.appendAudit(
         this.audit(auditId, booking, "completed", "staff", now, booking.status, "completed", command.actorId),
       );
-      await transaction.enqueueNotification(this.notification(notificationId, booking.id, "completed", now));
       return updated;
     });
   }
@@ -448,7 +480,6 @@ export class BookingService {
     if (!courtIds.includes(command.courtId)) throw new BookingError("INVALID_INPUT");
     const now = this.clock.now().toISOString();
     const auditId = this.ids.eventId();
-    const notificationId = this.ids.eventId();
     return this.repository.runTransaction(async (transaction) => {
       const booking = requireBooking(await transaction.getBooking(command.bookingId));
       requireVersion(booking, command.expectedVersion);
@@ -477,7 +508,6 @@ export class BookingService {
       await transaction.appendAudit(
         this.audit(auditId, booking, "reassigned", "staff", now, booking.status, booking.status, command.actorId),
       );
-      await transaction.enqueueNotification(this.notification(notificationId, booking.id, "reassigned", now));
       return updated;
     });
   }
@@ -545,7 +575,7 @@ export class BookingService {
   private async changeStatus(
     command: StaffMutationCommand,
     status: BookingStatus,
-    action: string,
+    action: NotificationKind,
     requiredFrom?: BookingStatus,
   ): Promise<BookingRecord> {
     const now = this.clock.now().toISOString();
@@ -563,7 +593,11 @@ export class BookingService {
       await transaction.appendAudit(
         this.audit(auditId, booking, action, "staff", now, booking.status, status, command.actorId),
       );
-      await transaction.enqueueNotification(this.notification(notificationId, booking.id, action, now));
+      if (hasNotificationEmail(booking)) {
+        await transaction.enqueueNotification(
+          this.notification(notificationId, booking.id, action, "customer", now),
+        );
+      }
       return updated;
     });
   }
@@ -640,16 +674,23 @@ export class BookingService {
     };
   }
 
-  private notification(id: string, bookingId: string, kind: string, now: string): NotificationEvent {
+  private notification(
+    id: string,
+    bookingId: string,
+    kind: NotificationKind,
+    recipientType: NotificationEvent["recipientType"],
+    now: string,
+  ): NotificationEvent {
     return {
       id,
       bookingId,
       kind,
-      recipientType: "customer",
+      recipientType,
       status: "pending",
       attemptCount: 0,
       nextAttemptAt: now,
       createdAt: now,
+      updatedAt: now,
     };
   }
 }

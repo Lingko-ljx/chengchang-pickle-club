@@ -179,6 +179,243 @@ test("repeating an idempotency key returns the original booking", async () => {
   assert.equal(second.id, first.id);
 });
 
+test("a new booking enqueues independent staff and optional customer events", async () => {
+  // Catches a single customer-addressed event replacing the mandatory staff notification.
+  const withEmail = setup();
+  const booking = await withEmail.service.create(command());
+  const events = await withEmail.repository.listNotifications();
+
+  assert.equal(events.length, 2);
+  assert.deepEqual(
+    events.map(({ bookingId, kind, recipientType, status, attemptCount }) => ({
+      bookingId,
+      kind,
+      recipientType,
+      status,
+      attemptCount,
+    })),
+    [
+      {
+        bookingId: booking.id,
+        kind: "created",
+        recipientType: "staff",
+        status: "pending",
+        attemptCount: 0,
+      },
+      {
+        bookingId: booking.id,
+        kind: "created",
+        recipientType: "customer",
+        status: "pending",
+        attemptCount: 0,
+      },
+    ],
+  );
+  assert.notEqual(events[0].id, events[1].id);
+
+  const withoutEmail = setup();
+  const noEmailBooking = await withoutEmail.service.create(
+    command({ email: undefined, idempotencyKey: "without-email" }),
+  );
+  assert.deepEqual(
+    (await withoutEmail.repository.listNotifications()).map(
+      ({ bookingId, kind, recipientType }) => ({ bookingId, kind, recipientType }),
+    ),
+    [{ bookingId: noEmailBooking.id, kind: "created", recipientType: "staff" }],
+  );
+
+  const whitespaceEmail = setup();
+  const whitespaceBooking = await whitespaceEmail.service.create(
+    command({ email: "   ", idempotencyKey: "whitespace-email" }),
+  );
+  assert.equal(whitespaceBooking.email, undefined);
+  assert.deepEqual(
+    (await whitespaceEmail.repository.listNotifications()).map(({ recipientType }) => recipientType),
+    ["staff"],
+  );
+});
+
+test("email-bearing lifecycle changes enqueue one customer event per communicable transition", async () => {
+  // Catches lifecycle mail being addressed to staff or silently omitted.
+  const { repository, service } = setup();
+  const booking = await service.create(command());
+  const confirmed = await service.confirm({
+    bookingId: booking.id,
+    expectedVersion: booking.version,
+    actorId: "staff-1",
+  });
+  const rejectedProposal = await service.proposeReschedule({
+    bookingId: booking.id,
+    sessionId: NEXT_LATER,
+    expectedVersion: confirmed.version,
+    actorId: "staff-1",
+  });
+  const rejected = await service.respondToReschedule({
+    bookingId: booking.id,
+    expectedVersion: rejectedProposal.version,
+    accept: false,
+    actorType: "customer",
+  });
+  const acceptedProposal = await service.proposeReschedule({
+    bookingId: booking.id,
+    sessionId: NEXT_LATER,
+    expectedVersion: rejected.version,
+    actorId: "staff-1",
+  });
+  const accepted = await service.respondToReschedule({
+    bookingId: booking.id,
+    expectedVersion: acceptedProposal.version,
+    accept: true,
+    actorType: "customer",
+  });
+  await service.cancel({
+    bookingId: booking.id,
+    expectedVersion: accepted.version,
+    actorType: "customer",
+  });
+
+  assert.deepEqual(
+    (await repository.listNotifications())
+      .map(({ kind, recipientType }) => `${kind}:${recipientType}`)
+      .sort(),
+    [
+      "cancelled:customer",
+      "confirmed:customer",
+      "created:customer",
+      "created:staff",
+      "reschedule_accepted:customer",
+      "reschedule_proposed:customer",
+      "reschedule_proposed:customer",
+      "reschedule_rejected:customer",
+    ],
+  );
+});
+
+test("bookings without email never enqueue customer lifecycle events", async () => {
+  // Catches attempts to deliver lifecycle mail without a customer recipient.
+  const { repository, service } = setup();
+  const booking = await service.create(command({ email: undefined }));
+  const confirmed = await service.confirm({
+    bookingId: booking.id,
+    expectedVersion: booking.version,
+    actorId: "staff-1",
+  });
+  const proposal = await service.proposeReschedule({
+    bookingId: booking.id,
+    sessionId: NEXT_LATER,
+    expectedVersion: confirmed.version,
+    actorId: "staff-1",
+  });
+  const restored = await service.respondToReschedule({
+    bookingId: booking.id,
+    expectedVersion: proposal.version,
+    accept: false,
+    actorType: "customer",
+  });
+  await service.cancel({
+    bookingId: booking.id,
+    expectedVersion: restored.version,
+    actorType: "customer",
+  });
+
+  assert.deepEqual(
+    (await repository.listNotifications()).map(({ kind, recipientType }) => ({
+      kind,
+      recipientType,
+    })),
+    [{ kind: "created", recipientType: "staff" }],
+  );
+});
+
+test("completion and reassignment never enqueue notification events", async () => {
+  // Catches internal-only transitions leaking into the customer mail channel.
+  const { clock, repository, service } = setup();
+  const booking = await service.create(command({ mode: "private" }));
+  const reassigned = await service.reassign({
+    bookingId: booking.id,
+    courtId: "02",
+    expectedVersion: booking.version,
+    actorId: "staff-1",
+  });
+  const confirmed = await service.confirm({
+    bookingId: booking.id,
+    expectedVersion: reassigned.version,
+    actorId: "staff-1",
+  });
+  clock.set("2099-01-02T00:00:00.000Z");
+  await service.complete({
+    bookingId: booking.id,
+    expectedVersion: confirmed.version,
+    actorId: "staff-1",
+  });
+
+  assert.deepEqual(
+    (await repository.listNotifications()).map(({ kind, recipientType }) => ({
+      kind,
+      recipientType,
+    })),
+    [
+      { kind: "created", recipientType: "staff" },
+      { kind: "created", recipientType: "customer" },
+      { kind: "confirmed", recipientType: "customer" },
+    ],
+  );
+});
+
+test("failure of the second new-booking Outbox write rolls back every create write", async () => {
+  // Catches staff and customer events being persisted in separate transactions.
+  class FailSecondNotificationRepository extends MemoryBookingRepository {
+    hasFailed = false;
+
+    runTransaction(work) {
+      return super.runTransaction((transaction) => {
+        let notificationWrites = 0;
+        const wrapped = new Proxy(transaction, {
+          get: (target, property) => {
+            if (property === "enqueueNotification") {
+              return async (value) => {
+                notificationWrites += 1;
+                if (!this.hasFailed && notificationWrites === 2) {
+                  this.hasFailed = true;
+                  throw new Error("SECOND_NOTIFICATION_FAILURE");
+                }
+                return target.enqueueNotification(value);
+              };
+            }
+            const value = Reflect.get(target, property);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        return work(wrapped);
+      });
+    }
+  }
+
+  const repository = new FailSecondNotificationRepository({
+    courts: courtIds.map((id) => ({ id, enabled: true, version: 1 })),
+    sessionTemplates: [
+      { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
+    ],
+  });
+  const service = new BookingService(
+    repository,
+    { now: () => new Date("2098-12-01T00:00:00.000Z") },
+    testIds(),
+  );
+
+  await assert.rejects(() => service.create(command()), /SECOND_NOTIFICATION_FAILURE/);
+  assert.deepEqual(await service.listBookings({}), []);
+  assert.deepEqual(await repository.listNotifications(), []);
+  assert.deepEqual(await service.listAvailability(FUTURE_DATE), []);
+
+  const retried = await service.create(command());
+  assert.equal(retried.id, "booking-2");
+  assert.deepEqual(
+    (await repository.listNotifications()).map((event) => event.id),
+    ["event-5", "event-6"],
+  );
+});
+
 test("disabled courts are never assigned", async () => {
   const { service } = setup({ disabledCourtId: "01" });
   const bookings = [];

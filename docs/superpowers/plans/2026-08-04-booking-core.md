@@ -1166,7 +1166,7 @@ Validate runtime configuration before each handler starts:
 |---|---|---|
 | `booking-public-api` | `PUBLIC_ALLOWED_ORIGINS`, `PUBLIC_RESULT_URL`, `DATA_TIMEZONE=Asia/Shanghai` | `RATE_LIMIT_SALT`, `PHONE_HASH_SALT`, `IDEMPOTENCY_SALT` |
 | `booking-admin-api` | `PUBLIC_ALLOWED_ORIGINS`, `CLOUDBASE_ENV_ID`, `DATA_TIMEZONE=Asia/Shanghai` | `PHONE_HASH_SALT` |
-| `booking-mailer` | `SES_REGION`, `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, `SES_REPLY_TO`, `STAFF_NOTIFICATION_EMAIL`, `PII_RETENTION_DAYS=180` | `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY` |
+| `booking-mailer` | `SES_REGION`, `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, `SES_REPLY_TO`, `STAFF_NOTIFICATION_EMAIL` | `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY` |
 
 Missing configuration must produce a sanitized startup error naming only the variable. Public values may be written through deployment configuration; secret values are set directly in CloudBase and never rendered into the repository or generated config.
 
@@ -1190,7 +1190,7 @@ system_state
 
 Seed courts `01`–`11`. Seed hourly 60-minute templates with deterministic IDs `slot-0700` through `slot-2200`, matching the current displayed 07:00–23:00 opening window; staff can disable any template before production. Canonical session IDs are `${date}__${templateId}` and therefore never require a query inside a booking transaction.
 
-Create indexes for bookings by `(sessionId,status)`, `(date,createdAt,id)`, `(date,status,createdAt,id)`, `(proposedDate,status,createdAt,id)`, `(phoneHash,createdAt)`, and `(status,terminalAt,personalDataRedactedAt)`; `booking_codes` uses `sha256(normalizedCode)` as the deterministic document ID and stores only the booking ID; audit logs by `(bookingId,at,id)`; sessions by `(date,startAt)`; Outbox by `(status,nextAttemptAt)`.
+Create indexes for bookings by `(sessionId,status)`, `(date,createdAt,id)`, `(date,status,createdAt,id)`, `(proposedDate,status,createdAt,id)`, `(phoneHash,createdAt)`, and `(status,terminalAt,personalDataRedactedAt,id)`; `booking_codes` uses `sha256(normalizedCode)` as the deterministic document ID and stores only the booking ID; audit logs by `(bookingId,at,id)`; sessions by `(date,startAt)`; Outbox by `(status,nextAttemptAt,id)`.
 
 - [ ] **Step 3: Lock direct database access**
 

@@ -240,16 +240,33 @@ test("create reads every deterministic allocation document without a transaction
     bookingIds: ["booking-001"],
     version: 1,
   });
-  assert.deepEqual(database.value("notification_outbox", "event-2"), {
-    id: "event-2",
-    bookingId: "booking-001",
-    kind: "created",
-    recipientType: "customer",
-    status: "pending",
-    attemptCount: 0,
-    nextAttemptAt: "2026-08-01T00:00:00.000Z",
-    createdAt: "2026-08-01T00:00:00.000Z",
-  });
+  assert.deepEqual(
+    ["event-2", "event-3"].map((id) => database.value("notification_outbox", id)),
+    [
+      {
+        id: "event-2",
+        bookingId: "booking-001",
+        kind: "created",
+        recipientType: "staff",
+        status: "pending",
+        attemptCount: 0,
+        nextAttemptAt: "2026-08-01T00:00:00.000Z",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      },
+      {
+        id: "event-3",
+        bookingId: "booking-001",
+        kind: "created",
+        recipientType: "customer",
+        status: "pending",
+        attemptCount: 0,
+        nextAttemptAt: "2026-08-01T00:00:00.000Z",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      },
+    ],
+  );
 });
 
 test("code lookup follows the deterministic code index before reading the booking", async () => {
@@ -272,6 +289,30 @@ test("code lookup follows the deterministic code index before reading the bookin
       { type: "get", collection: "bookings", id: "booking-001" },
     ],
   );
+  assert.equal(database.whereCalls, 0);
+});
+
+test("mailer booking reads use one deterministic document outside a transaction", async () => {
+  // Catches replacing the mailer's ID read with an unindexed collection query.
+  const booking = {
+    id: "booking-mail-001",
+    code: "NOT-EXPOSED",
+    status: "confirmed",
+  };
+  const database = new FakeCloudBaseDatabase({
+    bookings: { [booking.id]: booking },
+  });
+  const repository = new CloudBaseBookingRepository(database);
+
+  const found = await repository.getBookingById(booking.id);
+
+  assert.deepEqual(found, booking);
+  assert.deepEqual(database.readIds, [booking.id]);
+  assert.deepEqual(
+    database.operations.map(({ type, collection, id }) => ({ type, collection, id })),
+    [{ type: "get", collection: "bookings", id: booking.id }],
+  );
+  assert.deepEqual(database.retryAttempts, []);
   assert.equal(database.whereCalls, 0);
 });
 
@@ -512,6 +553,8 @@ test("Task 10 provisions every stable scheduling and audit query index", async (
     "(date,status,createdAt,id)",
     "(proposedDate,status,createdAt,id)",
     "(bookingId,at,id)",
+    "(status,terminalAt,personalDataRedactedAt,id)",
+    "(status,nextAttemptAt,id)",
   ]) {
     assert.match(plan, new RegExp(index.replace(/[()]/g, "\\$&")), index);
   }

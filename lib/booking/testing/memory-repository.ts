@@ -195,6 +195,12 @@ export class MemoryBookingRepository implements BookingRepository {
     });
   }
 
+  async getBookingById(bookingId: string): Promise<BookingRecord | null> {
+    await this.queue;
+    const booking = this.state.bookings.get(bookingId);
+    return booking ? cloneValue(booking) : null;
+  }
+
   async listAvailability(date: string): Promise<AvailabilitySlot[]> {
     await this.queue;
     return Array.from(this.state.sessions.values())
@@ -296,7 +302,10 @@ export class MemoryBookingRepository implements BookingRepository {
           Boolean(booking.terminalAt && booking.terminalAt < cutoff) &&
           !booking.personalDataRedactedAt,
       )
-      .sort((a, b) => (a.terminalAt ?? "").localeCompare(b.terminalAt ?? ""))
+      .sort(
+        (a, b) =>
+          (a.terminalAt ?? "").localeCompare(b.terminalAt ?? "") || a.id.localeCompare(b.id),
+      )
       .slice(0, Math.max(0, limit))
       .map(cloneValue);
   }
