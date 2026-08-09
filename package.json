@@ -1,0 +1,60 @@
+{
+  "name": "site-creator-vinext-starter",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vinext dev",
+    "build:clients": "node scripts/build-browser-clients.mjs",
+    "build": "npm run build:clients && vinext build",
+    "build:pages": "npm run build:clients && next build && node scripts/prepare-pages-output.mjs",
+    "build:cloudbase:public": "node scripts/build-cloudbase-functions.mjs booking-public-api",
+    "build:cloudbase:admin": "node scripts/build-cloudbase-functions.mjs booking-admin-api",
+    "build:cloudbase:mailer": "node scripts/build-cloudbase-functions.mjs booking-mailer",
+    "build:cloudbase": "node scripts/build-cloudbase-functions.mjs booking-public-api booking-admin-api booking-mailer",
+    "render:cloudbase": "node scripts/render-cloudbase-config.mjs",
+    "provision:cloudbase": "node scripts/provision-cloudbase.mjs",
+    "start": "vinext start",
+    "test": "npm run build && npm run test:unit",
+    "test:unit": "node scripts/run-unit-tests.mjs",
+    "test:pages": "node --test tests/pages-static-export.test.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern public/admin-app.js --ignore-pattern cloudbase/functions/*/index.js",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@cloudbase/js-sdk": "^2.32.0",
+    "@cloudbase/node-sdk": "3.18.3",
+    "drizzle-orm": "0.45.2",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tencentcloud-sdk-nodejs-ses": "4.1.271"
+  },
+  "devDependencies": {
+    "@cloudbase/cli": "3.7.0",
+    "@cloudbase/manager-node": "5.6.6",
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "acorn": "^8.18.0",
+    "drizzle-kit": "0.31.10",
+    "esbuild": "^0.28.1",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "postcss": "^8.5.25",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0",
+    "yaml": "^2.9.0"
+  },
+  "type": "module"
+}

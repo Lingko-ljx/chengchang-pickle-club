@@ -1,0 +1,108 @@
+name: Deploy CloudBase staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_environment_id:
+        description: Type the exact staging CLOUDBASE_ENV_ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudbase-${{ vars.CLOUDBASE_ENV_ID }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: cloudbase-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BOOKING_API_BASE_URL: ${{ vars.BOOKING_API_BASE_URL }}
+      CLOUDBASE_DEPLOYMENT_REVISION: ${{ github.sha }}
+      CLOUDBASE_DEPLOYMENT_STAGE: ${{ vars.CLOUDBASE_DEPLOYMENT_STAGE }}
+      CLOUDBASE_ENV_ID: ${{ vars.CLOUDBASE_ENV_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validate staging deployment gate
+        env:
+          CONFIRMED_CLOUDBASE_ENV_ID: ${{ inputs.confirm_environment_id }}
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${BOOKING_API_BASE_URL:-}" ] || { printf '%s\n' 'Missing repository variable: BOOKING_API_BASE_URL' >&2; exit 1; }
+          [ -n "${CLOUDBASE_ENV_ID:-}" ] || { printf '%s\n' 'Missing repository variable: CLOUDBASE_ENV_ID' >&2; exit 1; }
+          [ -n "${TENCENTCLOUD_SECRETID:-}" ] || { printf '%s\n' 'Missing repository secret: TENCENTCLOUD_SECRET_ID' >&2; exit 1; }
+          [ -n "${TENCENTCLOUD_SECRETKEY:-}" ] || { printf '%s\n' 'Missing repository secret: TENCENTCLOUD_SECRET_KEY' >&2; exit 1; }
+          if [ "${CLOUDBASE_DEPLOYMENT_STAGE:-}" != "staging" ]; then
+            printf '%s\n' 'CLOUDBASE_DEPLOYMENT_STAGE must be staging' >&2
+            exit 1
+          fi
+          if [ "${CONFIRMED_CLOUDBASE_ENV_ID:-}" != "${CLOUDBASE_ENV_ID:-}" ]; then
+            printf '%s\n' 'Typed environment confirmation does not match CLOUDBASE_ENV_ID' >&2
+            exit 1
+          fi
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run configured unit suite
+        env:
+          GITHUB_PAGES: "false"
+          NEXT_PUBLIC_BOOKING_API_BASE_URL: ${{ env.BOOKING_API_BASE_URL }}
+          NEXT_PUBLIC_CLOUDBASE_ENV_ID: ${{ env.CLOUDBASE_ENV_ID }}
+        run: npm test
+      - name: Lint source before deployment
+        run: npm run lint
+      - name: Build CloudBase functions
+        run: npm run build:cloudbase
+      - name: Render secret-free CloudBase config
+        run: npm run render:cloudbase
+      - name: Provision additive database resources
+        env:
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: npm run provision:cloudbase
+      - name: Deploy all CloudBase functions
+        env:
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: npx tcb -e "$CLOUDBASE_ENV_ID" --yes fn deploy --all
+      - name: Verify deployed function configuration and mailer timer
+        env:
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          rm -rf "${RUNNER_TEMP:?}/cloudbase-function-details"
+          details_dir="${RUNNER_TEMP:?}/cloudbase-function-details"
+          mkdir "$details_dir"
+          for attempt in $(seq 1 30); do
+            for function_name in booking-public-api booking-admin-api booking-mailer; do
+              npx tcb -e "$CLOUDBASE_ENV_ID" --yes fn detail "$function_name" --json > "$details_dir/$function_name.json"
+            done
+            if node scripts/verify-cloudbase-deployment.mjs "$details_dir" "$CLOUDBASE_DEPLOYMENT_REVISION"; then
+              break
+            else
+              verify_status=$?
+            fi
+            if [ "$verify_status" -ne 2 ] || [ "$attempt" -eq 30 ]; then
+              exit "$verify_status"
+            fi
+            sleep 10
+          done
+      - name: Remove function detail files
+        if: always()
+        shell: bash
+        run: |
+          set -eu
+          rm -rf "${RUNNER_TEMP:?}/cloudbase-function-details"
