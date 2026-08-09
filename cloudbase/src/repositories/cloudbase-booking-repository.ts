@@ -18,8 +18,14 @@ interface DocumentResponse {
   data?: unknown[] | Record<string, unknown>;
 }
 
-interface WriteCommand {
+interface QueryCommand {
+  and(...expressions: QueryCommand[]): QueryCommand;
+}
+
+interface DatabaseCommand {
   remove(): unknown;
+  gte(value: unknown): QueryCommand;
+  lte(value: unknown): QueryCommand;
 }
 
 interface DocumentReference {
@@ -42,7 +48,7 @@ interface TransactionReference {
 }
 
 interface DatabaseReference {
-  command: WriteCommand;
+  command: DatabaseCommand;
   collection(name: string): QueryReference;
   runTransaction<T>(
     work: (transaction: TransactionReference) => Promise<T>,
@@ -191,7 +197,7 @@ export class CloudBaseBookingRepository implements BookingRepository {
       "sessions",
       { date, status: "open" },
       500,
-      ["startAt", "asc"],
+      [["startAt", "asc"]],
     );
     const courts = await this.query<CourtRecord>("courts", { enabled: true }, 100);
     const enabledCourtIds = new Set(courts.map((court) => court.id));
@@ -239,11 +245,22 @@ export class CloudBaseBookingRepository implements BookingRepository {
   async listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {
     const condition: Record<string, unknown> = {};
     if (filter.date) condition.date = filter.date;
+    else if (filter.fromDate && filter.toDate) {
+      condition.date = this.db.command.gte(filter.fromDate).and(this.db.command.lte(filter.toDate));
+    } else if (filter.fromDate) {
+      condition.date = this.db.command.gte(filter.fromDate);
+    } else if (filter.toDate) {
+      condition.date = this.db.command.lte(filter.toDate);
+    }
     if (filter.status) condition.status = filter.status;
     if (filter.mode) condition.mode = filter.mode;
     const normalizedQuery = filter.query?.trim().toLowerCase();
     const limit = Math.max(1, Math.min(filter.limit ?? 100, 500));
-    return (await this.query<BookingRecord>("bookings", condition, 500))
+    const queryLimit = normalizedQuery || filter.cursor ? 500 : limit;
+    return (await this.query<BookingRecord>("bookings", condition, queryLimit, [
+      ["date", "asc"],
+      ["createdAt", "asc"],
+    ]))
       .filter((booking) => !filter.cursor || booking.id > filter.cursor)
       .filter(
         (booking) =>
@@ -252,8 +269,11 @@ export class CloudBaseBookingRepository implements BookingRepository {
             .filter((value): value is string => typeof value === "string")
             .some((value) => value.toLowerCase().includes(normalizedQuery)),
       )
-      .sort((left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+      .sort(
+        (left, right) =>
+          left.date.localeCompare(right.date) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.id.localeCompare(right.id),
       )
       .slice(0, limit);
   }
@@ -273,7 +293,12 @@ export class CloudBaseBookingRepository implements BookingRepository {
       .slice(0, Math.max(0, limit));
   }
 
-  redactBooking(bookingId: string, actorId: string, expectedVersion: number): Promise<void> {
+  redactBooking(
+    bookingId: string,
+    actorId: string,
+    expectedVersion: number,
+    actorType: "staff" | "system" = "system",
+  ): Promise<void> {
     return this.db.runTransaction(async (transaction) => {
       const bookings = transaction.collection("bookings");
       const booking = await getDocument<BookingRecord>(bookings.doc(bookingId));
@@ -300,7 +325,7 @@ export class CloudBaseBookingRepository implements BookingRepository {
         id: `redact-${bookingId}-${booking.version + 1}`,
         bookingId,
         action: "personal_data_redacted",
-        actorType: "system",
+        actorType,
         actorId,
         at: now,
         metadata: {},
@@ -377,11 +402,11 @@ export class CloudBaseBookingRepository implements BookingRepository {
     collectionName: string,
     condition: Record<string, unknown>,
     limit: number,
-    order?: [string, "asc" | "desc"],
+    orders: Array<[string, "asc" | "desc"]> = [],
   ): Promise<T[]> {
     let query = this.db.collection(collectionName);
     if (Object.keys(condition).length > 0) query = query.where(condition);
-    if (order) query = query.orderBy(order[0], order[1]);
+    for (const order of orders) query = query.orderBy(order[0], order[1]);
     return rows<T>(await query.limit(limit).get());
   }
 }

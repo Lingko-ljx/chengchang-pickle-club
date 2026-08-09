@@ -32,7 +32,12 @@ export interface BookingRepository {
   listAvailability(date: string): Promise<AvailabilitySlot[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
   listExpiredPersonalData(cutoff: string, limit: number): Promise<BookingRecord[]>;
-  redactBooking(bookingId: string, actorId: string, expectedVersion: number): Promise<void>;
+  redactBooking(
+    bookingId: string,
+    actorId: string,
+    expectedVersion: number,
+    actorType?: "staff" | "system",
+  ): Promise<void>;
   setCourtEnabled(
     courtId: string,
     enabled: boolean,

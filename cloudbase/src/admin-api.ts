@@ -39,7 +39,12 @@ interface AdminBookingService {
     actorId: string;
     courtId: string;
   }): Promise<BookingRecord>;
-  redactPersonalData(bookingId: string, actorId: string, expectedVersion: number): Promise<void>;
+  redactPersonalData(
+    bookingId: string,
+    actorId: string,
+    expectedVersion: number,
+    actorType?: "staff" | "system",
+  ): Promise<void>;
   listAvailability(date: string): Promise<unknown[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
   setCourtEnabled(
@@ -241,9 +246,12 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
         const from = dateValue(queryParameter(event, "from")?.trim());
         const to = dateValue(queryParameter(event, "to")?.trim());
         if (from > to) throw new BookingError("INVALID_INPUT");
-        const bookings = (await dependencies.service.listBookings({ limit: 500 })).filter(
-          (booking) => booking.date >= from && booking.date <= to,
-        );
+        const bookings = await dependencies.service.listBookings({
+          fromDate: from,
+          toDate: to,
+          limit: 500,
+        });
+        if (bookings.length >= 500) throw new BookingError("EXPORT_TOO_LARGE");
         return csvResponse(bookings);
       }
 
@@ -272,7 +280,7 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
           if (!courtId) throw new BookingError("INVALID_INPUT");
           return jsonResponse(200, adminBooking(await dependencies.service.reassign({ bookingId, expectedVersion: version, actorId, courtId })));
         }
-        await dependencies.service.redactPersonalData(bookingId, actorId, version);
+        await dependencies.service.redactPersonalData(bookingId, actorId, version, "staff");
         return jsonResponse(200, { redacted: true });
       }
 

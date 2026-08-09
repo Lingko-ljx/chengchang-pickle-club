@@ -124,6 +124,8 @@ export interface AvailabilitySlot {
 
 export interface AdminBookingFilter {
   date?: string;
+  fromDate?: string;
+  toDate?: string;
   status?: BookingStatus;
   mode?: BookingMode;
   query?: string;

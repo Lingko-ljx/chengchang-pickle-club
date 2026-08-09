@@ -478,8 +478,13 @@ export class BookingService {
     });
   }
 
-  redactPersonalData(bookingId: string, actorId: string, expectedVersion: number): Promise<void> {
-    return this.repository.redactBooking(bookingId, actorId, expectedVersion);
+  redactPersonalData(
+    bookingId: string,
+    actorId: string,
+    expectedVersion: number,
+    actorType: "staff" | "system" = "system",
+  ): Promise<void> {
+    return this.repository.redactBooking(bookingId, actorId, expectedVersion, actorType);
   }
 
   listAvailability(date: string): Promise<AvailabilitySlot[]> {

@@ -27,6 +27,30 @@ function command(overrides = {}) {
   };
 }
 
+function bookingRecord(overrides = {}) {
+  return {
+    id: "seed-booking",
+    code: "SEEDCODE",
+    sessionId: MORNING,
+    date: FUTURE_DATE,
+    startAt: "2098-12-31T23:00:00.000Z",
+    endAt: "2099-01-01T00:00:00.000Z",
+    courtId: "01",
+    mode: "private",
+    partySize: 2,
+    status: "pending",
+    name: "Seed Player",
+    phone: "13800138000",
+    phoneHash: "seed-phone-hash",
+    privacyConsentAt: "2098-12-01T00:00:00.000Z",
+    canCancelUntil: "2098-12-31T23:00:00.000Z",
+    createdAt: "2098-12-01T00:00:00.000Z",
+    updatedAt: "2098-12-01T00:00:00.000Z",
+    version: 1,
+    ...overrides,
+  };
+}
+
 function testIds() {
   let booking = 0;
   let code = 0;
@@ -292,7 +316,7 @@ test("lookup requires the normalized reserved phone", async () => {
 });
 
 test("redaction removes personal lookup data at the expected version", async () => {
-  const { service } = setup();
+  const { repository, service } = setup();
   const booking = await service.create(command());
   const cancelled = await service.cancel({
     bookingId: booking.id,
@@ -307,6 +331,49 @@ test("redaction removes personal lookup data at the expected version", async () 
   assert.equal(redacted.phone, undefined);
   assert.equal(redacted.email, undefined);
   assert.ok(redacted.personalDataRedactedAt);
+  const audit = (await repository.listAuditLogs()).find(
+    (entry) => entry.action === "personal_data_redacted",
+  );
+  assert.equal(audit.actorId, "retention-worker");
+  assert.equal(audit.actorType, "system");
+  assert.deepEqual(audit.metadata, {});
+});
+
+test("memory admin redaction records an explicit staff audit without PII", async () => {
+  const { repository, service } = setup();
+  const created = await service.create(command());
+  await service.redactPersonalData(created.id, "profile-staff-7", created.version, "staff");
+
+  const audit = (await repository.listAuditLogs()).find(
+    (entry) => entry.action === "personal_data_redacted",
+  );
+  assert.deepEqual(audit, {
+    id: `redact-${created.id}-2`,
+    bookingId: created.id,
+    action: "personal_data_redacted",
+    actorType: "staff",
+    actorId: "profile-staff-7",
+    at: audit.at,
+    metadata: {},
+  });
+  assert.equal(JSON.stringify(audit).includes(created.phone), false);
+  assert.equal(JSON.stringify(audit).includes(created.name), false);
+});
+
+test("memory booking listing applies inclusive export date ranges before the limit", async () => {
+  const records = [
+    bookingRecord({ id: "before", date: "2098-12-31", createdAt: "2098-12-01T00:00:00.000Z" }),
+    bookingRecord({ id: "from", date: "2099-01-01", createdAt: "2098-12-03T00:00:00.000Z" }),
+    bookingRecord({ id: "to", date: "2099-01-03", createdAt: "2098-12-02T00:00:00.000Z" }),
+    bookingRecord({ id: "after", date: "2099-01-04", createdAt: "2098-12-04T00:00:00.000Z" }),
+  ];
+  const repository = new MemoryBookingRepository({ bookings: records });
+
+  assert.deepEqual(
+    (await repository.listBookings({ fromDate: "2099-01-01", toDate: "2099-01-03", limit: 2 }))
+      .map((entry) => entry.id),
+    ["from", "to"],
+  );
 });
 
 test("stale redaction versions fail before deleting personal lookup data", async () => {

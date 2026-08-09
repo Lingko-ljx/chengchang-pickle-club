@@ -173,7 +173,12 @@ test("every booking lifecycle route requires a version and passes the authentica
     ["cancel", "/cancel", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorType: "staff", actorId: "profile-staff-7" }],
     ["complete", "/complete", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorId: "profile-staff-7" }],
     ["reassign", "/reassign", { expectedVersion: 3, courtId: "02" }, { bookingId: "booking-1", expectedVersion: 3, courtId: "02", actorId: "profile-staff-7" }],
-    ["redactPersonalData", "/redact", { expectedVersion: 3 }, ["booking-1", "profile-staff-7", 3]],
+    [
+      "redactPersonalData",
+      "/redact",
+      { expectedVersion: 3 },
+      ["booking-1", "profile-staff-7", 3, "staff"],
+    ],
   ];
 
   for (const [methodName, suffix, body, expected] of cases) {
@@ -253,6 +258,14 @@ test("CSV export uses a strict column allowlist, neutralizes formulas, and escap
   assert.match(response.body, /"Ada, ""Ace""\r\nLovelace"/);
   assert.match(response.body, /"  '\+formula\nsecond line"/);
   assert.match(response.body, /'=send@example\.com/);
+  assert.deepEqual(
+    trace.find((entry) => entry.type === "service"),
+    {
+      type: "service",
+      name: "listBookings",
+      args: [{ fromDate: DATE, toDate: DATE, limit: 500 }],
+    },
+  );
   for (const forbidden of [
     "internal-phone-hash",
     "internal-idempotency-hash",
@@ -262,6 +275,35 @@ test("CSV export uses a strict column allowlist, neutralizes formulas, and escap
   ]) {
     assert.equal(response.body.toLowerCase().includes(forbidden), false, forbidden);
   }
+});
+
+test("CSV export returns a detectable hard-cap error at 500 rows and completely emits 499", async () => {
+  const rows = Array.from({ length: 500 }, (_, index) =>
+    booking({ id: `booking-${index}`, code: `CODE${index}`, name: `Player ${index}` }),
+  );
+  const cappedService = fakeService();
+  cappedService.listBookings = async () => rows;
+  const capped = await handlerFor(cappedService)(
+    event("GET", "/v1/admin/export.csv", undefined, { query: { from: DATE, to: DATE } }),
+  );
+  assert.equal(capped.statusCode, 409);
+  assert.deepEqual(responseBody(capped), {
+    error: {
+      code: "EXPORT_TOO_LARGE",
+      message: "Export too large; narrow the date range",
+      retryable: false,
+    },
+  });
+  assert.equal(capped.headers["Content-Type"], "application/json; charset=utf-8");
+
+  const completeService = fakeService();
+  completeService.listBookings = async () => rows.slice(0, 499);
+  const complete = await handlerFor(completeService)(
+    event("GET", "/v1/admin/export.csv", undefined, { query: { from: DATE, to: DATE } }),
+  );
+  assert.equal(complete.statusCode, 200);
+  assert.equal(complete.body.split("\r\n").filter(Boolean).length, 500);
+  assert.match(complete.body, /CODE498/);
 });
 
 function realSetup(trace) {
@@ -347,6 +389,103 @@ test("redaction through the handler removes both lookup paths and all personal f
   assert.equal(stored.code, created.code);
   assert.equal(stored.courtId, created.courtId);
   assert.equal(stored.status, "cancelled");
+  const audit = (await repository.listAuditLogs()).find(
+    (entry) => entry.action === "personal_data_redacted",
+  );
+  assert.equal(audit.actorId, "profile-staff-7");
+  assert.equal(audit.actorType, "staff");
+  assert.deepEqual(audit.metadata, {});
+});
+
+test("stale handler redaction changes neither booking nor audit history", async () => {
+  const trace = [];
+  const { repository, service, handler } = realSetup(trace);
+  const created = await service.create({
+    idempotencyKey: "admin-stale-redact",
+    sessionId: MORNING,
+    mode: "private",
+    partySize: 2,
+    name: "Keep Personal",
+    phone: "13800138000",
+    privacyConsent: true,
+  });
+  const before = await repository.runTransaction((transaction) =>
+    transaction.getBooking(created.id),
+  );
+  const auditsBefore = await repository.listAuditLogs();
+
+  const response = await handler(
+    event("POST", `/v1/admin/bookings/${created.id}/redact`, { expectedVersion: 0 }),
+  );
+
+  assert.equal(response.statusCode, 409);
+  assert.deepEqual(
+    await repository.runTransaction((transaction) => transaction.getBooking(created.id)),
+    before,
+  );
+  assert.deepEqual(await repository.listAuditLogs(), auditsBefore);
+});
+
+test("stale court and template handler writes preserve records and audits", async () => {
+  const trace = [];
+  const { repository, handler } = realSetup(trace);
+  const beforeAudits = await repository.listAuditLogs();
+
+  const staleCourt = await handler(
+    event("PUT", "/v1/admin/courts/01", { enabled: false, expectedVersion: 0 }),
+  );
+  const staleTemplate = await handler(
+    event("PUT", "/v1/admin/session-templates/slot-0700", {
+      enabled: false,
+      expectedVersion: 0,
+    }),
+  );
+  assert.equal(staleCourt.statusCode, 409);
+  assert.equal(staleTemplate.statusCode, 409);
+  assert.deepEqual(
+    await repository.runTransaction((transaction) => transaction.getCourts(["01"])),
+    [{ id: "01", enabled: true, version: 1 }],
+  );
+  assert.deepEqual(
+    await repository.runTransaction((transaction) =>
+      transaction.getSessionTemplate("slot-0700"),
+    ),
+    { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
+  );
+  assert.deepEqual(await repository.listAuditLogs(), beforeAudits);
+
+  assert.equal(
+    (await handler(event("PUT", "/v1/admin/courts/01", { enabled: false, expectedVersion: 1 })))
+      .statusCode,
+    200,
+  );
+  const audit = (await repository.listAuditLogs()).find(
+    (entry) => entry.action === "court_enabled_changed",
+  );
+  assert.equal(audit.actorId, "profile-staff-7");
+  assert.equal(audit.actorType, "staff");
+  assert.deepEqual(audit.metadata, {
+    entity: "court",
+    id: "01",
+    enabled: false,
+    version: 2,
+  });
+  assert.equal(
+    (
+      await handler(
+        event("PUT", "/v1/admin/session-templates/slot-0700", {
+          enabled: false,
+          expectedVersion: 1,
+        }),
+      )
+    ).statusCode,
+    200,
+  );
+  const templateAudit = (await repository.listAuditLogs()).find(
+    (entry) => entry.action === "session_template_enabled_changed",
+  );
+  assert.equal(templateAudit.actorId, "profile-staff-7");
+  assert.equal(templateAudit.actorType, "staff");
 });
 
 test("only the documented route shapes are accepted", async () => {

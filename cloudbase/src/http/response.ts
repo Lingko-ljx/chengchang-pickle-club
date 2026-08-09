@@ -57,6 +57,14 @@ const errors: Record<BookingErrorCode, { status: number; error: PublicError }> =
     status: 429,
     error: { code: "RATE_LIMITED", message: "Too many requests", retryable: true },
   },
+  EXPORT_TOO_LARGE: {
+    status: 409,
+    error: {
+      code: "EXPORT_TOO_LARGE",
+      message: "Export too large; narrow the date range",
+      retryable: false,
+    },
+  },
   CONFLICT: {
     status: 409,
     error: { code: "CONFLICT", message: "Booking state changed", retryable: true },

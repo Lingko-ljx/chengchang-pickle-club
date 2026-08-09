@@ -244,6 +244,8 @@ export class MemoryBookingRepository implements BookingRepository {
     const limit = Math.max(1, Math.min(filter.limit ?? 100, 500));
     return Array.from(this.state.bookings.values())
       .filter((booking) => !filter.date || booking.date === filter.date)
+      .filter((booking) => !filter.fromDate || booking.date >= filter.fromDate)
+      .filter((booking) => !filter.toDate || booking.date <= filter.toDate)
       .filter((booking) => !filter.status || booking.status === filter.status)
       .filter((booking) => !filter.mode || booking.mode === filter.mode)
       .filter(
@@ -254,7 +256,12 @@ export class MemoryBookingRepository implements BookingRepository {
             .some((value) => value.toLowerCase().includes(normalizedQuery)),
       )
       .filter((booking) => !filter.cursor || booking.id > filter.cursor)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      .sort(
+        (left, right) =>
+          left.date.localeCompare(right.date) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.id.localeCompare(right.id),
+      )
       .slice(0, limit)
       .map(cloneValue);
   }
@@ -273,7 +280,19 @@ export class MemoryBookingRepository implements BookingRepository {
       .map(cloneValue);
   }
 
-  redactBooking(bookingId: string, actorId: string, expectedVersion: number): Promise<void> {
+  async listAuditLogs(): Promise<AuditLog[]> {
+    await this.queue;
+    return Array.from(this.state.auditLogs.values())
+      .sort((left, right) => left.at.localeCompare(right.at) || left.id.localeCompare(right.id))
+      .map(cloneValue);
+  }
+
+  redactBooking(
+    bookingId: string,
+    actorId: string,
+    expectedVersion: number,
+    actorType: "staff" | "system" = "system",
+  ): Promise<void> {
     return this.serialized(async () => {
       const next = cloneState(this.state);
       const booking = next.bookings.get(bookingId);
@@ -299,7 +318,7 @@ export class MemoryBookingRepository implements BookingRepository {
         id: `redact-${bookingId}-${booking.version + 1}`,
         bookingId,
         action: "personal_data_redacted",
-        actorType: "system",
+        actorType,
         actorId,
         at: now,
         metadata: {},

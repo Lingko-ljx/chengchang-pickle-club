@@ -264,6 +264,15 @@ test("redaction atomically removes both lookup documents and personal fields", a
   );
   assert.equal(redacted.version, 2);
   assert.equal(redacted.personalDataRedactedAt, "2026-08-01T00:00:00.000Z");
+  assert.deepEqual(database.value("audit_logs", "redact-booking-001-2"), {
+    id: "redact-booking-001-2",
+    bookingId: "booking-001",
+    action: "personal_data_redacted",
+    actorType: "system",
+    actorId: "retention-worker",
+    at: "2026-08-01T00:00:00.000Z",
+    metadata: {},
+  });
   assert.deepEqual(
     database.operations
       .filter(({ type }) => type === "remove")
@@ -274,6 +283,97 @@ test("redaction atomically removes both lookup documents and personal fields", a
     ],
   );
   assert.equal(database.whereCalls, 0);
+});
+
+test("CloudBase redaction persists an explicit non-PII staff audit", async () => {
+  const database = seededDatabase();
+  const service = serviceFor(database);
+  const created = await service.create(bookingCommand());
+
+  await service.redactPersonalData(created.id, "profile-staff-7", created.version, "staff");
+
+  assert.deepEqual(database.value("audit_logs", "redact-booking-001-2"), {
+    id: "redact-booking-001-2",
+    bookingId: "booking-001",
+    action: "personal_data_redacted",
+    actorType: "staff",
+    actorId: "profile-staff-7",
+    at: "2026-08-01T00:00:00.000Z",
+    metadata: {},
+  });
+});
+
+test("CloudBase booking export pushes the inclusive date range down before its hard limit", async () => {
+  const trace = { condition: undefined, orders: [], limit: undefined };
+  const query = {
+    where(condition) {
+      trace.condition = condition;
+      return this;
+    },
+    orderBy(field, direction) {
+      trace.orders.push([field, direction]);
+      return this;
+    },
+    limit(value) {
+      trace.limit = value;
+      return this;
+    },
+    async get() {
+      return { data: [bookingCommand({ id: "in-range", date: "2026-08-10" })] };
+    },
+  };
+  const range = (operator, value) => ({
+    operator,
+    value,
+    and(other) {
+      return {
+        operator: "and",
+        operands: [
+          { operator: this.operator, value: this.value },
+          { operator: other.operator, value: other.value },
+        ],
+      };
+    },
+  });
+  const database = {
+    command: {
+      remove() {
+        return { removeField: true };
+      },
+      gte(value) {
+        return range("gte", value);
+      },
+      lte(value) {
+        return range("lte", value);
+      },
+    },
+    collection(name) {
+      assert.equal(name, "bookings");
+      return query;
+    },
+  };
+  const repository = new CloudBaseBookingRepository(database);
+
+  await repository.listBookings({
+    fromDate: "2026-08-01",
+    toDate: "2026-08-31",
+    limit: 500,
+  });
+
+  assert.deepEqual(trace.condition, {
+    date: {
+      operator: "and",
+      operands: [
+        { operator: "gte", value: "2026-08-01" },
+        { operator: "lte", value: "2026-08-31" },
+      ],
+    },
+  });
+  assert.deepEqual(trace.orders, [
+    ["date", "asc"],
+    ["createdAt", "asc"],
+  ]);
+  assert.equal(trace.limit, 500);
 });
 
 test("court and template updates append deterministic staff audits in their transactions", async () => {

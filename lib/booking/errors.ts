@@ -9,6 +9,7 @@ export type BookingErrorCode =
   | "AUTH_REQUIRED"
   | "FORBIDDEN"
   | "RATE_LIMITED"
+  | "EXPORT_TOO_LARGE"
   | "CONFLICT";
 
 export class BookingError extends Error {
