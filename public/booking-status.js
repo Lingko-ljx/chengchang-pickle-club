@@ -253,9 +253,16 @@
       : [];
     var index;
     var pair;
+    var key;
     for (index = 0; index < search.length; index += 1) {
       pair = search[index].split("=");
-      if (decodeURIComponent(pair[0] || "") === "code") {
+      try {
+        key = decodeURIComponent(pair[0] || "");
+      } catch (error) {
+        void error;
+        continue;
+      }
+      if (key === "code") {
         try {
           codeInput.value = decodeURIComponent(
             (pair.slice(1).join("=") || "").replace(/\+/g, " ")

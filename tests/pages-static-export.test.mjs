@@ -69,3 +69,18 @@ test("exports result and status pages with only their ES5 clients", async () => 
     assert.match(scripts[0], page.client);
   }
 });
+
+test("status form cannot place the reserved phone in a native URL submission", async () => {
+  const html = await readFile(
+    new URL("../out/booking/status/index.html", import.meta.url),
+    "utf8",
+  );
+  const form = html.match(/<form\b[\s\S]*?<\/form>/i)?.[0] ?? "";
+
+  assert.match(form, /\bmethod="post"/i);
+  assert.match(
+    form,
+    /\baction="\/chengchang-pickle-club\/booking\/status\/"/i,
+  );
+  assert.doesNotMatch(form, /\bname="(?:code|phone)"/i);
+});

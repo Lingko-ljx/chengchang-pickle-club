@@ -72,6 +72,40 @@ test("result client reads only code and builds a base-path-aware status link", a
   assert.doesNotMatch(link.href, /Private|13800138000|example/);
 });
 
+test("malformed query keys cannot stop either client from finding a valid code", async () => {
+  const resultSource = await readClient("booking-result");
+  const statusSource = await readClient("booking-status");
+  const resultCode = { textContent: "" };
+  const resultLink = { href: "" };
+
+  assert.doesNotThrow(() =>
+    vm.runInNewContext(resultSource, {
+      decodeURIComponent,
+      document: {
+        getElementById(id) {
+          return {
+            "booking-result-code": resultCode,
+            "booking-result-shell": { getAttribute: () => "" },
+            "booking-result-status-link": resultLink,
+          }[id] ?? null;
+        },
+      },
+      encodeURIComponent,
+      window: { location: { search: "?%=bad&code=BOOK-42" } },
+    }),
+  );
+  assert.equal(resultCode.textContent, "BOOK-42");
+
+  let statusPage;
+  assert.doesNotThrow(() => {
+    statusPage = loadStatusClient(statusSource, {
+      code: "",
+      search: "?%=bad&code=BOOK-42",
+    });
+  });
+  assert.equal(statusPage.elements["booking-status-code"].value, "BOOK-42");
+});
+
 function element(properties = {}) {
   const node = eventTarget({
     children: [],
@@ -165,7 +199,11 @@ function loadStatusClient(source, options = {}) {
       },
     },
     encodeURIComponent,
-    window: { JSON, XMLHttpRequest },
+    window: {
+      JSON,
+      XMLHttpRequest,
+      location: { search: options.search ?? "" },
+    },
     XMLHttpRequest,
   });
 

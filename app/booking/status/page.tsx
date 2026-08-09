@@ -1,4 +1,7 @@
-import { resolveBookingApiBaseUrl } from "../../booking-config";
+import {
+  bookingStatusPath,
+  resolveBookingApiBaseUrl,
+} from "../../booking-config";
 
 const basePath =
   process.env.PAGES_BASE_PATH === "/"
@@ -27,13 +30,17 @@ export default function BookingStatusPage() {
           输入预约编号和预留手机号。验证成功后可查看进度、取消预约或回应改期。
         </p>
 
-        <form className="booking-status-form" id="booking-status-form">
+        <form
+          action={bookingStatusPath(basePath)}
+          className="booking-status-form"
+          id="booking-status-form"
+          method="post"
+        >
           <label htmlFor="booking-status-code">
             <span>预约编号</span>
             <input
               autoComplete="off"
               id="booking-status-code"
-              name="code"
               required
               type="text"
             />
@@ -44,7 +51,6 @@ export default function BookingStatusPage() {
               autoComplete="tel"
               id="booking-status-phone"
               inputMode="tel"
-              name="phone"
               pattern="[0-9+() -]{8,20}"
               required
               type="tel"
