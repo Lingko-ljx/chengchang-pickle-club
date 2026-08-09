@@ -76,11 +76,18 @@ test("status form cannot place the reserved phone in a native URL submission", a
     "utf8",
   );
   const form = html.match(/<form\b[\s\S]*?<\/form>/i)?.[0] ?? "";
+  const codeInput =
+    form.match(/<input\b(?=[^>]*\bid="booking-status-code")[^>]*>/i)?.[0] ?? "";
+  const phoneInput =
+    form.match(/<input\b(?=[^>]*\bid="booking-status-phone")[^>]*>/i)?.[0] ?? "";
 
   assert.match(form, /\bmethod="post"/i);
   assert.match(
     form,
     /\baction="\/chengchang-pickle-club\/booking\/status\/"/i,
   );
-  assert.doesNotMatch(form, /\bname="(?:code|phone)"/i);
+  assert.match(codeInput, /\bid="booking-status-code"/i);
+  assert.match(phoneInput, /\bid="booking-status-phone"/i);
+  assert.doesNotMatch(codeInput, /\bname=/i);
+  assert.doesNotMatch(phoneInput, /\bname=/i);
 });
