@@ -270,4 +270,3 @@ https://<github-owner>.github.io/chengchang-pickle-club/
 ```
 
 Confirm the title, styling, anchor navigation, and booking demo work without signing in.
-
