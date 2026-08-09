@@ -246,6 +246,7 @@ test("create reads every deterministic allocation document without a transaction
       {
         id: "event-2",
         bookingId: "booking-001",
+        bookingVersion: 1,
         kind: "created",
         recipientType: "staff",
         status: "pending",
@@ -257,6 +258,7 @@ test("create reads every deterministic allocation document without a transaction
       {
         id: "event-3",
         bookingId: "booking-001",
+        bookingVersion: 1,
         kind: "created",
         recipientType: "customer",
         status: "pending",

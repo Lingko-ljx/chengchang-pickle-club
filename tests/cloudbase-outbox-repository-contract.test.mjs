@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CloudBaseOutboxRepository } from "../cloudbase/src/repositories/cloudbase-outbox-repository.ts";
 
+const OFFICIAL_REQUEST_ID = "8979fc1e-9564-4fc9-bf7d-2958ce679b72";
+const OFFICIAL_MESSAGE_ID = "qcloudses-30-4123414323-date-20210101094334-syNARhMTbKI1";
+
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
@@ -10,6 +13,7 @@ function event(overrides = {}) {
   return {
     id: "event-001",
     bookingId: "booking-001",
+    bookingVersion: 1,
     kind: "created",
     recipientType: "staff",
     status: "pending",
@@ -288,7 +292,7 @@ test("reclaimed leases fence every stale completion and clear lease fields atomi
   assert.equal(reclaimed.attemptCount, 2);
   assert.equal(
     await repository.markSent("event-001", "token-old", "2026-08-09T00:06:00.000Z", {
-      providerRequestId: "request-stale",
+      providerRequestId: OFFICIAL_REQUEST_ID,
     }),
     false,
   );
@@ -371,8 +375,8 @@ test("successful and terminal marks persist only normalized result fields", asyn
   const sentRepository = new CloudBaseOutboxRepository(sentDatabase);
   assert.equal(
     await sentRepository.markSent("event-001", "token-a", "2026-08-09T00:01:00.000Z", {
-      providerRequestId: "request-123",
-      providerMessageId: "message-456",
+      providerRequestId: OFFICIAL_REQUEST_ID,
+      providerMessageId: OFFICIAL_MESSAGE_ID,
     }),
     true,
   );
@@ -381,8 +385,8 @@ test("successful and terminal marks persist only normalized result fields", asyn
     status: "sent",
     attemptCount: 1,
     nextAttemptAt: "2026-08-09T00:05:00.000Z",
-    providerRequestId: "request-123",
-    providerMessageId: "message-456",
+    providerRequestId: OFFICIAL_REQUEST_ID,
+    providerMessageId: OFFICIAL_MESSAGE_ID,
     sentAt: "2026-08-09T00:01:00.000Z",
     updatedAt: "2026-08-09T00:01:00.000Z",
   });
@@ -473,6 +477,26 @@ test("repository defenses never persist PII-shaped provider fields or raw error 
   assert.equal(sentJson.includes("alice"), false);
   assert.equal(sentJson.includes("13800138000"), false);
   assert.match(sentJson, /REDACTED/);
+
+  const namedDatabase = new FakeOutboxDatabase([
+    event({
+      status: "sending",
+      attemptCount: 1,
+      leaseOwner: "worker-a",
+      leaseToken: "token-a",
+      leaseUntil: "2026-08-09T00:05:00.000Z",
+      nextAttemptAt: "2026-08-09T00:05:00.000Z",
+    }),
+  ]);
+  const namedRepository = new CloudBaseOutboxRepository(namedDatabase);
+  await namedRepository.markSent("event-001", "token-a", "2026-08-09T00:01:00.000Z", {
+    providerRequestId: "AdaLovelace",
+    providerMessageId: "Alice123",
+  });
+  const namedJson = JSON.stringify(namedDatabase.value("event-001"));
+  assert.equal(namedJson.includes("AdaLovelace"), false);
+  assert.equal(namedJson.includes("Alice123"), false);
+  assert.equal((namedJson.match(/REDACTED/g) ?? []).length, 2);
 
   const failedDatabase = new FakeOutboxDatabase([
     event({

@@ -91,16 +91,17 @@ function mailFor(
   booking: BookingRecord,
   recipient: string,
 ): NotificationMail {
+  const proposal = event.kind === "reschedule_proposed";
   return {
     recipient,
     templateData: {
       kind: event.kind,
       code: booking.code,
-      date: booking.date,
-      startAt: booking.startAt,
-      endAt: booking.endAt,
+      date: proposal ? (booking.proposedDate as string) : booking.date,
+      startAt: proposal ? (booking.proposedStartAt as string) : booking.startAt,
+      endAt: proposal ? (booking.proposedEndAt as string) : booking.endAt,
       status: booking.status,
-      courtId: booking.courtId,
+      courtId: proposal ? (booking.proposedCourtId as string) : booking.courtId,
       mode: booking.mode,
       partySize: booking.partySize,
       displayName: booking.name?.trim() || "预约用户",
@@ -134,6 +135,22 @@ async function processClaimed(
       leaseToken,
       clock.now().toISOString(),
       "BOOKING_NOT_FOUND",
+    );
+    return;
+  }
+  const proposalUnavailable =
+    event.kind === "reschedule_proposed" &&
+    (booking.status !== "reschedule_proposed" ||
+      !booking.proposedDate ||
+      !booking.proposedStartAt ||
+      !booking.proposedEndAt ||
+      !booking.proposedCourtId);
+  if (booking.version !== event.bookingVersion || proposalUnavailable) {
+    await outbox.markFailed(
+      event.id,
+      leaseToken,
+      clock.now().toISOString(),
+      "EVENT_SUPERSEDED",
     );
     return;
   }

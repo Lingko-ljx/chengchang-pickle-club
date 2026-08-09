@@ -110,6 +110,7 @@ export type NotificationKind =
 export interface NotificationEvent {
   id: string;
   bookingId: string;
+  bookingVersion: number;
   kind: NotificationKind;
   recipientType: "staff" | "customer";
   status: "pending" | "sending" | "retry" | "sent" | "failed";

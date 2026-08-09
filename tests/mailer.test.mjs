@@ -9,6 +9,8 @@ import {
 import { runMailer, runMailerSafely } from "../cloudbase/src/mailer.ts";
 
 const NOW = "2026-08-09T04:00:00.000Z";
+const OFFICIAL_REQUEST_ID = "8979fc1e-9564-4fc9-bf7d-2958ce679b72";
+const OFFICIAL_MESSAGE_ID = "qcloudses-30-4123414323-date-20210101094334-syNARhMTbKI1";
 
 function mailEnvironment(overrides = {}) {
   return {
@@ -53,6 +55,7 @@ function notification(overrides = {}) {
   return {
     id: "event-001",
     bookingId: "booking-001",
+    bookingVersion: 2,
     kind: "confirmed",
     recipientType: "customer",
     status: "pending",
@@ -151,8 +154,8 @@ function workerDependencies(overrides = {}) {
     bookings: { getBookingById: async () => booking() },
     createSender: () => ({
       send: async () => ({
-        providerRequestId: "request-123",
-        providerMessageId: "message-456",
+        providerRequestId: OFFICIAL_REQUEST_ID,
+        providerMessageId: OFFICIAL_MESSAGE_ID,
       }),
     }),
     clock: { now: () => new Date(NOW) },
@@ -176,15 +179,15 @@ test("adapter uses the locked real SES client and sends exactly one template rec
   const client = {
     async SendEmail(request) {
       requests.push(structuredClone(request));
-      return { RequestId: "request-123", MessageId: "message-456" };
+      return { RequestId: OFFICIAL_REQUEST_ID, MessageId: OFFICIAL_MESSAGE_ID };
     },
   };
   const adapter = new SesAdapter(sesConfig(), client);
   const delivery = await adapter.send(mail());
 
   assert.deepEqual(delivery, {
-    providerRequestId: "request-123",
-    providerMessageId: "message-456",
+    providerRequestId: OFFICIAL_REQUEST_ID,
+    providerMessageId: OFFICIAL_MESSAGE_ID,
   });
   assert.deepEqual(requests, [
     {
@@ -226,21 +229,104 @@ test("SES errors map to a closed permanent or retryable code without raw text", 
   }
 });
 
-test("adapter rejects missing or PII-shaped response identifiers as a safe transient error", async () => {
-  for (const response of [
-    {},
-    { RequestId: "alice@example.invalid" },
-    { RequestId: "13800138000" },
-  ]) {
-    const adapter = new SesAdapter(sesConfig(), { SendEmail: async () => response });
-    await assert.rejects(
-      () => adapter.send(mail()),
-      (error) =>
-        error.code === "INVALID_PROVIDER_RESPONSE" &&
-        error.retryable === true &&
-        !JSON.stringify(error).includes("alice"),
-    );
+test("official SES availability and temporary-block codes remain retryable", () => {
+  const cases = [
+    ["FailedOperation.ServiceNotAvailable", "SERVICE_UNAVAILABLE", true],
+    ["FailedOperation.HighRejectionRate", "TEMPORARY_BLOCKED", true],
+    ["FailedOperation.TemporaryBlocked", "TEMPORARY_BLOCKED", true],
+    ["FailedOperation.SendEmailErr", "UNKNOWN_ERROR", true],
+    ["FailedOperation.FutureProviderCode", "UNKNOWN_ERROR", true],
+    ["InvalidConfiguration.MissingSender", "CONFIGURATION_ERROR", false],
+  ];
+
+  assert.deepEqual(
+    cases.map(([providerCode]) => classifySesError({ code: providerCode })),
+    cases.map(([, code, retryable]) => ({ code, retryable })),
+  );
+});
+
+test("official SES address, template, sender, permission, and quota codes remain permanent", () => {
+  const cases = [
+    ["FailedOperation.IncorrectEmail", "INVALID_ADDRESS"],
+    ["FailedOperation.EmailAddrInBlacklist", "INVALID_ADDRESS"],
+    ["FailedOperation.ReceiverHasUnsubscribed", "INVALID_ADDRESS"],
+    ["FailedOperation.RejectedByRecipients", "INVALID_ADDRESS"],
+    ["FailedOperation.InvalidTemplateID", "INVALID_TEMPLATE"],
+    ["FailedOperation.TemplateContentToolarge", "INVALID_TEMPLATE"],
+    ["FailedOperation.EmailContentToolarge", "INVALID_PARAMETER"],
+    ["FailedOperation.TooManyRecipients", "INVALID_PARAMETER"],
+    ["FailedOperation.WrongContentJson", "INVALID_PARAMETER"],
+    ["FailedOperation.NotAuthenticatedSender", "AUTH_ERROR"],
+    ["FailedOperation.WithOutPermission", "AUTH_ERROR"],
+    ["FailedOperation.IncorrectSender", "CONFIGURATION_ERROR"],
+    ["FailedOperation.DKIMNotApplied", "CONFIGURATION_ERROR"],
+    ["FailedOperation.InsufficientBalance", "CONFIGURATION_ERROR"],
+    ["FailedOperation.InsufficientQuota", "CONFIGURATION_ERROR"],
+    ["FailedOperation.UnsupportMailType", "CONFIGURATION_ERROR"],
+  ];
+
+  assert.deepEqual(
+    cases.map(([providerCode]) => classifySesError({ code: providerCode })),
+    cases.map(([, code]) => ({ code, retryable: false })),
+  );
+  assert.deepEqual(classifySesError({ code: "FailedOperation.SendEmailErr" }), {
+    code: "UNKNOWN_ERROR",
+    retryable: true,
+  });
+});
+
+test("SES classification never infers permanence from words inside an unknown FailedOperation", () => {
+  const unknown = [
+    "FailedOperation.TemplateBackendGlitch",
+    "FailedOperation.AddressServiceUnavailable",
+    "FailedOperation.InvalidParameterCacheTimeout",
+  ];
+  assert.deepEqual(
+    unknown.map((code) => classifySesError({ code })),
+    unknown.map(() => ({ code: "UNKNOWN_ERROR", retryable: true })),
+  );
+
+  assert.deepEqual(
+    [
+      classifySesError({ code: "FailedOperation.ProtocolCheckErr" }),
+      classifySesError({ code: "UnknownParameter.FutureField" }),
+      classifySesError({ code: "OperationDenied.FuturePolicy" }),
+    ],
+    [
+      { code: "INVALID_PARAMETER", retryable: false },
+      { code: "INVALID_PARAMETER", retryable: false },
+      { code: "CONFIGURATION_ERROR", retryable: false },
+    ],
+  );
+});
+
+test("adapter redacts every non-official non-empty provider ID without repeating a resolved send", async () => {
+  for (const unsafeId of ["AdaLovelace", "Alice123", "alice@example.invalid", "13800138000"]) {
+    let sends = 0;
+    const adapter = new SesAdapter(sesConfig(), {
+      SendEmail: async () => {
+        sends += 1;
+        return { RequestId: unsafeId, MessageId: unsafeId };
+      },
+    });
+
+    assert.deepEqual(await adapter.send(mail()), {
+      providerRequestId: "REDACTED",
+      providerMessageId: "REDACTED",
+    });
+    assert.equal(sends, 1);
   }
+});
+
+test("adapter treats a missing request ID as a safe provider-response failure", async () => {
+  const adapter = new SesAdapter(sesConfig(), { SendEmail: async () => ({}) });
+  await assert.rejects(
+    () => adapter.send(mail()),
+    (error) =>
+      error.code === "INVALID_PROVIDER_RESPONSE" &&
+      error.retryable === true &&
+      !JSON.stringify(error).includes("alice"),
+  );
 });
 
 test("successful and failed mail outcomes never mutate booking state", async () => {
@@ -258,7 +344,7 @@ test("successful and failed mail outcomes never mutate booking state", async () 
         createSender: () => ({
           send: async () => {
             if (outcome === "failure") throw { code: "InvalidParameterValue" };
-            return { providerRequestId: "request-123" };
+            return { providerRequestId: OFFICIAL_REQUEST_ID };
           },
         }),
       }),
@@ -288,7 +374,7 @@ test("worker sends only after the fenced claim promise has committed", async () 
       createSender: () => ({
         send: async () => {
           order.push("ses-send");
-          return { providerRequestId: "request-123" };
+          return { providerRequestId: OFFICIAL_REQUEST_ID };
         },
       }),
     }),
@@ -315,7 +401,7 @@ test("worker caps one invocation at twenty and uses a unique five-minute fence p
       createSender: () => ({
         send: async (message) => {
           sentMail.push(structuredClone(message));
-          return { providerRequestId: `request-${sentMail.length}` };
+          return { providerRequestId: OFFICIAL_REQUEST_ID };
         },
       }),
     }),
@@ -353,7 +439,7 @@ test("slow sends use a fresh claim lease and schedule retries from the failure i
         send: async () => {
           sends += 1;
           if (sends === 2) throw { code: "InternalError.DbError" };
-          return { providerRequestId: "request-123" };
+          return { providerRequestId: OFFICIAL_REQUEST_ID };
         },
       }),
     }),
@@ -386,7 +472,7 @@ test("worker sends an allowlisted transient template payload to the correct reci
       createSender: () => ({
         send: async (message) => {
           messages.push(structuredClone(message));
-          return { providerRequestId: `request-${messages.length}` };
+          return { providerRequestId: OFFICIAL_REQUEST_ID };
         },
       }),
     }),
@@ -413,6 +499,114 @@ test("worker sends an allowlisted transient template payload to the correct reci
   assert.equal(serialized.includes("13800138000"), false);
   assert.equal(serialized.includes("phone-hash-secret"), false);
   assert.equal(serialized.includes("private note"), false);
+});
+
+test("reschedule proposal mail uses the proposed session rather than the current booking session", async () => {
+  const outbox = new WorkerOutbox([
+    notification({ kind: "reschedule_proposed", bookingVersion: 2 }),
+  ]);
+  const messages = [];
+  await runMailer(
+    workerDependencies({
+      outbox,
+      bookings: {
+        getBookingById: async () =>
+          booking({
+            version: 2,
+            status: "reschedule_proposed",
+            proposedDate: "2026-08-12",
+            proposedSessionId: "2026-08-12__slot-2000",
+            proposedStartAt: "2026-08-12T12:00:00.000Z",
+            proposedEndAt: "2026-08-12T13:00:00.000Z",
+            proposedCourtId: "09",
+          }),
+      },
+      createSender: () => ({
+        send: async (message) => {
+          messages.push(structuredClone(message));
+          return { providerRequestId: OFFICIAL_REQUEST_ID };
+        },
+      }),
+    }),
+  );
+
+  assert.deepEqual(messages[0].templateData, {
+    ...mail().templateData,
+    kind: "reschedule_proposed",
+    date: "2026-08-12",
+    startAt: "2026-08-12T12:00:00.000Z",
+    endAt: "2026-08-12T13:00:00.000Z",
+    status: "reschedule_proposed",
+    courtId: "09",
+  });
+});
+
+test("superseded or incomplete proposal events terminate without invoking SES", async () => {
+  const cases = [
+    booking({ version: 3, status: "confirmed" }),
+    booking({ version: 3, status: "pending" }),
+    booking({ version: 3, status: "cancelled" }),
+    booking({ version: 2, status: "reschedule_proposed" }),
+  ];
+
+  for (const currentBooking of cases) {
+    const outbox = new WorkerOutbox([
+      notification({ kind: "reschedule_proposed", bookingVersion: 2 }),
+    ]);
+    let sends = 0;
+    await runMailer(
+      workerDependencies({
+        outbox,
+        bookings: { getBookingById: async () => currentBooking },
+        createSender: () => ({
+          send: async () => {
+            sends += 1;
+            return { providerRequestId: OFFICIAL_REQUEST_ID };
+          },
+        }),
+      }),
+    );
+    assert.equal(sends, 0);
+    assert.deepEqual(outbox.failed, [[
+      "event-001",
+      "random-2",
+      NOW,
+      "EVENT_SUPERSEDED",
+    ]]);
+  }
+});
+
+test("every current notification kind remains deliverable", async () => {
+  for (const kind of [
+    "created",
+    "confirmed",
+    "reschedule_proposed",
+    "reschedule_accepted",
+    "reschedule_rejected",
+    "cancelled",
+  ]) {
+    const outbox = new WorkerOutbox([notification({ kind, bookingVersion: 2 })]);
+    const currentBooking = booking({
+      version: 2,
+      ...(kind === "reschedule_proposed"
+        ? {
+            status: "reschedule_proposed",
+            proposedDate: "2026-08-12",
+            proposedStartAt: "2026-08-12T12:00:00.000Z",
+            proposedEndAt: "2026-08-12T13:00:00.000Z",
+            proposedCourtId: "09",
+          }
+        : {}),
+    });
+    await runMailer(
+      workerDependencies({
+        outbox,
+        bookings: { getBookingById: async () => currentBooking },
+      }),
+    );
+    assert.equal(outbox.sent.length, 1, kind);
+    assert.deepEqual(outbox.failed, [], kind);
+  }
 });
 
 test("transient retries use 1, 2, 4, 8 minutes and the fifth failure is immediately terminal", async () => {
@@ -489,7 +683,7 @@ test("permanent SES failure and unavailable recipients fail safely without retri
       createSender: () => ({
         send: async () => {
           sendCalls += 1;
-          return { providerRequestId: "request-unused" };
+          return { providerRequestId: OFFICIAL_REQUEST_ID };
         },
       }),
     }),

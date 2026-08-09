@@ -291,6 +291,69 @@ test("email-bearing lifecycle changes enqueue one customer event per communicabl
   );
 });
 
+test("notification events carry only the version produced by their booking mutation", async () => {
+  // Catches stale delivery ambiguity and accidental PII snapshots in the Outbox.
+  const { repository, service } = setup();
+  const created = await service.create(command());
+  const confirmed = await service.confirm({
+    bookingId: created.id,
+    expectedVersion: created.version,
+    actorId: "staff-1",
+  });
+  const proposal = await service.proposeReschedule({
+    bookingId: created.id,
+    sessionId: NEXT_LATER,
+    expectedVersion: confirmed.version,
+    actorId: "staff-1",
+  });
+  const rejected = await service.respondToReschedule({
+    bookingId: created.id,
+    expectedVersion: proposal.version,
+    accept: false,
+    actorType: "customer",
+  });
+
+  const events = await repository.listNotifications();
+  assert.deepEqual(
+    events.map(({ kind, recipientType, bookingVersion }) => ({
+      kind,
+      recipientType,
+      bookingVersion,
+    })),
+    [
+      { kind: "created", recipientType: "staff", bookingVersion: created.version },
+      { kind: "created", recipientType: "customer", bookingVersion: created.version },
+      { kind: "confirmed", recipientType: "customer", bookingVersion: confirmed.version },
+      {
+        kind: "reschedule_proposed",
+        recipientType: "customer",
+        bookingVersion: proposal.version,
+      },
+      {
+        kind: "reschedule_rejected",
+        recipientType: "customer",
+        bookingVersion: rejected.version,
+      },
+    ],
+  );
+  for (const event of events) {
+    for (const forbidden of [
+      "name",
+      "email",
+      "phone",
+      "note",
+      "code",
+      "date",
+      "startAt",
+      "endAt",
+      "courtId",
+      "proposedDate",
+    ]) {
+      assert.equal(forbidden in event, false);
+    }
+  }
+});
+
 test("bookings without email never enqueue customer lifecycle events", async () => {
   // Catches attempts to deliver lifecycle mail without a customer recipient.
   const { repository, service } = setup();

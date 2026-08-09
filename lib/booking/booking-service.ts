@@ -251,11 +251,18 @@ export class BookingService {
         this.audit(auditId, booking, "created", "system", now, undefined, "pending"),
       );
       await transaction.enqueueNotification(
-        this.notification(staffNotificationId, booking.id, "created", "staff", now),
+        this.notification(staffNotificationId, booking.id, booking.version, "created", "staff", now),
       );
       if (customerNotificationId) {
         await transaction.enqueueNotification(
-          this.notification(customerNotificationId, booking.id, "created", "customer", now),
+          this.notification(
+            customerNotificationId,
+            booking.id,
+            booking.version,
+            "created",
+            "customer",
+            now,
+          ),
         );
       }
       return booking;
@@ -323,6 +330,7 @@ export class BookingService {
           this.notification(
             notificationId,
             booking.id,
+            updated.version,
             "reschedule_proposed",
             "customer",
             now,
@@ -401,6 +409,7 @@ export class BookingService {
           this.notification(
             notificationId,
             booking.id,
+            updated.version,
             command.accept ? "reschedule_accepted" : "reschedule_rejected",
             "customer",
             now,
@@ -445,7 +454,14 @@ export class BookingService {
       );
       if (hasNotificationEmail(booking)) {
         await transaction.enqueueNotification(
-          this.notification(notificationId, booking.id, "cancelled", "customer", now),
+          this.notification(
+            notificationId,
+            booking.id,
+            updated.version,
+            "cancelled",
+            "customer",
+            now,
+          ),
         );
       }
       return updated;
@@ -595,7 +611,14 @@ export class BookingService {
       );
       if (hasNotificationEmail(booking)) {
         await transaction.enqueueNotification(
-          this.notification(notificationId, booking.id, action, "customer", now),
+          this.notification(
+            notificationId,
+            booking.id,
+            updated.version,
+            action,
+            "customer",
+            now,
+          ),
         );
       }
       return updated;
@@ -677,6 +700,7 @@ export class BookingService {
   private notification(
     id: string,
     bookingId: string,
+    bookingVersion: number,
     kind: NotificationKind,
     recipientType: NotificationEvent["recipientType"],
     now: string,
@@ -684,6 +708,7 @@ export class BookingService {
     return {
       id,
       bookingId,
+      bookingVersion,
       kind,
       recipientType,
       status: "pending",

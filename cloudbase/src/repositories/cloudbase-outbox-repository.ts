@@ -53,6 +53,7 @@ const safeErrorCodes = new Set([
   "AUTH_ERROR",
   "BOOKING_NOT_FOUND",
   "CONFIGURATION_ERROR",
+  "EVENT_SUPERSEDED",
   "INTERNAL_ERROR",
   "INVALID_ADDRESS",
   "INVALID_PARAMETER",
@@ -72,12 +73,13 @@ function normalizeErrorCode(value: string): string {
   return safeErrorCodes.has(value) ? value : "UNKNOWN_ERROR";
 }
 
-function normalizeProviderId(value: string): string {
+const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const messageIdPattern =
+  /^qcloudses-\d{1,10}-\d{1,20}-date-\d{14}-[A-Za-z0-9]{1,64}$/;
+
+function normalizeProviderId(value: string, pattern: RegExp): string {
   const normalized = value.trim();
-  return !/^\d{8,15}$/.test(normalized) &&
-    /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(normalized)
-    ? normalized
-    : "REDACTED";
+  return pattern.test(normalized) ? normalized : "REDACTED";
 }
 
 export class CloudBaseOutboxRepository implements NotificationOutboxRepository {
@@ -165,9 +167,9 @@ export class CloudBaseOutboxRepository implements NotificationOutboxRepository {
     delivery: ProviderDelivery,
   ): Promise<boolean> {
     return this.mark(eventId, leaseToken, async (document, remove) => {
-      const providerRequestId = normalizeProviderId(delivery.providerRequestId);
+      const providerRequestId = normalizeProviderId(delivery.providerRequestId, requestIdPattern);
       const providerMessageId = delivery.providerMessageId
-        ? normalizeProviderId(delivery.providerMessageId)
+        ? normalizeProviderId(delivery.providerMessageId, messageIdPattern)
         : undefined;
       await document.update({
         status: "sent",

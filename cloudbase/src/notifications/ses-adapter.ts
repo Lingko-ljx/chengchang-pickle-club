@@ -86,40 +86,145 @@ function httpCode(error: unknown): number | undefined {
   return typeof error.httpCode === "number" ? error.httpCode : undefined;
 }
 
+const exactSesErrors: Readonly<Record<string, ClassifiedSesError>> = {
+  ["failedoperation.serviceNotavailable".toLowerCase()]: {
+    code: "SERVICE_UNAVAILABLE",
+    retryable: true,
+  },
+  ["failedoperation.highRejectionRate".toLowerCase()]: {
+    code: "TEMPORARY_BLOCKED",
+    retryable: true,
+  },
+  ["failedoperation.temporaryBlocked".toLowerCase()]: {
+    code: "TEMPORARY_BLOCKED",
+    retryable: true,
+  },
+  ["failedoperation.frequencyLimit".toLowerCase()]: {
+    code: "TEMPORARY_BLOCKED",
+    retryable: true,
+  },
+  ["failedoperation.exceedSendLimit".toLowerCase()]: {
+    code: "TEMPORARY_BLOCKED",
+    retryable: true,
+  },
+  ["failedoperation.templateContentIsTooLong".toLowerCase()]: {
+    code: "INVALID_TEMPLATE",
+    retryable: false,
+  },
+  ["failedoperation.invalidTemplateID".toLowerCase()]: {
+    code: "INVALID_TEMPLATE",
+    retryable: false,
+  },
+  ["failedoperation.templateContentToolarge".toLowerCase()]: {
+    code: "INVALID_TEMPLATE",
+    retryable: false,
+  },
+  ["failedoperation.emailAddressIsNotVerified".toLowerCase()]: {
+    code: "INVALID_ADDRESS",
+    retryable: false,
+  },
+  ["failedoperation.emailAddrIsNotVerified".toLowerCase()]: {
+    code: "INVALID_ADDRESS",
+    retryable: false,
+  },
+  ["failedoperation.incorrectEmail".toLowerCase()]: {
+    code: "INVALID_ADDRESS",
+    retryable: false,
+  },
+  ["failedoperation.emailAddrInBlacklist".toLowerCase()]: {
+    code: "INVALID_ADDRESS",
+    retryable: false,
+  },
+  ["failedoperation.receiverHasUnsubscribed".toLowerCase()]: {
+    code: "INVALID_ADDRESS",
+    retryable: false,
+  },
+  ["failedoperation.rejectedByRecipients".toLowerCase()]: {
+    code: "INVALID_ADDRESS",
+    retryable: false,
+  },
+  ["failedoperation.emailContentToolarge".toLowerCase()]: {
+    code: "INVALID_PARAMETER",
+    retryable: false,
+  },
+  ["failedoperation.tooManyRecipients".toLowerCase()]: {
+    code: "INVALID_PARAMETER",
+    retryable: false,
+  },
+  ["failedoperation.wrongContentJson".toLowerCase()]: {
+    code: "INVALID_PARAMETER",
+    retryable: false,
+  },
+  ["failedoperation.protocolCheckErr".toLowerCase()]: {
+    code: "INVALID_PARAMETER",
+    retryable: false,
+  },
+  ["failedoperation.notAuthenticatedSender".toLowerCase()]: {
+    code: "AUTH_ERROR",
+    retryable: false,
+  },
+  ["failedoperation.withOutPermission".toLowerCase()]: {
+    code: "AUTH_ERROR",
+    retryable: false,
+  },
+  ["failedoperation.incorrectSender".toLowerCase()]: {
+    code: "CONFIGURATION_ERROR",
+    retryable: false,
+  },
+  ["failedoperation.dkimNotApplied".toLowerCase()]: {
+    code: "CONFIGURATION_ERROR",
+    retryable: false,
+  },
+  ["failedoperation.insufficientBalance".toLowerCase()]: {
+    code: "CONFIGURATION_ERROR",
+    retryable: false,
+  },
+  ["failedoperation.insufficientQuota".toLowerCase()]: {
+    code: "CONFIGURATION_ERROR",
+    retryable: false,
+  },
+  ["failedoperation.unsupportMailType".toLowerCase()]: {
+    code: "CONFIGURATION_ERROR",
+    retryable: false,
+  },
+};
+
+const sesErrorFamilies: ReadonlyArray<readonly [string, ClassifiedSesError]> = [
+  ["internalerror", { code: "INTERNAL_ERROR", retryable: true }],
+  ["requestlimitexceeded", { code: "REQUEST_LIMITED", retryable: true }],
+  ["serviceunavailable", { code: "SERVICE_UNAVAILABLE", retryable: true }],
+  ["resourceunavailable", { code: "RESOURCE_UNAVAILABLE", retryable: true }],
+  ["resourceinsufficient", { code: "RESOURCE_INSUFFICIENT", retryable: true }],
+  ["authfailure", { code: "AUTH_ERROR", retryable: false }],
+  ["unauthorizedoperation", { code: "AUTH_ERROR", retryable: false }],
+  ["invalidcredential", { code: "AUTH_ERROR", retryable: false }],
+  ["secretidnotfound", { code: "AUTH_ERROR", retryable: false }],
+  ["signaturefailure", { code: "AUTH_ERROR", retryable: false }],
+  ["invalidparameter", { code: "INVALID_PARAMETER", retryable: false }],
+  ["invalidparametervalue", { code: "INVALID_PARAMETER", retryable: false }],
+  ["missingparameter", { code: "INVALID_PARAMETER", retryable: false }],
+  ["unknownparameter", { code: "INVALID_PARAMETER", retryable: false }],
+  ["unsupportedoperation", { code: "INVALID_PARAMETER", retryable: false }],
+  ["invalidaction", { code: "CONFIGURATION_ERROR", retryable: false }],
+  ["invalidconfiguration", { code: "CONFIGURATION_ERROR", retryable: false }],
+  ["operationdenied", { code: "CONFIGURATION_ERROR", retryable: false }],
+];
+
+function inSesErrorFamily(code: string, family: string): boolean {
+  return code === family || code.startsWith(`${family}.`);
+}
+
 export function classifySesError(error: unknown): ClassifiedSesError {
   if (error instanceof SesDeliveryError) {
     return { code: error.code, retryable: error.retryable };
   }
   const code = errorCode(error);
   if (code) {
-    if (/^(InternalError)/i.test(code)) return { code: "INTERNAL_ERROR", retryable: true };
-    if (/^(RequestLimitExceeded)/i.test(code)) {
-      return { code: "REQUEST_LIMITED", retryable: true };
-    }
-    if (/^(ServiceUnavailable)/i.test(code)) {
-      return { code: "SERVICE_UNAVAILABLE", retryable: true };
-    }
-    if (/^(ResourceUnavailable)/i.test(code)) {
-      return { code: "RESOURCE_UNAVAILABLE", retryable: true };
-    }
-    if (/^(ResourceInsufficient)/i.test(code)) {
-      return { code: "RESOURCE_INSUFFICIENT", retryable: true };
-    }
-    if (/(FrequencyLimit|SendLimit|Throttl|Temporar|Blocked)/i.test(code)) {
-      return { code: "TEMPORARY_BLOCKED", retryable: true };
-    }
-    if (/(AuthFailure|Unauthorized|InvalidCredential|SecretId|Signature)/i.test(code)) {
-      return { code: "AUTH_ERROR", retryable: false };
-    }
-    if (/Template/i.test(code)) return { code: "INVALID_TEMPLATE", retryable: false };
-    if (/(EmailAddress|Address|BlackList|Unsubscribe)/i.test(code)) {
-      return { code: "INVALID_ADDRESS", retryable: false };
-    }
-    if (/(InvalidParameter|MissingParameter|UnsupportedOperation)/i.test(code)) {
-      return { code: "INVALID_PARAMETER", retryable: false };
-    }
-    if (/^(FailedOperation|InvalidAction|InvalidConfiguration)/i.test(code)) {
-      return { code: "CONFIGURATION_ERROR", retryable: false };
+    const normalizedCode = code.trim().toLowerCase();
+    const exact = exactSesErrors[normalizedCode];
+    if (exact) return exact;
+    for (const [family, classification] of sesErrorFamilies) {
+      if (inSesErrorFamily(normalizedCode, family)) return classification;
     }
     return { code: "UNKNOWN_ERROR", retryable: true };
   }
@@ -129,12 +234,20 @@ export function classifySesError(error: unknown): ClassifiedSesError {
   return { code: "NETWORK_ERROR", retryable: true };
 }
 
-function validProviderId(value: unknown): value is string {
+const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const messageIdPattern =
+  /^qcloudses-\d{1,10}-\d{1,20}-date-\d{14}-[A-Za-z0-9]{1,64}$/;
+
+function normalizeRequestId(value: unknown): string | undefined {
   const normalized = typeof value === "string" ? value.trim() : "";
-  return (
-    !/^\d{8,15}$/.test(normalized) &&
-    /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(normalized)
-  );
+  if (normalized === "") return undefined;
+  return requestIdPattern.test(normalized) ? normalized : "REDACTED";
+}
+
+function normalizeMessageId(value: unknown): string | undefined {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (normalized === "") return undefined;
+  return messageIdPattern.test(normalized) ? normalized : "REDACTED";
 }
 
 export function createSesClient(config: SesAdapterConfig): InstanceType<typeof ses.v20201002.Client> {
@@ -181,15 +294,14 @@ export class SesAdapter {
       const classified = classifySesError(error);
       throw new SesDeliveryError(classified.code, classified.retryable);
     }
-    if (!validProviderId(response.RequestId)) {
+    const providerRequestId = normalizeRequestId(response.RequestId);
+    if (!providerRequestId) {
       throw new SesDeliveryError("INVALID_PROVIDER_RESPONSE", true);
     }
-    if (response.MessageId !== undefined && !validProviderId(response.MessageId)) {
-      throw new SesDeliveryError("INVALID_PROVIDER_RESPONSE", true);
-    }
+    const providerMessageId = normalizeMessageId(response.MessageId);
     return {
-      providerRequestId: response.RequestId.trim(),
-      ...(response.MessageId ? { providerMessageId: response.MessageId.trim() } : {}),
+      providerRequestId,
+      ...(providerMessageId ? { providerMessageId } : {}),
     };
   }
 }
