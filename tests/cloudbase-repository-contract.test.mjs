@@ -376,6 +376,38 @@ test("CloudBase booking export pushes the inclusive date range down before its h
   assert.equal(trace.limit, 500);
 });
 
+test("CloudBase audit history reads every ordered page for one booking", async () => {
+  const all = Array.from({ length: 101 }, (_, index) => ({
+    id: `audit-${String(index).padStart(3, "0")}`,
+    bookingId: "booking-1",
+    action: "changed",
+    actorType: "staff",
+    at: `2026-08-01T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+    metadata: {},
+  }));
+  const trace = { condition: undefined, orders: [], skips: [] };
+  let offset = 0;
+  let pageSize = 100;
+  const query = {
+    where(condition) { trace.condition = condition; return this; },
+    orderBy(field, direction) { trace.orders.push([field, direction]); return this; },
+    skip(value) { offset = value; trace.skips.push(value); return this; },
+    limit(value) { pageSize = value; return this; },
+    async get() { return { data: all.slice(offset, offset + pageSize) }; },
+  };
+  const repository = new CloudBaseBookingRepository({
+    command: {},
+    collection(name) { assert.equal(name, "audit_logs"); return query; },
+  });
+
+  const result = await repository.listAuditLogs("booking-1");
+
+  assert.equal(result.length, 101);
+  assert.deepEqual(trace.condition, { bookingId: "booking-1" });
+  assert.deepEqual(trace.orders.slice(0, 2), [["at", "asc"], ["id", "asc"]]);
+  assert.deepEqual(trace.skips, [0, 100]);
+});
+
 test("court and template updates append deterministic staff audits in their transactions", async () => {
   // Catches dropping the authenticated actor or committing configuration without its audit.
   const database = new FakeCloudBaseDatabase({

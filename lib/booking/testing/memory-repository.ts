@@ -280,9 +280,24 @@ export class MemoryBookingRepository implements BookingRepository {
       .map(cloneValue);
   }
 
-  async listAuditLogs(): Promise<AuditLog[]> {
+  async listCourts(): Promise<CourtRecord[]> {
+    await this.queue;
+    return Array.from(this.state.courts.values())
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map(cloneValue);
+  }
+
+  async listSessionTemplates(): Promise<SessionTemplateRecord[]> {
+    await this.queue;
+    return Array.from(this.state.sessionTemplates.values())
+      .sort((left, right) => left.startTime.localeCompare(right.startTime) || left.id.localeCompare(right.id))
+      .map(cloneValue);
+  }
+
+  async listAuditLogs(bookingId?: string): Promise<AuditLog[]> {
     await this.queue;
     return Array.from(this.state.auditLogs.values())
+      .filter((audit) => !bookingId || audit.bookingId === bookingId)
       .sort((left, right) => left.at.localeCompare(right.at) || left.id.localeCompare(right.id))
       .map(cloneValue);
   }

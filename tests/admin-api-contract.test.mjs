@@ -85,6 +85,9 @@ function fakeService(trace = []) {
     redactPersonalData: invoke("redactPersonalData", undefined),
     listAvailability: invoke("listAvailability", [{ sessionId: MORNING }]),
     listBookings: invoke("listBookings", [record]),
+    listCourts: invoke("listCourts", [{ id: "01", enabled: false, version: 7 }]),
+    listSessionTemplates: invoke("listSessionTemplates", [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }]),
+    listAuditLogs: invoke("listAuditLogs", [{ id: "audit-1", bookingId: record.id, action: "confirmed", actorType: "staff", actorId: "private-staff-id", at: "2098-12-02T00:00:00.000Z", metadata: { phone: "13800138000" } }]),
     setCourtEnabled: invoke("setCourtEnabled", undefined),
     setSessionTemplateEnabled: invoke("setSessionTemplateEnabled", undefined),
   };
@@ -118,6 +121,28 @@ test("missing and rejected bearer tokens return sanitized 401 responses before s
   });
   assert.equal(rejected.body.includes(TOKEN), false);
   assert.deepEqual(trace, []);
+});
+
+test("protected settings and booking audit routes expose versioned, non-PII DTOs", async () => {
+  const trace = [];
+  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+
+  const settings = await handler(event("GET", "/v1/admin/settings"));
+  const audits = await handler(event("GET", "/v1/admin/bookings/booking-1/audit-logs"));
+
+  assert.equal(settings.statusCode, 200);
+  assert.deepEqual(responseBody(settings).data, {
+    courts: [{ id: "01", enabled: false, version: 7 }],
+    sessionTemplates: [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }],
+  });
+  assert.deepEqual(responseBody(audits).data, [{
+    id: "audit-1",
+    action: "confirmed",
+    actorType: "staff",
+    at: "2098-12-02T00:00:00.000Z",
+  }]);
+  assert.equal(audits.body.includes("private-staff-id"), false);
+  assert.equal(audits.body.includes("13800138000"), false);
 });
 
 test("non-staff profiles return 403 and never enter the booking service", async () => {

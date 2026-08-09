@@ -20,6 +20,7 @@ export type AdminBooking = {
   endAt: string;
   courtId?: string;
   proposedSessionId?: string;
+  proposedCourtId?: string;
   mode: "private" | "open";
   partySize: number;
   status: string;
@@ -30,6 +31,15 @@ export type AdminBooking = {
   createdAt: string;
   updatedAt: string;
   version: number;
+};
+
+export type AdminAuditLog = {
+  id: string;
+  action: string;
+  actorType: "customer" | "staff" | "system";
+  fromStatus?: string;
+  toStatus?: string;
+  at: string;
 };
 
 export type AvailabilitySlot = {
@@ -125,9 +135,7 @@ export function renderCourtMatrix(
     row.append(text("th", `${slot.startTime}–${slot.endTime}`));
     for (const courtId of COURT_IDS) {
       const cell = document.createElement("td");
-      const assigned = bookings.filter(
-        (booking) => booking.sessionId === slot.sessionId && booking.courtId === courtId,
-      );
+      const assigned = matrixBookingsForCell(bookings, slot.sessionId, courtId);
       if (!assigned.length) {
         cell.append(text("span", "空闲", "admin-court-empty"));
       } else {
@@ -141,7 +149,26 @@ export function renderCourtMatrix(
   container.append(table);
 }
 
-export function renderBookingDetail(container: Element, booking: AdminBooking | null) {
+export function matrixBookingsForCell<T extends {
+  status: string;
+  sessionId: string;
+  courtId?: string;
+  proposedSessionId?: string;
+  proposedCourtId?: string;
+}>(bookings: T[], sessionId: string, courtId: string): T[] {
+  return bookings.filter((booking) =>
+    booking.status !== "cancelled" &&
+    booking.status !== "completed" &&
+    ((booking.sessionId === sessionId && booking.courtId === courtId) ||
+      (booking.proposedSessionId === sessionId && booking.proposedCourtId === courtId)),
+  );
+}
+
+export function renderBookingDetail(
+  container: Element,
+  booking: AdminBooking | null,
+  audits: AdminAuditLog[] = [],
+) {
   empty(container);
   if (!booking) {
     container.append(text("p", "选择一条预约查看详情和操作。", "admin-empty"));
@@ -155,11 +182,15 @@ export function renderBookingDetail(container: Element, booking: AdminBooking | 
     text("p", booking.email ?? "未留邮箱"),
     text("p", booking.note ?? "无备注"),
   );
-  const timeline = document.createElement("ol");
-  timeline.className = "admin-detail-timeline";
-  timeline.append(
-    text("li", `提交 · ${booking.createdAt}`),
-    text("li", `${statusLabels[booking.status] ?? booking.status} · ${booking.updatedAt}`),
-  );
-  container.append(timeline);
+  if (audits.length) {
+    const timeline = document.createElement("ol");
+    timeline.className = "admin-detail-timeline";
+    for (const audit of audits) {
+      const transition = audit.fromStatus && audit.toStatus
+        ? ` ${audit.fromStatus} → ${audit.toStatus}`
+        : "";
+      timeline.append(text("li", `${audit.action}${transition} · ${audit.at}`));
+    }
+    container.append(timeline);
+  }
 }

@@ -13,6 +13,7 @@ import type {
   CourtRecord,
   NotificationEvent,
   SessionRecord,
+  SessionTemplateRecord,
 } from "./types.ts";
 import { validateCreateBooking } from "./validation.ts";
 
@@ -493,6 +494,18 @@ export class BookingService {
 
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {
     return this.repository.listBookings(filter);
+  }
+
+  listCourts(): Promise<CourtRecord[]> {
+    return this.repository.listCourts();
+  }
+
+  listSessionTemplates(): Promise<SessionTemplateRecord[]> {
+    return this.repository.listSessionTemplates();
+  }
+
+  listAuditLogs(bookingId: string): Promise<AuditLog[]> {
+    return this.repository.listAuditLogs(bookingId);
   }
 
   setCourtEnabled(

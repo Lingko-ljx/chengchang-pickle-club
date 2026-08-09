@@ -108,6 +108,24 @@ test("eleven private bookings fill eleven courts and the twelfth fails", async (
   );
 });
 
+test("staff reads versioned configuration and booking-scoped audit history", async () => {
+  const { service } = setup();
+  const created = await service.create(command());
+
+  const [courts, templates, audits] = await Promise.all([
+    service.listCourts(),
+    service.listSessionTemplates(),
+    service.listAuditLogs(created.id),
+  ]);
+
+  assert.equal(courts.length, 11);
+  assert.deepEqual(templates.map(({ id, startTime, enabled, version }) => ({ id, startTime, enabled, version })), [
+    { id: "slot-0700", startTime: "07:00", enabled: true, version: 1 },
+    { id: "slot-0800", startTime: "08:00", enabled: true, version: 1 },
+  ]);
+  assert.deepEqual(audits.map((audit) => audit.bookingId), [created.id]);
+});
+
 test("forty-four single open bookings fill all courts", async () => {
   const { service } = setup();
   await Promise.all(

@@ -2,9 +2,12 @@ import { BookingService } from "../../lib/booking/booking-service.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
 import type {
   AdminBookingFilter,
+  AuditLog,
   BookingMode,
   BookingRecord,
   BookingStatus,
+  CourtRecord,
+  SessionTemplateRecord,
 } from "../../lib/booking/types.ts";
 import { currentUser, requireBookingStaff, type AuthFetch } from "./auth/current-user.ts";
 import {
@@ -47,6 +50,9 @@ interface AdminBookingService {
   ): Promise<void>;
   listAvailability(date: string): Promise<unknown[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
+  listCourts(): Promise<CourtRecord[]>;
+  listSessionTemplates(): Promise<SessionTemplateRecord[]>;
+  listAuditLogs(bookingId: string): Promise<AuditLog[]>;
   setCourtEnabled(
     courtId: string,
     enabled: boolean,
@@ -150,6 +156,17 @@ function adminBooking(value: BookingRecord): Record<string, unknown> {
   };
 }
 
+function adminAudit(value: AuditLog): Record<string, unknown> {
+  return {
+    id: value.id,
+    action: value.action,
+    actorType: value.actorType,
+    ...(value.fromStatus ? { fromStatus: value.fromStatus } : {}),
+    ...(value.toStatus ? { toStatus: value.toStatus } : {}),
+    at: value.at,
+  };
+}
+
 const csvColumns: Array<[string, (booking: BookingRecord) => unknown]> = [
   ["booking_code", (booking) => booking.code],
   ["date", (booking) => booking.date],
@@ -240,6 +257,27 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       if (method === "GET" && path === "/v1/admin/bookings") {
         const bookings = await dependencies.service.listBookings(listFilter(event));
         return jsonResponse(200, bookings.map(adminBooking));
+      }
+
+      if (method === "GET" && path === "/v1/admin/settings") {
+        const [courts, sessionTemplates] = await Promise.all([
+          dependencies.service.listCourts(),
+          dependencies.service.listSessionTemplates(),
+        ]);
+        return jsonResponse(200, {
+          courts: courts.map(({ id, enabled, version }) => ({ id, enabled, version })),
+          sessionTemplates: sessionTemplates.map(
+            ({ id, startTime, endTime, enabled, version }) => ({
+              id, startTime, endTime, enabled, version,
+            }),
+          ),
+        });
+      }
+
+      const auditHistory = /^\/v1\/admin\/bookings\/([^/]+)\/audit-logs$/.exec(path);
+      if (method === "GET" && auditHistory) {
+        const logs = await dependencies.service.listAuditLogs(decoded(auditHistory[1]));
+        return jsonResponse(200, logs.map(adminAudit));
       }
 
       if (method === "GET" && path === "/v1/admin/export.csv") {

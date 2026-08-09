@@ -70,6 +70,18 @@ test("exports result and status pages with only their ES5 clients", async () => 
   }
 });
 
+test("exports the admin shell with only its generated client", async () => {
+  const html = await readFile(new URL("../out/admin/index.html", import.meta.url), "utf8");
+  const client = await readFile(new URL("../out/admin-app.js", import.meta.url), "utf8");
+  assert.match(html, /id="admin-login-form"/);
+  assert.match(html, /src="\/chengchang-pickle-club\/admin-app\.js"/);
+  assert.doesNotMatch(html, /_next\/static\/chunks\/[^\"]+\.js|self\.__next|__next_f|modulepreload/);
+  const scripts = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
+  assert.equal(scripts.length, 1);
+  assert.match(scripts[0], /data-admin-client/);
+  assert.match(client, /^"use strict";/);
+});
+
 test("status form cannot place the reserved phone in a native URL submission", async () => {
   const html = await readFile(
     new URL("../out/booking/status/index.html", import.meta.url),

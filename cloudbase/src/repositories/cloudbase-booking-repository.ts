@@ -40,6 +40,7 @@ interface QueryReference {
   get(): Promise<DocumentResponse>;
   where(condition: Record<string, unknown>): QueryReference;
   orderBy(field: string, direction: "asc" | "desc"): QueryReference;
+  skip(value: number): QueryReference;
   limit(value: number): QueryReference;
 }
 
@@ -278,6 +279,24 @@ export class CloudBaseBookingRepository implements BookingRepository {
       .slice(0, limit);
   }
 
+  listCourts(): Promise<CourtRecord[]> {
+    return this.query<CourtRecord>("courts", {}, 100, [["id", "asc"]]);
+  }
+
+  listSessionTemplates(): Promise<SessionTemplateRecord[]> {
+    return this.query<SessionTemplateRecord>("session_templates", {}, 100, [
+      ["startTime", "asc"],
+      ["id", "asc"],
+    ]);
+  }
+
+  listAuditLogs(bookingId: string): Promise<AuditLog[]> {
+    return this.queryAll<AuditLog>("audit_logs", { bookingId }, [
+      ["at", "asc"],
+      ["id", "asc"],
+    ]);
+  }
+
   async listExpiredPersonalData(cutoff: string, limit: number): Promise<BookingRecord[]> {
     const [cancelled, completed] = await Promise.all([
       this.query<BookingRecord>("bookings", { status: "cancelled" }, 500),
@@ -408,5 +427,22 @@ export class CloudBaseBookingRepository implements BookingRepository {
     if (Object.keys(condition).length > 0) query = query.where(condition);
     for (const order of orders) query = query.orderBy(order[0], order[1]);
     return rows<T>(await query.limit(limit).get());
+  }
+
+  private async queryAll<T>(
+    collectionName: string,
+    condition: Record<string, unknown>,
+    orders: Array<[string, "asc" | "desc"]>,
+  ): Promise<T[]> {
+    const pageSize = 100;
+    const values: T[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      let query = this.db.collection(collectionName);
+      if (Object.keys(condition).length > 0) query = query.where(condition);
+      for (const order of orders) query = query.orderBy(order[0], order[1]);
+      const page = rows<T>(await query.skip(offset).limit(pageSize).get());
+      values.push(...page);
+      if (page.length < pageSize) return values;
+    }
   }
 }

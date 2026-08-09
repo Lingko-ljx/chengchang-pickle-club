@@ -8,12 +8,15 @@ import { build } from "esbuild";
 import { createAdminApiClient } from "../admin-client/api.ts";
 import {
   createAuthenticatedSession,
+  createMemoryAuthStorage,
+  initializePrivateAuth,
   readAdminConfig,
 } from "../admin-client/config.ts";
 import {
   BOOKING_ACTIONS,
   COURT_IDS,
   confirmationMessage,
+  matrixBookingsForCell,
   sessionTemplateDuration,
 } from "../admin-client/render.ts";
 
@@ -46,7 +49,7 @@ function containsRuntimeProcessEnv(value) {
   return Object.values(value).some(containsRuntimeProcessEnv);
 }
 
-async function renderAdminPage() {
+async function renderAdminPage(basePath = "/chengchang-pickle-club") {
   const result = await build({
     stdin: {
       contents: `
@@ -66,7 +69,7 @@ async function renderAdminPage() {
     define: {
       "process.env.GITHUB_PAGES": '"true"',
       "process.env.NODE_ENV": '"production"',
-      "process.env.PAGES_BASE_PATH": '"/chengchang-pickle-club"',
+      "process.env.PAGES_BASE_PATH": JSON.stringify(basePath),
       "process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL": '"https://booking-api.example.invalid"',
       "process.env.NEXT_PUBLIC_CLOUDBASE_ENV_ID": '"booking-test-000000"',
     },
@@ -94,9 +97,11 @@ test("every management request carries the current bearer token", async () => {
   await client.mutateBooking("booking-1", "confirm", { expectedVersion: 2 });
   await client.setCourtEnabled("01", false, 3);
   await client.setSessionTemplateEnabled("mon-0900", true, 4);
+  await client.getSettings();
+  await client.getAuditLogs("booking-1");
   await client.exportCsv("2026-08-01", "2026-08-31");
 
-  assert.equal(requests.length, 6);
+  assert.equal(requests.length, 8);
   for (const request of requests) {
     assert.equal(request.init.headers.Authorization, "Bearer staff-access-token");
   }
@@ -146,6 +151,23 @@ test("the court matrix always exposes the eleven planned court columns", () => {
   ]);
 });
 
+test("the matrix excludes terminal bookings and includes proposed reservations", () => {
+  const current = { id: "current", sessionId: "slot-a", courtId: "01", status: "confirmed" };
+  const proposed = {
+    id: "proposed",
+    sessionId: "slot-old",
+    courtId: "02",
+    proposedSessionId: "slot-a",
+    proposedCourtId: "01",
+    status: "reschedule_proposed",
+  };
+  const cancelled = { id: "cancelled", sessionId: "slot-a", courtId: "01", status: "cancelled" };
+  assert.deepEqual(
+    matrixBookingsForCell([current, proposed, cancelled], "slot-a", "01").map((item) => item.id),
+    ["current", "proposed"],
+  );
+});
+
 test("mutation confirmation identifies the booking, date and action", () => {
   const message = confirmationMessage(
     { code: "BOOK-42", date: "2026-08-09" },
@@ -172,21 +194,161 @@ test("booking detail offers every protected lifecycle and privacy action", () =>
   ]);
 });
 
-test("staff login uses the v2 signIn object contract and keeps its token in closure", async () => {
-  const credentials = [];
+test("staff login uses the v2 auth contract and keeps its token in closure", async () => {
+  const operations = [];
+  let privateStorage;
   const session = createAuthenticatedSession({
-    async signIn(input) {
-      credentials.push(input);
-      return { credential: { accessToken: "private-access-token" } };
+    auth(options) {
+      privateStorage = options.storage;
+      operations.push(["auth", options.persistence]);
+      return {
+        async signIn(input) {
+          operations.push(["signIn", input]);
+          return { user: { uid: "staff-user" } };
+        },
+        async getAccessToken() {
+          operations.push(["getAccessToken"]);
+          return { accessToken: "private-access-token", env: "booking-test-000000" };
+        },
+        async signOut() {
+          operations.push(["signOut"]);
+        },
+      };
     },
   });
 
   await session.login("staff-user", "staff-password");
-  assert.deepEqual(credentials, [{ username: "staff-user", password: "staff-password" }]);
+  assert.deepEqual(operations, [
+    ["auth", "none"],
+    ["signIn", { username: "staff-user", password: "staff-password" }],
+    ["getAccessToken"],
+  ]);
   assert.equal(session.getAccessToken(), "private-access-token");
-  session.clear();
+  assert.equal(typeof privateStorage.getItemSync, "function");
+  privateStorage.setItemSync("credentials_test", "private-access-token");
+  await session.clear();
   assert.equal(session.getAccessToken(), "");
+  assert.equal(privateStorage.getItemSync("credentials_test"), null);
+  assert.deepEqual(operations.at(-1), ["signOut"]);
   assert.equal("accessToken" in session, false);
+});
+
+test("private auth injects one memory store at init and auth boundaries", () => {
+  const trace = [];
+  const auth = {
+    async signIn() { return { user: { uid: "staff" } }; },
+    async getAccessToken() { return { accessToken: "token", env: "booking-test" }; },
+    async signOut() {},
+  };
+  initializePrivateAuth({
+    init(options) {
+      trace.push(["init", options]);
+      return {
+        auth(authOptions) {
+          trace.push(["auth", authOptions]);
+          return auth;
+        },
+      };
+    },
+  }, "booking-test");
+  assert.equal(trace[0][1].persistence, "none");
+  assert.equal(trace[1][1].persistence, "none");
+  assert.equal(trace[0][1].storage, trace[1][1].storage);
+  assert.notEqual(trace[0][1].storage, globalThis.localStorage);
+  assert.notEqual(trace[0][1].storage, globalThis.sessionStorage);
+});
+
+test("auth rejects malformed SDK states and clears memory even when signOut reports an error", async () => {
+  const storageValues = [];
+  const app = (signInResult, tokenResult, signOutResult) => ({
+    auth(options) {
+      storageValues.push(options.storage);
+      return {
+        async signIn() { return signInResult; },
+        async getAccessToken() { return tokenResult; },
+        async signOut() { return signOutResult; },
+      };
+    },
+  });
+  await assert.rejects(
+    () => createAuthenticatedSession(app(null, { accessToken: "x", env: "e" })).login("u", "p"),
+    /AUTH_REQUIRED/,
+  );
+  await assert.rejects(
+    () => createAuthenticatedSession(app({ user: undefined }, { accessToken: "x", env: "e" })).login("u", "p"),
+    /AUTH_REQUIRED/,
+  );
+  await assert.rejects(
+    () => createAuthenticatedSession(app({ user: {} }, { accessToken: "", env: "e" })).login("u", "p"),
+    /AUTH_REQUIRED/,
+  );
+  const session = createAuthenticatedSession(app({ user: {} }, { accessToken: "x", env: "e" }, { error: "failed" }));
+  await session.login("u", "p");
+  storageValues.at(-1).setItemSync("credentials_test", "x");
+  await assert.rejects(() => session.clear(), /AUTH_SIGN_OUT_FAILED/);
+  assert.equal(storageValues.at(-1).getItemSync("credentials_test"), null);
+  assert.equal(session.getAccessToken(), "");
+});
+
+test("the installed SDK private-auth wrapper never touches browser credential stores", async () => {
+  const calls = [];
+  const browserStore = (name) => ({
+    getItem(key) { calls.push([name, "get", key]); return null; },
+    setItem(key, value) { calls.push([name, "set", key, value]); },
+    removeItem(key) { calls.push([name, "remove", key]); },
+  });
+  const names = ["localStorage", "sessionStorage", "window", "navigator", "XMLHttpRequest"];
+  const previous = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const localStorage = browserStore("local");
+  const sessionStorage = browserStore("session");
+  class XMLHttpRequest {
+    open() {}
+    setRequestHeader() {}
+    send() {}
+  }
+  const navigator = { userAgent: "node-sdk-contract" };
+  const window = {
+    localStorage,
+    sessionStorage,
+    navigator,
+    XMLHttpRequest,
+    location: { protocol: "https:", host: "localhost", href: "https://localhost/" },
+  };
+  for (const [name, value] of Object.entries({ localStorage, sessionStorage, window, navigator, XMLHttpRequest })) {
+    Object.defineProperty(globalThis, name, { configurable: true, value });
+  }
+  try {
+    const sdk = createRequire(import.meta.url)("@cloudbase/js-sdk");
+    const storage = createMemoryAuthStorage();
+    const app = sdk.init({ env: "booking-test-storage-spy", persistence: "none", storage });
+    const auth = app.auth({ persistence: "none", storage });
+    await auth.setCredentials({
+      access_token: "A_SECRET",
+      refresh_token: "R_SECRET",
+      expires_in: 3600,
+    });
+    assert.deepEqual(await auth.getAccessToken(), {
+      accessToken: "A_SECRET",
+      env: "booking-test-storage-spy",
+    });
+    assert.equal(calls.some((call) => /credentials_/i.test(String(call[2]))), false);
+    assert.equal(calls.some((call) => call.some((value) => /A_SECRET|R_SECRET/.test(String(value)))), false);
+  } finally {
+    for (const name of names) {
+      const descriptor = previous.get(name);
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  }
+});
+
+test("refresh keeps today, matrix, filters and selected audit history independent", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  assert.match(source, /api\.getDashboard\(shanghaiDate\(\)\)/);
+  assert.match(source, /api\.listBookings\(\{ date \}\)/);
+  assert.match(source, /if \(selected\) await loadSelectedAudits\(\)/);
+  assert.doesNotMatch(source, /admin-template-(?:start|version)/);
+  assert.doesNotMatch(await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8"), /`提交 · \$\{booking\.createdAt\}`/);
 });
 
 test("the generated admin client is an ES2017 IIFE without runtime config or secrets", async () => {
@@ -211,4 +373,8 @@ test("the server-rendered admin page contains login and a hidden dashboard", asy
   assert.match(html, /data-site-base-path="\/chengchang-pickle-club"/);
   assert.match(html, /data-admin-client="true"/);
   assert.match(html, /src="\/chengchang-pickle-club\/admin-app\.js"/);
+});
+
+test("the server rejects an unsafe Pages base path before emitting a script URL", async () => {
+  await assert.rejects(() => renderAdminPage("//evil.example/x"), /PAGES_BASE_PATH/);
 });

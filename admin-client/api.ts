@@ -8,7 +8,7 @@ export type BookingFilters = {
 export type AdminApiClientOptions = {
   baseUrl: string;
   getAccessToken: () => string;
-  onUnauthorized: () => void;
+  onUnauthorized: () => void | Promise<void>;
   fetchImpl?: typeof fetch;
 };
 
@@ -34,7 +34,7 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
       `${options.baseUrl.replace(/\/+$/, "")}${path}`,
       { ...init, headers },
     );
-    if (response.status === 401) options.onUnauthorized();
+    if (response.status === 401) await options.onUnauthorized();
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as {
         error?: { code?: string };
@@ -70,6 +70,9 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
     getDashboard: (date: string) => request(`/v1/admin/dashboard${query({ date })}`),
     listBookings: (filters: BookingFilters) =>
       request(`/v1/admin/bookings${query(filters)}`),
+    getSettings: () => request("/v1/admin/settings"),
+    getAuditLogs: (bookingId: string) =>
+      request(`/v1/admin/bookings/${encodeURIComponent(bookingId)}/audit-logs`),
     mutateBooking: (
       bookingId: string,
       action: string,

@@ -1,6 +1,9 @@
 import cloudbase from "@cloudbase/js-sdk";
 import { createAdminApiClient } from "./api.ts";
-import { createAuthenticatedSession, readAdminConfig } from "./config.ts";
+import {
+  initializePrivateAuth,
+  readAdminConfig,
+} from "./config.ts";
 import {
   BOOKING_ACTIONS,
   COURT_IDS,
@@ -9,11 +12,21 @@ import {
   renderBookingList,
   renderCourtMatrix,
   renderPendingQueue,
+  type AdminAuditLog,
   type AdminBooking,
   type AvailabilitySlot,
 } from "./render.ts";
 
 type Dashboard = { date: string; pending: AdminBooking[]; slots: AvailabilitySlot[] };
+type CourtSetting = { id: string; enabled: boolean; version: number };
+type TemplateSetting = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  enabled: boolean;
+  version: number;
+};
+type Settings = { courts: CourtSetting[]; sessionTemplates: TemplateSetting[] };
 
 function required<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -53,23 +66,29 @@ function startAdmin() {
     return;
   }
 
-  const app = cloudbase.init({ env: config.cloudbaseEnvId });
-  const auth = app.auth();
-  const session = createAuthenticatedSession(auth as unknown as Parameters<typeof createAuthenticatedSession>[0]);
+  const session = initializePrivateAuth(
+    cloudbase as unknown as Parameters<typeof initializePrivateAuth>[0],
+    config.cloudbaseEnvId,
+  );
   let selected: AdminBooking | null = null;
-  let dashboard: Dashboard = { date: shanghaiDate(), pending: [], slots: [] };
+  let selectedAudits: AdminAuditLog[] = [];
+  let todayDashboard: Dashboard = { date: shanghaiDate(), pending: [], slots: [] };
+  let selectedDashboard: Dashboard = { date: shanghaiDate(), pending: [], slots: [] };
   let bookings: AdminBooking[] = [];
+  let matrixBookings: AdminBooking[] = [];
+  let settings: Settings = { courts: [], sessionTemplates: [] };
   const selectedDate = required<HTMLInputElement>("admin-filter-date");
-  selectedDate.value = dashboard.date;
+  selectedDate.value = selectedDashboard.date;
 
   const showMessage = (value: string, error = false) => {
     message.textContent = value;
     message.classList.toggle("is-error", error);
     setHidden(message, false);
   };
-  const showLogin = () => {
-    session.clear();
+  const showLogin = async () => {
+    await session.clear().catch(() => undefined);
     selected = null;
+    selectedAudits = [];
     setHidden(dashboardElement, true);
     setHidden(signOutButton, true);
     setHidden(loginForm, false);
@@ -80,21 +99,89 @@ function startAdmin() {
     onUnauthorized: showLogin,
   });
 
-  const onSelect = (booking: AdminBooking) => {
-    selected = booking;
-    renderBookingDetail(required("admin-booking-detail"), booking);
+  const loadSelectedAudits = async () => {
+    const bookingId = selected?.id;
+    if (!bookingId) return;
+    const logs = await api.getAuditLogs(bookingId) as AdminAuditLog[];
+    if (selected?.id !== bookingId) return;
+    selectedAudits = logs;
+    renderBookingDetail(required("admin-booking-detail"), selected, selectedAudits);
     renderActions();
   };
-  const renderAll = () => {
-    required("admin-pending-count").textContent = String(dashboard.pending.length);
-    renderPendingQueue(required("admin-pending-list"), dashboard.pending, onSelect);
-    renderBookingList(required("admin-booking-list"), bookings, onSelect);
-    renderCourtMatrix(required("admin-court-matrix"), dashboard.slots, bookings, onSelect);
-    if (selected) {
-      selected = bookings.find((booking) => booking.id === selected?.id) ?? null;
-    }
-    renderBookingDetail(required("admin-booking-detail"), selected);
+
+  const onSelect = (booking: AdminBooking) => {
+    selected = booking;
+    selectedAudits = [];
+    renderBookingDetail(required("admin-booking-detail"), booking, selectedAudits);
     renderActions();
+    loadSelectedAudits()
+      .catch((error) => showMessage(String(error), true));
+  };
+
+  const renderSettings = () => {
+    const courtControls = required("admin-court-controls");
+    courtControls.replaceChildren();
+    for (const court of settings.courts) {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = court.enabled;
+      input.addEventListener("change", () => {
+        const action = `${input.checked ? "启用" : "停用"}场地 ${court.id}`;
+        if (!window.confirm(confirmationMessage({ code: "系统设置", date: shanghaiDate() }, action))) {
+          input.checked = court.enabled;
+          return;
+        }
+        api.setCourtEnabled(court.id, input.checked, court.version)
+          .then(refresh)
+          .then(() => showMessage(`${action}已保存。`))
+          .catch((error) => {
+            showMessage(String(error), true);
+            refresh().catch((refreshError) => showMessage(String(refreshError), true));
+          });
+      });
+      label.append(input, document.createTextNode(` 场地 ${court.id}`));
+      courtControls.append(label);
+    }
+
+    const templateControls = required("admin-template-controls");
+    templateControls.replaceChildren();
+    for (const template of settings.sessionTemplates) {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = template.enabled;
+      input.addEventListener("change", () => {
+        const action = `${input.checked ? "开放" : "关闭"} 60 分钟场次 ${template.startTime}`;
+        if (!window.confirm(confirmationMessage({ code: template.id, date: shanghaiDate() }, action))) {
+          input.checked = template.enabled;
+          return;
+        }
+        api.setSessionTemplateEnabled(template.id, input.checked, template.version)
+          .then(refresh)
+          .then(() => showMessage(`${action}已保存。`))
+          .catch((error) => {
+            showMessage(String(error), true);
+            refresh().catch((refreshError) => showMessage(String(refreshError), true));
+          });
+      });
+      label.append(input, document.createTextNode(` ${template.startTime}–${template.endTime}`));
+      templateControls.append(label);
+    }
+  };
+
+  const renderAll = () => {
+    required("admin-pending-count").textContent = String(todayDashboard.pending.length);
+    renderPendingQueue(required("admin-pending-list"), todayDashboard.pending, onSelect);
+    renderBookingList(required("admin-booking-list"), bookings, onSelect);
+    renderCourtMatrix(required("admin-court-matrix"), selectedDashboard.slots, matrixBookings, onSelect);
+    if (selected) {
+      selected = [...bookings, ...matrixBookings, ...todayDashboard.pending]
+        .find((booking) => booking.id === selected?.id) ?? null;
+    }
+    renderBookingDetail(required("admin-booking-detail"), selected, selectedAudits);
+    renderActions();
+    renderSettings();
   };
 
   const filters = () => ({
@@ -105,11 +192,15 @@ function startAdmin() {
   });
   const refresh = async () => {
     const date = selectedDate.value || shanghaiDate();
-    [dashboard, bookings] = await Promise.all([
+    [todayDashboard, selectedDashboard, bookings, matrixBookings, settings] = await Promise.all([
+      api.getDashboard(shanghaiDate()) as Promise<Dashboard>,
       api.getDashboard(date) as Promise<Dashboard>,
       api.listBookings(filters()) as Promise<AdminBooking[]>,
+      api.listBookings({ date }) as Promise<AdminBooking[]>,
+      api.getSettings() as Promise<Settings>,
     ]);
     renderAll();
+    if (selected) await loadSelectedAudits();
   };
 
   async function runBookingAction(action: string, label: string) {
@@ -149,31 +240,6 @@ function startAdmin() {
     detail.append(actions);
   }
 
-  for (const courtId of COURT_IDS) {
-    const label = document.createElement("label");
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = true;
-    input.addEventListener("change", () => {
-      const action = `${input.checked ? "启用" : "停用"}场地 ${courtId}`;
-      if (!window.confirm(confirmationMessage({ code: "系统设置", date: selectedDate.value }, action))) {
-        input.checked = !input.checked;
-        return;
-      }
-      api.setCourtEnabled(courtId, input.checked, Number(input.dataset.version ?? 0))
-        .then(() => {
-          input.dataset.version = String(Number(input.dataset.version ?? 0) + 1);
-          showMessage(`${action}已保存。`);
-        })
-        .catch((error) => {
-          input.checked = !input.checked;
-          showMessage(String(error), true);
-        });
-    });
-    label.append(input, document.createTextNode(` 场地 ${courtId}`));
-    required("admin-court-controls").append(label);
-  }
-
   loginForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const username = required<HTMLInputElement>("admin-username").value.trim();
@@ -191,34 +257,18 @@ function startAdmin() {
         await refresh();
       })
       .catch(() => {
-        showLogin();
+        void showLogin();
         loginMessage.textContent = "登录失败，请检查账号、密码和工作人员权限。";
         setHidden(loginMessage, false);
       });
   });
 
   signOutButton.addEventListener("click", () => {
-    showLogin();
-    Promise.resolve(auth.signOut()).catch(() => undefined);
+    void showLogin();
   });
   required<HTMLFormElement>("admin-filter-form").addEventListener("submit", (event) => {
     event.preventDefault();
     refresh().catch((error) => showMessage(String(error), true));
-  });
-  required<HTMLFormElement>("admin-template-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const templateId = required<HTMLInputElement>("admin-template-id").value.trim();
-    const enabled = required<HTMLInputElement>("admin-template-enabled").checked;
-    const versionInput = required<HTMLInputElement>("admin-template-version");
-    const expectedVersion = Number(versionInput.value);
-    const action = `${enabled ? "开放" : "关闭"} 60 分钟场次模板 ${templateId}`;
-    if (!window.confirm(confirmationMessage({ code: "系统设置", date: selectedDate.value }, action))) return;
-    api.setSessionTemplateEnabled(templateId, enabled, expectedVersion)
-      .then(() => {
-        versionInput.value = String(expectedVersion + 1);
-        showMessage(`${action}已保存。`);
-      })
-      .catch((error) => showMessage(String(error), true));
   });
   required<HTMLFormElement>("admin-export-form").addEventListener("submit", (event) => {
     event.preventDefault();

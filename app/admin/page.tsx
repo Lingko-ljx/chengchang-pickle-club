@@ -1,8 +1,15 @@
 import { resolveBookingApiBaseUrl } from "../booking-config";
 
-const basePath = process.env.PAGES_BASE_PATH === "/"
-  ? ""
-  : (process.env.PAGES_BASE_PATH ?? "").replace(/\/+$/, "");
+function validatedBasePath(value: string | undefined): string {
+  const candidate = value?.trim() ?? "";
+  const normalized = candidate === "/" ? "" : candidate.replace(/\/+$/, "");
+  if (normalized && !/^\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(normalized)) {
+    throw new Error("PAGES_BASE_PATH must be empty or a safe absolute path");
+  }
+  return normalized;
+}
+
+const basePath = validatedBasePath(process.env.PAGES_BASE_PATH);
 const required = process.env.GITHUB_PAGES === "true";
 const apiBaseUrl = resolveBookingApiBaseUrl(
   process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL,
@@ -93,7 +100,7 @@ export default function AdminPage() {
             <div className="admin-section-heading"><div><span>SETTINGS</span><h2>场地与开放时段</h2></div></div>
             <div className="admin-settings-grid">
               <div><h3>11 片场地</h3><div className="admin-court-controls" id="admin-court-controls" /></div>
-              <form id="admin-template-form"><h3>60 分钟场次模板</h3><label htmlFor="admin-template-id"><span>模板 ID</span><input id="admin-template-id" required /></label><label htmlFor="admin-template-start"><span>开始时间</span><input id="admin-template-start" required type="time" /></label><label htmlFor="admin-template-enabled"><input defaultChecked id="admin-template-enabled" type="checkbox" /> 开放</label><input id="admin-template-version" min="0" type="number" defaultValue="0" /><p>每个模板固定 60 分钟。</p><button type="submit">保存模板</button></form>
+              <div><h3>60 分钟场次模板</h3><div id="admin-template-controls" /><p>每个模板固定 60 分钟。</p></div>
             </div>
             <form className="admin-export" id="admin-export-form"><h3>CSV 导出</h3><label htmlFor="admin-export-from"><span>开始日期</span><input id="admin-export-from" required type="date" /></label><label htmlFor="admin-export-to"><span>结束日期</span><input id="admin-export-to" required type="date" /></label><button type="submit">下载 CSV</button></form>
           </section>
