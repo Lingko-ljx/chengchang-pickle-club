@@ -9,24 +9,25 @@ async function readPagesWorkflow() {
     "utf8",
   );
 
-  return parse(workflowSource);
+  return { source: workflowSource, workflow: parse(workflowSource) };
 }
 
-test("Pages build receives the public Formspree endpoint", async () => {
-  const workflow = await readPagesWorkflow();
+test("Pages build receives only the public booking API base URL", async () => {
+  const { source, workflow } = await readPagesWorkflow();
   const buildStep = workflow.jobs.build.steps.find(
     (step) => step.name === "Build static site",
   );
 
   assert.ok(buildStep, "workflow must include the named Pages build step");
   assert.equal(
-    buildStep.env?.NEXT_PUBLIC_FORMSPREE_ENDPOINT,
-    "${{ vars.FORMSPREE_ENDPOINT }}",
+    buildStep.env?.NEXT_PUBLIC_BOOKING_API_BASE_URL,
+    "${{ vars.BOOKING_API_BASE_URL }}",
   );
+  assert.doesNotMatch(source, /FORMSPREE/i);
 });
 
 test("Pages workflow verifies the static site immediately after building", async () => {
-  const workflow = await readPagesWorkflow();
+  const { workflow } = await readPagesWorkflow();
   const steps = workflow.jobs.build.steps;
   const buildIndex = steps.findIndex(
     (step) => step.name === "Build static site",

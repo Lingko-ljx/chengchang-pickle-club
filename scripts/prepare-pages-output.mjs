@@ -2,6 +2,8 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const outputDirectory = path.resolve("out");
+const allowedClientScript =
+  /\b(?:data-booking-form-client|data-booking-result-client|data-booking-status-client|data-admin-client)(?:\s|=|$)/i;
 
 async function collectHtmlFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -18,8 +20,7 @@ async function collectHtmlFiles(directory) {
 function removeClientRuntime(html) {
   const withoutScripts = html.replace(
     /<script\b([^>]*)>[\s\S]*?<\/script>/gi,
-    (tag, attributes) =>
-      /\bdata-booking-enhancement\b/i.test(attributes) ? tag : "",
+    (tag, attributes) => (allowedClientScript.test(attributes) ? tag : ""),
   );
 
   return withoutScripts.replace(/<link\b[^>]*>/gi, (tag) => {
@@ -39,8 +40,16 @@ for (const file of htmlFiles) {
 }
 
 const homepage = await readFile(path.join(outputDirectory, "index.html"), "utf8");
-if (!/action="https:\/\/formspree\.io\/f\/[A-Za-z0-9_-]+"/.test(homepage)) {
+const configuredBaseUrl = (
+  process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL ?? ""
+).trim();
+const expectedAction = `${configuredBaseUrl.replace(/\/+$/, "")}/v1/bookings`;
+
+if (!configuredBaseUrl || !homepage.includes(`action="${expectedAction}"`)) {
   throw new Error(
-    "NEXT_PUBLIC_FORMSPREE_ENDPOINT must be a valid Formspree endpoint",
+    "NEXT_PUBLIC_BOOKING_API_BASE_URL must match the exported booking form action",
   );
+}
+if (/formspree/i.test(homepage)) {
+  throw new Error("The exported booking form must not reference Formspree");
 }

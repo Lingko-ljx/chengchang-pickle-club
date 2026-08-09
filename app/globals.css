@@ -35,7 +35,8 @@ body {
 body,
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -46,7 +47,8 @@ a {
 
 button,
 input,
-select {
+select,
+textarea {
   border: 0;
 }
 
@@ -58,7 +60,8 @@ select {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid var(--lime);
   outline-offset: 4px;
 }
@@ -1002,6 +1005,57 @@ select:focus-visible {
   padding: 40px 42px;
 }
 
+.booking-mode-group {
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.booking-mode-group legend {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 0;
+}
+
+.mode-options {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: 14px;
+}
+
+.mode-options label {
+  cursor: pointer;
+  position: relative;
+}
+
+.mode-options input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.mode-options span {
+  border: 1px solid var(--line);
+  display: block;
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.mode-options input:checked + span {
+  background: var(--lime);
+  border-color: var(--lime);
+}
+
+.mode-options input:focus-visible + span {
+  outline: 3px solid var(--lime-dark);
+  outline-offset: 3px;
+}
+
 .form-group {
   border-bottom: 1px solid var(--line);
   padding: 0 0 35px;
@@ -1139,7 +1193,8 @@ select:focus-visible {
 }
 
 .input-grid input,
-.input-grid select {
+.input-grid select,
+.input-grid textarea {
   background: transparent;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -1151,12 +1206,23 @@ select:focus-visible {
 }
 
 .input-grid input:focus,
-.input-grid select:focus {
+.input-grid select:focus,
+.input-grid textarea:focus {
   border-color: var(--lime-dark);
 }
 
 .input-grid input::placeholder {
   color: #a09f96;
+}
+
+.input-grid textarea {
+  min-height: 84px;
+  padding-top: 12px;
+  resize: vertical;
+}
+
+.input-grid .form-wide {
+  grid-column: 1 / -1;
 }
 
 .field-error {
@@ -1195,6 +1261,26 @@ select:focus-visible {
   border: 1px solid var(--lime);
   margin: 20px 0;
   padding: 14px 16px;
+}
+
+.booking-unavailable {
+  background: var(--paper-light);
+  color: var(--ink);
+  min-height: 300px;
+  padding: 42px;
+}
+
+.booking-unavailable h3 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 36px;
+  font-weight: 400;
+  margin: 44px 0 16px;
+}
+
+.booking-unavailable > p:last-child {
+  color: var(--muted);
+  line-height: 1.8;
+  max-width: 420px;
 }
 
 .form-submit-row {

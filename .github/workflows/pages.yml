@@ -30,7 +30,7 @@ jobs:
           GITHUB_PAGES: "true"
           PAGES_BASE_PATH: /${{ github.event.repository.name }}
           NEXT_PUBLIC_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-          NEXT_PUBLIC_FORMSPREE_ENDPOINT: ${{ vars.FORMSPREE_ENDPOINT }}
+          NEXT_PUBLIC_BOOKING_API_BASE_URL: ${{ vars.BOOKING_API_BASE_URL }}
         run: npm run build:pages
       - name: Verify static site
         run: npm run test:pages

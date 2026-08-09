@@ -1,15 +1,27 @@
 import { BookingForm } from "./BookingForm";
 import {
-  resolveBookingEndpoint,
+  bookingCreateUrl,
+  bookingResultPath,
+  bookingStatusPath,
+  resolveBookingApiBaseUrl,
   resolveBookingScriptSrc,
 } from "./booking-config";
 
-const formEndpoint = resolveBookingEndpoint(
-  process.env.NEXT_PUBLIC_FORMSPREE_ENDPOINT,
+const basePath =
+  process.env.PAGES_BASE_PATH === "/"
+    ? ""
+    : (process.env.PAGES_BASE_PATH ?? "").replace(/\/+$/, "");
+const bookingApiBaseUrl = resolveBookingApiBaseUrl(
+  process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL,
+  {
+    development: process.env.NODE_ENV === "development",
+    required: process.env.GITHUB_PAGES === "true",
+  },
 );
-const bookingScriptSrc = resolveBookingScriptSrc(
-  process.env.PAGES_BASE_PATH,
-);
+const formEndpoint = bookingApiBaseUrl
+  ? bookingCreateUrl(bookingApiBaseUrl)
+  : "";
+const bookingScriptSrc = resolveBookingScriptSrc(basePath);
 
 const values = [
   {
@@ -195,13 +207,13 @@ export default function Home() {
               <span>感觉不到打扰。</span>
             </h2>
             <p>
-              六片专业缓震场地，独立新风与定向照明。每一处细节都服务于更清晰的球路、
+              11 片专业缓震场地，独立新风与定向照明。每一处细节都服务于更清晰的球路、
               更自在的脚步和更纯粹的一场球。
             </p>
           </div>
           <div className="venue-display">
             <div className="venue-board" aria-hidden="true">
-              <span className="venue-board-number">06</span>
+              <span className="venue-board-number">11</span>
               <div className="venue-court">
                 <span />
                 <span />
@@ -312,8 +324,11 @@ export default function Home() {
             <p>预约体验</p>
           </div>
           <BookingForm
+            apiBaseUrl={bookingApiBaseUrl}
             formEndpoint={formEndpoint}
+            resultPath={bookingResultPath(basePath)}
             scriptSrc={bookingScriptSrc}
+            statusPath={bookingStatusPath(basePath)}
           />
         </div>
       </section>
