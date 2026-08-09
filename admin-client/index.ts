@@ -196,7 +196,7 @@ function startAdmin() {
       api.getDashboard(shanghaiDate()) as Promise<Dashboard>,
       api.getDashboard(date) as Promise<Dashboard>,
       api.listBookings(filters()) as Promise<AdminBooking[]>,
-      api.listBookings({ date }) as Promise<AdminBooking[]>,
+      api.getMatrixBookings(date) as Promise<AdminBooking[]>,
       api.getSettings() as Promise<Settings>,
     ]);
     renderAll();

@@ -39,6 +39,7 @@ export interface BookingRecord {
   startAt: string;
   endAt: string;
   courtId: string;
+  proposedDate?: string;
   proposedSessionId?: string;
   proposedCourtId?: string;
   proposedStartAt?: string;

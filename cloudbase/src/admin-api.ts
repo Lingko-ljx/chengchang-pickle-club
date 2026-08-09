@@ -50,6 +50,8 @@ interface AdminBookingService {
   ): Promise<void>;
   listAvailability(date: string): Promise<unknown[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
+  listPendingBookings(date: string): Promise<BookingRecord[]>;
+  listMatrixBookings(date: string): Promise<BookingRecord[]>;
   listCourts(): Promise<CourtRecord[]>;
   listSessionTemplates(): Promise<SessionTemplateRecord[]>;
   listAuditLogs(bookingId: string): Promise<AuditLog[]>;
@@ -132,6 +134,7 @@ function adminBooking(value: BookingRecord): Record<string, unknown> {
     startAt: value.startAt,
     endAt: value.endAt,
     courtId: value.courtId,
+    ...(value.proposedDate ? { proposedDate: value.proposedDate } : {}),
     ...(value.proposedSessionId ? { proposedSessionId: value.proposedSessionId } : {}),
     ...(value.proposedCourtId ? { proposedCourtId: value.proposedCourtId } : {}),
     ...(value.proposedStartAt ? { proposedStartAt: value.proposedStartAt } : {}),
@@ -248,10 +251,16 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       if (method === "GET" && path === "/v1/admin/dashboard") {
         const date = dateValue(queryParameter(event, "date")?.trim());
         const [pending, slots] = await Promise.all([
-          dependencies.service.listBookings({ date, status: "pending", limit: 500 }),
+          dependencies.service.listPendingBookings(date),
           dependencies.service.listAvailability(date),
         ]);
         return jsonResponse(200, { date, pending: pending.map(adminBooking), slots });
+      }
+
+      if (method === "GET" && path === "/v1/admin/matrix") {
+        const date = dateValue(queryParameter(event, "date")?.trim());
+        const bookings = await dependencies.service.listMatrixBookings(date);
+        return jsonResponse(200, bookings.map(adminBooking));
       }
 
       if (method === "GET" && path === "/v1/admin/bookings") {

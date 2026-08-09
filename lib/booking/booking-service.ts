@@ -159,6 +159,7 @@ function requireVersion(booking: BookingRecord, expectedVersion: number): void {
 
 function clearProposal(booking: BookingRecord): BookingRecord {
   const updated = { ...booking };
+  delete updated.proposedDate;
   delete updated.proposedSessionId;
   delete updated.proposedCourtId;
   delete updated.proposedStartAt;
@@ -260,7 +261,7 @@ export class BookingService {
   }
 
   confirm(command: StaffMutationCommand): Promise<BookingRecord> {
-    return this.changeStatus(command, "confirmed", "confirmed");
+    return this.changeStatus(command, "confirmed", "confirmed", "pending");
   }
 
   async proposeReschedule(command: ProposeRescheduleCommand): Promise<BookingRecord> {
@@ -289,6 +290,7 @@ export class BookingService {
         ...booking,
         status: "reschedule_proposed",
         proposalPreviousStatus: booking.status as "pending" | "confirmed",
+        proposedDate: prepared.session.date,
         proposedSessionId: prepared.session.id,
         proposedCourtId: selected.courtId,
         proposedStartAt: prepared.session.startAt,
@@ -326,6 +328,7 @@ export class BookingService {
       ) {
         throw new BookingError("INVALID_TRANSITION");
       }
+      const proposedDate = booking.proposedDate ?? parseSessionId(booking.proposedSessionId).date;
       const oldAllocation = await this.readAllocation(transaction, booking.sessionId, booking.courtId);
       const proposedAllocation = await this.readAllocation(
         transaction,
@@ -338,7 +341,7 @@ export class BookingService {
         updated = clearProposal({
           ...booking,
           sessionId: booking.proposedSessionId,
-          date: parseSessionId(booking.proposedSessionId).date,
+          date: proposedDate,
           courtId: booking.proposedCourtId,
           startAt: booking.proposedStartAt,
           endAt: booking.proposedEndAt,
@@ -496,6 +499,14 @@ export class BookingService {
     return this.repository.listBookings(filter);
   }
 
+  listPendingBookings(date: string): Promise<BookingRecord[]> {
+    return this.repository.listPendingBookings(date);
+  }
+
+  listMatrixBookings(date: string): Promise<BookingRecord[]> {
+    return this.repository.listMatrixBookings(date);
+  }
+
   listCourts(): Promise<CourtRecord[]> {
     return this.repository.listCourts();
   }
@@ -535,6 +546,7 @@ export class BookingService {
     command: StaffMutationCommand,
     status: BookingStatus,
     action: string,
+    requiredFrom?: BookingStatus,
   ): Promise<BookingRecord> {
     const now = this.clock.now().toISOString();
     const auditId = this.ids.eventId();
@@ -542,6 +554,9 @@ export class BookingService {
     return this.repository.runTransaction(async (transaction) => {
       const booking = requireBooking(await transaction.getBooking(command.bookingId));
       requireVersion(booking, command.expectedVersion);
+      if (requiredFrom && booking.status !== requiredFrom) {
+        throw new BookingError("INVALID_TRANSITION");
+      }
       assertTransition(booking.status, status);
       const updated = { ...booking, status, updatedAt: now, version: booking.version + 1 };
       await transaction.putBooking(updated);

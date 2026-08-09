@@ -266,6 +266,27 @@ export class MemoryBookingRepository implements BookingRepository {
       .map(cloneValue);
   }
 
+  async listPendingBookings(date: string): Promise<BookingRecord[]> {
+    await this.queue;
+    return Array.from(this.state.bookings.values())
+      .filter((booking) => booking.date === date && booking.status === "pending")
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+      .map(cloneValue);
+  }
+
+  async listMatrixBookings(date: string): Promise<BookingRecord[]> {
+    await this.queue;
+    return Array.from(this.state.bookings.values())
+      .filter((booking) =>
+        booking.status !== "cancelled" &&
+        booking.status !== "completed" &&
+        (booking.date === date ||
+          (booking.proposedDate === date && booking.status === "reschedule_proposed")),
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+      .map(cloneValue);
+  }
+
   async listExpiredPersonalData(cutoff: string, limit: number): Promise<BookingRecord[]> {
     await this.queue;
     return Array.from(this.state.bookings.values())
@@ -299,6 +320,13 @@ export class MemoryBookingRepository implements BookingRepository {
     return Array.from(this.state.auditLogs.values())
       .filter((audit) => !bookingId || audit.bookingId === bookingId)
       .sort((left, right) => left.at.localeCompare(right.at) || left.id.localeCompare(right.id))
+      .map(cloneValue);
+  }
+
+  async listNotifications(): Promise<NotificationEvent[]> {
+    await this.queue;
+    return Array.from(this.state.notifications.values())
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
       .map(cloneValue);
   }
 

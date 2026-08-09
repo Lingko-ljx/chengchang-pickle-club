@@ -9,8 +9,10 @@ import {
 import { MemoryBookingRepository } from "../lib/booking/testing/memory-repository.ts";
 
 const FUTURE_DATE = "2099-01-01";
+const NEXT_DATE = "2099-01-02";
 const MORNING = `${FUTURE_DATE}__slot-0700`;
 const LATER = `${FUTURE_DATE}__slot-0800`;
+const NEXT_LATER = `${NEXT_DATE}__slot-0800`;
 
 function command(overrides = {}) {
   return {
@@ -126,6 +128,37 @@ test("staff reads versioned configuration and booking-scoped audit history", asy
   assert.deepEqual(audits.map((audit) => audit.bookingId), [created.id]);
 });
 
+test("staff scheduling reads all 704 pending bookings and cross-date proposals", async () => {
+  const pending = Array.from({ length: 704 }, (_, index) => bookingRecord({
+    id: `pending-${String(index).padStart(3, "0")}`,
+    code: `PENDING${String(index).padStart(4, "0")}`,
+  }));
+  const proposal = bookingRecord({
+    id: "cross-date-proposal",
+    code: "CROSSDATE",
+    status: "reschedule_proposed",
+    proposedDate: NEXT_DATE,
+    proposedSessionId: NEXT_LATER,
+    proposedCourtId: "02",
+  });
+  const terminal = bookingRecord({
+    id: "terminal-on-target-date",
+    code: "TERMINAL",
+    date: NEXT_DATE,
+    sessionId: NEXT_LATER,
+    status: "cancelled",
+  });
+  const service = new BookingService(new MemoryBookingRepository({
+    bookings: [...pending, proposal, terminal],
+  }));
+
+  assert.equal((await service.listPendingBookings(FUTURE_DATE)).length, 704);
+  assert.deepEqual(
+    (await service.listMatrixBookings(NEXT_DATE)).map((booking) => booking.id),
+    ["cross-date-proposal"],
+  );
+});
+
 test("forty-four single open bookings fill all courts", async () => {
   const { service } = setup();
   await Promise.all(
@@ -215,21 +248,22 @@ test("customer cancellation is refused once the session starts", async () => {
   );
 });
 
-test("reschedule acceptance retains both allocations until it releases the old one", async () => {
+test("cross-date reschedule acceptance records and then clears the proposed date", async () => {
   const { repository, service } = setup();
   const booking = await service.create(command({ mode: "private" }));
   const proposal = await service.proposeReschedule({
     bookingId: booking.id,
-    sessionId: LATER,
+    sessionId: NEXT_LATER,
     expectedVersion: booking.version,
     actorId: "staff-1",
   });
 
   assert.equal(proposal.status, "reschedule_proposed");
   assert.equal(proposal.proposalPreviousStatus, "pending");
+  assert.equal(proposal.proposedDate, NEXT_DATE);
   assert.deepEqual((await getAllocation(repository, MORNING, booking.courtId)).bookingIds, [booking.id]);
   assert.deepEqual(
-    (await getAllocation(repository, LATER, proposal.proposedCourtId)).bookingIds,
+    (await getAllocation(repository, NEXT_LATER, proposal.proposedCourtId)).bookingIds,
     [booking.id],
   );
 
@@ -240,11 +274,13 @@ test("reschedule acceptance retains both allocations until it releases the old o
     actorType: "customer",
   });
   assert.equal(accepted.status, "confirmed");
-  assert.equal(accepted.sessionId, LATER);
+  assert.equal(accepted.sessionId, NEXT_LATER);
+  assert.equal(accepted.date, NEXT_DATE);
   assert.equal(accepted.proposedSessionId, undefined);
+  assert.equal(accepted.proposedDate, undefined);
   assert.equal(accepted.proposalPreviousStatus, undefined);
   assert.deepEqual((await getAllocation(repository, MORNING, booking.courtId)).bookingIds, []);
-  assert.deepEqual((await getAllocation(repository, LATER, accepted.courtId)).bookingIds, [booking.id]);
+  assert.deepEqual((await getAllocation(repository, NEXT_LATER, accepted.courtId)).bookingIds, [booking.id]);
 });
 
 test("reschedule rejection releases the proposal and restores exactly the previous status", async () => {
@@ -271,11 +307,95 @@ test("reschedule rejection releases the proposal and restores exactly the previo
   assert.equal(rejected.status, "confirmed");
   assert.equal(rejected.sessionId, MORNING);
   assert.equal(rejected.proposedCourtId, undefined);
+  assert.equal(rejected.proposedDate, undefined);
   assert.equal(rejected.proposalPreviousStatus, undefined);
   assert.deepEqual(
     (await getAllocation(repository, LATER, proposal.proposedCourtId)).bookingIds,
     [],
   );
+});
+
+test("cancelling a proposed reschedule clears the proposed date", async () => {
+  const { service } = setup();
+  const booking = await service.create(command({ mode: "private" }));
+  const proposal = await service.proposeReschedule({
+    bookingId: booking.id,
+    sessionId: NEXT_LATER,
+    expectedVersion: booking.version,
+    actorId: "staff-1",
+  });
+
+  const cancelled = await service.cancel({
+    bookingId: booking.id,
+    expectedVersion: proposal.version,
+    actorType: "staff",
+    actorId: "staff-1",
+  });
+
+  assert.equal(cancelled.proposedDate, undefined);
+  assert.equal(cancelled.proposedSessionId, undefined);
+});
+
+test("accepting an in-flight legacy proposal derives its missing proposed date", async () => {
+  const { repository, service } = setup();
+  const booking = await service.create(command({ mode: "private" }));
+  const proposal = await service.proposeReschedule({
+    bookingId: booking.id,
+    sessionId: NEXT_LATER,
+    expectedVersion: booking.version,
+    actorId: "staff-1",
+  });
+  await repository.runTransaction(async (transaction) => {
+    const legacy = await transaction.getBooking(booking.id);
+    delete legacy.proposedDate;
+    await transaction.putBooking(legacy);
+  });
+
+  const accepted = await service.respondToReschedule({
+    bookingId: booking.id,
+    accept: true,
+    expectedVersion: proposal.version,
+    actorType: "customer",
+  });
+
+  assert.equal(accepted.date, NEXT_DATE);
+  assert.equal(accepted.proposedDate, undefined);
+});
+
+test("staff confirm rejects a reschedule proposal without changing inventory or events", async () => {
+  const { repository, service } = setup();
+  const booking = await service.create(command({ mode: "private" }));
+  const proposal = await service.proposeReschedule({
+    bookingId: booking.id,
+    sessionId: NEXT_LATER,
+    expectedVersion: booking.version,
+    actorId: "staff-1",
+  });
+  const before = {
+    booking: await getBooking(repository, booking.id),
+    current: await getAllocation(repository, MORNING, booking.courtId),
+    proposed: await getAllocation(repository, NEXT_LATER, proposal.proposedCourtId),
+    audits: await repository.listAuditLogs(),
+    notifications: await repository.listNotifications(),
+  };
+
+  await assert.rejects(
+    () => service.confirm({
+      bookingId: booking.id,
+      expectedVersion: proposal.version,
+      actorId: "staff-1",
+    }),
+    /INVALID_TRANSITION/,
+  );
+
+  assert.deepEqual(await getBooking(repository, booking.id), before.booking);
+  assert.deepEqual(await getAllocation(repository, MORNING, booking.courtId), before.current);
+  assert.deepEqual(
+    await getAllocation(repository, NEXT_LATER, proposal.proposedCourtId),
+    before.proposed,
+  );
+  assert.deepEqual(await repository.listAuditLogs(), before.audits);
+  assert.deepEqual(await repository.listNotifications(), before.notifications);
 });
 
 test("completion stamps terminalAt once and terminal records cannot mutate", async () => {

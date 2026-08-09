@@ -279,6 +279,36 @@ export class CloudBaseBookingRepository implements BookingRepository {
       .slice(0, limit);
   }
 
+  listPendingBookings(date: string): Promise<BookingRecord[]> {
+    return this.queryAll<BookingRecord>(
+      "bookings",
+      { date, status: "pending" },
+      [["createdAt", "asc"], ["id", "asc"]],
+    );
+  }
+
+  async listMatrixBookings(date: string): Promise<BookingRecord[]> {
+    const [current, proposed] = await Promise.all([
+      this.queryAll<BookingRecord>(
+        "bookings",
+        { date },
+        [["createdAt", "asc"], ["id", "asc"]],
+      ),
+      this.queryAll<BookingRecord>(
+        "bookings",
+        { proposedDate: date, status: "reschedule_proposed" },
+        [["createdAt", "asc"], ["id", "asc"]],
+      ),
+    ]);
+    const active = [...current, ...proposed].filter(
+      (booking) => booking.status !== "cancelled" && booking.status !== "completed",
+    );
+    const byId = new Map(active.map((booking) => [booking.id, booking]));
+    return Array.from(byId.values()).sort(
+      (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
+  }
+
   listCourts(): Promise<CourtRecord[]> {
     return this.query<CourtRecord>("courts", {}, 100, [["id", "asc"]]);
   }

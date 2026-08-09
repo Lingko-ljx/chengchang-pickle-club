@@ -68,6 +68,7 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
 
   return {
     getDashboard: (date: string) => request(`/v1/admin/dashboard${query({ date })}`),
+    getMatrixBookings: (date: string) => request(`/v1/admin/matrix${query({ date })}`),
     listBookings: (filters: BookingFilters) =>
       request(`/v1/admin/bookings${query(filters)}`),
     getSettings: () => request("/v1/admin/settings"),

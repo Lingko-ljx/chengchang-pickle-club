@@ -19,6 +19,7 @@ export type AdminBooking = {
   startAt: string;
   endAt: string;
   courtId?: string;
+  proposedDate?: string;
   proposedSessionId?: string;
   proposedCourtId?: string;
   mode: "private" | "open";

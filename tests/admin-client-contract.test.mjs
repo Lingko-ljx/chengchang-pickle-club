@@ -99,9 +99,10 @@ test("every management request carries the current bearer token", async () => {
   await client.setSessionTemplateEnabled("mon-0900", true, 4);
   await client.getSettings();
   await client.getAuditLogs("booking-1");
+  await client.getMatrixBookings("2026-08-09");
   await client.exportCsv("2026-08-01", "2026-08-31");
 
-  assert.equal(requests.length, 8);
+  assert.equal(requests.length, 9);
   for (const request of requests) {
     assert.equal(request.init.headers.Authorization, "Bearer staff-access-token");
   }
@@ -345,7 +346,7 @@ test("the installed SDK private-auth wrapper never touches browser credential st
 test("refresh keeps today, matrix, filters and selected audit history independent", async () => {
   const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
   assert.match(source, /api\.getDashboard\(shanghaiDate\(\)\)/);
-  assert.match(source, /api\.listBookings\(\{ date \}\)/);
+  assert.match(source, /api\.getMatrixBookings\(date\)/);
   assert.match(source, /if \(selected\) await loadSelectedAudits\(\)/);
   assert.doesNotMatch(source, /admin-template-(?:start|version)/);
   assert.doesNotMatch(await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8"), /`提交 · \$\{booking\.createdAt\}`/);
@@ -375,6 +376,8 @@ test("the server-rendered admin page contains login and a hidden dashboard", asy
   assert.match(html, /src="\/chengchang-pickle-club\/admin-app\.js"/);
 });
 
-test("the server rejects an unsafe Pages base path before emitting a script URL", async () => {
-  await assert.rejects(() => renderAdminPage("//evil.example/x"), /PAGES_BASE_PATH/);
+test("the server rejects unsafe and dot-segment Pages base paths before emitting a script URL", async () => {
+  for (const basePath of ["//evil.example/x", "/.", "/..", "/safe/./admin", "/safe/../admin"]) {
+    await assert.rejects(() => renderAdminPage(basePath), /PAGES_BASE_PATH/, basePath);
+  }
 });

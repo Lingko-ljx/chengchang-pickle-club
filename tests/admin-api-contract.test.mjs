@@ -85,6 +85,14 @@ function fakeService(trace = []) {
     redactPersonalData: invoke("redactPersonalData", undefined),
     listAvailability: invoke("listAvailability", [{ sessionId: MORNING }]),
     listBookings: invoke("listBookings", [record]),
+    listPendingBookings: invoke("listPendingBookings", [record]),
+    listMatrixBookings: invoke("listMatrixBookings", [booking({
+      id: "booking-proposal",
+      proposedDate: DATE,
+      proposedSessionId: MORNING,
+      proposedCourtId: "02",
+      status: "reschedule_proposed",
+    })]),
     listCourts: invoke("listCourts", [{ id: "01", enabled: false, version: 7 }]),
     listSessionTemplates: invoke("listSessionTemplates", [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }]),
     listAuditLogs: invoke("listAuditLogs", [{ id: "audit-1", bookingId: record.id, action: "confirmed", actorType: "staff", actorId: "private-staff-id", at: "2098-12-02T00:00:00.000Z", metadata: { phone: "13800138000" } }]),
@@ -248,22 +256,26 @@ test("court and template writes require versions and carry the profile user id",
   });
 });
 
-test("dashboard and booking-list routes map exact validated filters", async () => {
+test("dashboard, matrix and booking-list routes use their exact scheduling reads", async () => {
   const trace = [];
   const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
 
   const dashboard = await handler(event("GET", "/v1/admin/dashboard", undefined, { query: { date: DATE } }));
+  const matrix = await handler(event("GET", "/v1/admin/matrix", undefined, { query: { date: DATE } }));
   const listing = await handler(event("GET", "/v1/admin/bookings", undefined, {
     query: { date: DATE, status: "pending", mode: "private", q: "Ada" },
   }));
 
   assert.equal(dashboard.statusCode, 200);
   assert.deepEqual(responseBody(dashboard).data.date, DATE);
+  assert.equal(matrix.statusCode, 200);
+  assert.equal(responseBody(matrix).data[0].proposedDate, DATE);
   assert.equal(listing.statusCode, 200);
   const calls = trace.filter((entry) => entry.type === "service");
   assert.deepEqual(calls.map((entry) => [entry.name, entry.args]), [
-    ["listBookings", [{ date: DATE, status: "pending", limit: 500 }]],
+    ["listPendingBookings", [DATE]],
     ["listAvailability", [DATE]],
+    ["listMatrixBookings", [DATE]],
     ["listBookings", [{ date: DATE, status: "pending", mode: "private", query: "Ada", limit: 100 }]],
   ]);
   assert.equal(listing.body.includes("internal-phone-hash"), false);

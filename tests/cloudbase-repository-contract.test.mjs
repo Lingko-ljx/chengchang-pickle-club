@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { BookingService } from "../lib/booking/booking-service.ts";
@@ -181,6 +182,38 @@ function serviceFor(database) {
       eventId: () => `event-${++event}`,
     },
   );
+}
+
+function pagedBookingDatabase(records, trace) {
+  return {
+    command: {},
+    collection(name) {
+      assert.equal(name, "bookings");
+      let condition = {};
+      const orders = [];
+      let offset = 0;
+      let pageSize = 100;
+      return {
+        where(value) { condition = value; return this; },
+        orderBy(field, direction) { orders.push([field, direction]); return this; },
+        skip(value) { offset = value; return this; },
+        limit(value) { pageSize = value; return this; },
+        async get() {
+          trace.push({ condition: clone(condition), orders: clone(orders), offset, pageSize });
+          const matches = records
+            .filter((record) => Object.entries(condition).every(([key, value]) => record[key] === value))
+            .sort((left, right) => {
+              for (const [field, direction] of orders) {
+                const compared = String(left[field]).localeCompare(String(right[field]));
+                if (compared) return direction === "asc" ? compared : -compared;
+              }
+              return 0;
+            });
+          return { data: matches.slice(offset, offset + pageSize).map(clone) };
+        },
+      };
+    },
+  };
 }
 
 test("create reads every deterministic allocation document without a transaction query", async () => {
@@ -406,6 +439,83 @@ test("CloudBase audit history reads every ordered page for one booking", async (
   assert.deepEqual(trace.condition, { bookingId: "booking-1" });
   assert.deepEqual(trace.orders.slice(0, 2), [["at", "asc"], ["id", "asc"]]);
   assert.deepEqual(trace.skips, [0, 100]);
+});
+
+test("CloudBase pending scheduling reads beyond the former 500-row cap", async () => {
+  const records = Array.from({ length: 501 }, (_, index) => ({
+    id: `pending-${String(index).padStart(3, "0")}`,
+    date: "2026-08-10",
+    status: "pending",
+    createdAt: "2026-08-01T00:00:00.000Z",
+  }));
+  const trace = [];
+  const repository = new CloudBaseBookingRepository(pagedBookingDatabase(records, trace));
+
+  const result = await repository.listPendingBookings("2026-08-10");
+
+  assert.equal(result.length, 501);
+  assert.deepEqual(trace.map(({ offset }) => offset), [0, 100, 200, 300, 400, 500]);
+  assert.deepEqual(trace[0].condition, { date: "2026-08-10", status: "pending" });
+  assert.deepEqual(trace[0].orders, [["createdAt", "asc"], ["id", "asc"]]);
+});
+
+test("CloudBase matrix merges every current and cross-date proposal page without duplicates", async () => {
+  const targetDate = "2026-08-10";
+  const current = Array.from({ length: 101 }, (_, index) => ({
+    id: `current-${String(index).padStart(3, "0")}`,
+    date: targetDate,
+    status: index === 0 ? "reschedule_proposed" : "confirmed",
+    ...(index === 0 ? { proposedDate: targetDate } : {}),
+    createdAt: "2026-08-01T00:00:00.000Z",
+  }));
+  const proposed = Array.from({ length: 101 }, (_, index) => ({
+    id: `proposed-${String(index).padStart(3, "0")}`,
+    date: "2026-08-09",
+    proposedDate: targetDate,
+    status: "reschedule_proposed",
+    createdAt: "2026-08-01T00:00:00.000Z",
+  }));
+  const terminal = ["cancelled", "completed"].map((status) => ({
+    id: `terminal-${status}`,
+    date: targetDate,
+    status,
+    createdAt: "2026-08-01T00:00:00.000Z",
+  }));
+  const trace = [];
+  const repository = new CloudBaseBookingRepository(
+    pagedBookingDatabase([...current, ...proposed, ...terminal], trace),
+  );
+
+  const result = await repository.listMatrixBookings(targetDate);
+
+  assert.equal(result.length, 202);
+  assert.equal(new Set(result.map(({ id }) => id)).size, 202);
+  assert.equal(result.some(({ status }) => status === "cancelled" || status === "completed"), false);
+  assert.deepEqual(
+    [...new Set(trace.map(({ condition }) => JSON.stringify(condition)))].map((value) => JSON.parse(value)),
+    [
+      { date: targetDate },
+      { proposedDate: targetDate, status: "reschedule_proposed" },
+    ],
+  );
+  assert.equal(trace.filter(({ offset }) => offset === 100).length, 2);
+  assert.deepEqual(trace[0].orders, [["createdAt", "asc"], ["id", "asc"]]);
+});
+
+test("Task 10 provisions every stable scheduling and audit query index", async () => {
+  const plan = await readFile(
+    new URL("../docs/superpowers/plans/2026-08-04-booking-core.md", import.meta.url),
+    "utf8",
+  );
+  for (const index of [
+    "(date,createdAt,id)",
+    "(date,status,createdAt,id)",
+    "(proposedDate,status,createdAt,id)",
+    "(bookingId,at,id)",
+  ]) {
+    assert.match(plan, new RegExp(index.replace(/[()]/g, "\\$&")), index);
+  }
+  assert.doesNotMatch(plan, /audit logs by `\(bookingId,createdAt\)`/);
 });
 
 test("court and template updates append deterministic staff audits in their transactions", async () => {

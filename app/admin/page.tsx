@@ -3,7 +3,13 @@ import { resolveBookingApiBaseUrl } from "../booking-config";
 function validatedBasePath(value: string | undefined): string {
   const candidate = value?.trim() ?? "";
   const normalized = candidate === "/" ? "" : candidate.replace(/\/+$/, "");
-  if (normalized && !/^\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(normalized)) {
+  const hasDotSegment = normalized.split("/").some(
+    (segment) => segment === "." || segment === "..",
+  );
+  if (
+    hasDotSegment ||
+    (normalized && !/^\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(normalized))
+  ) {
     throw new Error("PAGES_BASE_PATH must be empty or a safe absolute path");
   }
   return normalized;
