@@ -27,6 +27,7 @@
   var storageName = "chengchang-booking-unsent-v1";
   var memoryIdempotencyKey = "";
   var availableSessions = null;
+  var availabilityGeneration = 0;
   var fallbackOptions = [];
 
   function showError(message) {
@@ -222,7 +223,16 @@
     syncCanonicalSessionId();
   }
 
-  function availabilityFailure() {
+  function availabilityIsCurrent(generation, requestedDate) {
+    return (
+      generation === availabilityGeneration &&
+      dateInput &&
+      dateInput.value === requestedDate
+    );
+  }
+
+  function availabilityFailure(generation, requestedDate) {
+    if (!availabilityIsCurrent(generation, requestedDate)) return;
     availableSessions = null;
     if (timeSelect) timeSelect.disabled = false;
     restoreFallbackOptions();
@@ -232,7 +242,10 @@
   function fetchAvailability() {
     var request;
     var requestedDate;
+    var generation;
 
+    availabilityGeneration += 1;
+    generation = availabilityGeneration;
     if (!dateInput || !timeSelect || !availabilityUrl) return;
     requestedDate = dateInput.value;
     if (!isValidDate(requestedDate)) {
@@ -252,14 +265,15 @@
       request.onreadystatechange = function () {
         var payload;
         if (request.readyState !== 4) return;
+        if (!availabilityIsCurrent(generation, requestedDate)) return;
         if (request.status !== 200) {
-          availabilityFailure();
+          availabilityFailure(generation, requestedDate);
           return;
         }
         try {
           payload = window.JSON.parse(request.responseText);
           if (!payload || !payload.data || typeof payload.data.length !== "number") {
-            availabilityFailure();
+            availabilityFailure(generation, requestedDate);
             return;
           }
           availableSessions = payload.data;
@@ -267,15 +281,17 @@
           filterSessions();
         } catch (error) {
           void error;
-          availabilityFailure();
+          availabilityFailure(generation, requestedDate);
         }
       };
-      request.onerror = availabilityFailure;
-      request.ontimeout = availabilityFailure;
+      request.onerror = function () {
+        availabilityFailure(generation, requestedDate);
+      };
+      request.ontimeout = request.onerror;
       request.send(null);
     } catch (error) {
       void error;
-      availabilityFailure();
+      availabilityFailure(generation, requestedDate);
     }
   }
 

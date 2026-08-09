@@ -382,6 +382,90 @@ test("availability failures restore the enabled server-rendered time fallback", 
   assert.deepEqual(startTime.options.map((entry) => entry.value), original);
 });
 
+test("stale availability success cannot replace newer date sessions", async () => {
+  const source = await readEnhancement();
+  const page = loadEnhancement(source, { partySize: 3 });
+  const { date, sessionId, startTime } = page.controls;
+  const response = (dateValue, time) =>
+    JSON.stringify({
+      data: [
+        {
+          sessionId: `${dateValue}__slot-${time.replace(":", "")}`,
+          startTime: time,
+          acceptsOpenPartySizes: [3],
+          privateCourtCount: 0,
+        },
+      ],
+    });
+
+  date.value = "2026-08-10";
+  date.fire("change");
+  date.value = "2026-08-11";
+  date.fire("change");
+
+  page.request(1).respond(200, response("2026-08-11", "08:00"));
+  startTime.value = "08:00";
+  startTime.fire("change");
+
+  page.request(0).respond(200, response("2026-08-10", "07:00"));
+
+  assert.deepEqual(
+    startTime.options.slice(1).map((entry) => entry.value),
+    ["08:00"],
+  );
+  assert.equal(startTime.value, "08:00");
+  assert.equal(sessionId.value, "2026-08-11__slot-0800");
+});
+
+test("invalid dates ignore stale availability success and failure", async () => {
+  const source = await readEnhancement();
+
+  for (const completion of ["success", "failure"]) {
+    const page = loadEnhancement(source, {
+      date: "2026-08-10",
+      partySize: 3,
+      startTime: "08:00",
+    });
+    const { date, sessionId, startTime } = page.controls;
+    const fallbackValues = startTime.options.map((entry) => entry.value);
+
+    date.fire("change");
+    const stale = page.request();
+
+    date.value = "2026-02-31";
+    date.fire("change");
+
+    if (completion === "success") {
+      stale.respond(
+        200,
+        JSON.stringify({
+          data: [
+            {
+              sessionId: "2026-08-10__slot-0700",
+              startTime: "07:00",
+              acceptsOpenPartySizes: [3],
+              privateCourtCount: 0,
+            },
+          ],
+        }),
+      );
+    } else {
+      stale.fail();
+    }
+
+    assert.equal(startTime.disabled, false, completion);
+    assert.deepEqual(
+      startTime.options.map((entry) => entry.value),
+      fallbackValues,
+      completion,
+    );
+    assert.equal(startTime.value, "08:00", completion);
+    assert.equal(sessionId.value, "", completion);
+    assert.equal(page.errorBox.hidden, true, completion);
+    assert.equal(page.errorBox.textContent, "", completion);
+  }
+});
+
 test("one persisted idempotency key survives failed submissions and clears only on 201 with a code", async () => {
   const source = await readEnhancement();
   const storage = createStorage();
