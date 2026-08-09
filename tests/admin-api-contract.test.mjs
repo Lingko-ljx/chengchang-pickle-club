@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 
 import { BookingService, courtIds } from "../lib/booking/booking-service.ts";
@@ -359,6 +360,12 @@ function realSetup(trace) {
       bookingId: () => "booking-real",
       bookingCode: () => "REALADMINCODE",
       eventId: () => `event-${++eventId}`,
+    },
+    {
+      hash: (phone) =>
+        createHmac("sha256", "admin-contract-phone-salt")
+          .update(phone)
+          .digest("hex"),
     },
   );
   return { repository, service, handler: handlerFor(service, { trace, fetch: authFetch(undefined, trace) }) };

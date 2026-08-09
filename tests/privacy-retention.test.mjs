@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 import { BookingService } from "../lib/booking/booking-service.ts";
 import { BookingError } from "../lib/booking/errors.ts";
@@ -7,6 +8,15 @@ import { CloudBaseBookingRepository } from "../cloudbase/src/repositories/cloudb
 import { runPrivacyRetention } from "../cloudbase/src/privacy/redact-expired.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
+
+function testPhoneHasher() {
+  return {
+    hash: (phone) =>
+      createHmac("sha256", "privacy-retention-test-salt")
+        .update(phone)
+        .digest("hex"),
+  };
+}
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
@@ -304,7 +314,12 @@ test("retention enforces strict 180 days, caps 100, continues conflicts, and red
       bookingId: item.id,
     })),
   });
-  const realService = new BookingService(repository);
+  const realService = new BookingService(
+    repository,
+    { now: () => new Date(now) },
+    undefined,
+    testPhoneHasher(),
+  );
   const conflictId = eligible[0].id;
   let conflictInjected = false;
   const service = {

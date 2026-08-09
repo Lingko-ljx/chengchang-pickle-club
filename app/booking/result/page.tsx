@@ -1,9 +1,7 @@
 import { bookingStatusPath } from "../../booking-config";
+import { siteConfiguration } from "../../site-config";
 
-const basePath =
-  process.env.PAGES_BASE_PATH === "/"
-    ? ""
-    : (process.env.PAGES_BASE_PATH ?? "").replace(/\/+$/, "");
+const basePath = siteConfiguration.basePath;
 
 export default function BookingResultPage() {
   const statusPath = bookingStatusPath(basePath);

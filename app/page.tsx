@@ -6,11 +6,9 @@ import {
   resolveBookingApiBaseUrl,
   resolveBookingScriptSrc,
 } from "./booking-config";
+import { siteConfiguration } from "./site-config";
 
-const basePath =
-  process.env.PAGES_BASE_PATH === "/"
-    ? ""
-    : (process.env.PAGES_BASE_PATH ?? "").replace(/\/+$/, "");
+const basePath = siteConfiguration.basePath;
 const bookingApiBaseUrl = resolveBookingApiBaseUrl(
   process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL,
   {

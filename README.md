@@ -1,109 +1,232 @@
-# vinext-starter
+# Chengchang Pickle Club booking stack
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+This repository contains a statically exported public and staff site plus three
+Tencent CloudBase functions: `booking-public-api`, `booking-admin-api`, and
+`booking-mailer`. Node.js `>=22.13.0` is required for local builds.
 
-## Prerequisites
-
-- Node.js `>=22.13.0`
-
-## Quick Start
+## Local verification
 
 ```bash
-npm install
-npm run dev
-npm run build
+npm ci
+npm test
+npm run lint
+npm run build:cloudbase
 ```
 
-This starter does not use `wrangler.jsonc`.
+A GitHub Pages build also requires the public booking API and CloudBase IDs:
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```powershell
+$env:GITHUB_PAGES="true"
+$env:PAGES_BASE_PATH="/chengchang-pickle-club"
+$env:NEXT_PUBLIC_SITE_URL="https://lingko-ljx.github.io/chengchang-pickle-club/"
+$env:NEXT_PUBLIC_BOOKING_API_BASE_URL="https://booking-api.example.invalid"
+$env:NEXT_PUBLIC_CLOUDBASE_ENV_ID="booking-test-000000"
+npm run build:pages
+npm run test:pages
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+`NEXT_PUBLIC_SITE_URL` is normalized as a directory URL and must match
+`PAGES_BASE_PATH`. Production URLs must use HTTPS and cannot contain credentials,
+a query, or a fragment. The Pages workflow consumes `actions/configure-pages`
+outputs, so both a GitHub project URL and a custom-domain root URL are supported.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## Staging-only CloudBase workflow
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+`.github/workflows/cloudbase.yml` is manual-only and targets the protected
+`cloudbase-staging` GitHub environment. Configure these repository variables:
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+- `CLOUDBASE_DEPLOYMENT_STAGE=staging`
+- `CLOUDBASE_ENV_ID` set to the exact, administrator-confirmed test environment
+- `BOOKING_API_BASE_URL` set to the staging gateway origin
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+Configure GitHub secrets `TENCENTCLOUD_SECRET_ID` and
+`TENCENTCLOUD_SECRET_KEY`. The workflow maps them to the no-underscore variable
+names required by CloudBase CLI without printing either value.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+Automation cannot infer whether an opaque CloudBase environment ID belongs to a
+production environment. Before every run, an administrator must confirm in the
+CloudBase console that `CLOUDBASE_ENV_ID` is the isolated test environment, type
+that exact ID into the dispatch prompt, and approve the protected GitHub
+environment. Production deployment belongs to a separate protected workflow;
+do not weaken `CLOUDBASE_DEPLOYMENT_STAGE=staging` here.
 
-## Useful Commands
+The workflow runs `npm ci`, then runs `npm test` with `GITHUB_PAGES=false` and
+the staging public API/environment identifiers, and lints the source. Only after
+both gates pass does it build all functions, atomically render the ignored root
+`cloudbaserc.json`, provision additive database resources, deploy, and read each
+function detail independently. Every function must be Active
+with Node.js 20.19, `index.main`, dependency installation enabled, and the
+current commit revision in its description. The mailer must also expose exactly
+the `booking-mailer-every-minute` timer with `0 * * * * * *`.
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+A successful deploy does not prove the timer exists: CloudBase CLI 3.7 can
+report trigger or per-function errors without a failing process exit. Treat the
+independent detail check as mandatory. If the CLI reports a trigger warning,
+repair and verify the timer in the console, then rerun the workflow. Never infer
+timer health from the deploy step alone.
 
-## 真实预约配置
+## What the scripts do—and do not do
 
-生产构建需要 `NEXT_PUBLIC_FORMSPREE_ENDPOINT`，其值必须匹配
-`^https://formspree\.io/f/[A-Za-z0-9_-]+$`。GitHub Pages 通过
-仓库变量 `FORMSPREE_ENDPOINT` 注入该值。
+`scripts/render-cloudbase-config.mjs` writes only the repository-root
+`cloudbaserc.json`. It includes three function definitions and the timer, but
+zero `envVariables`, secret names, or secret values. It requires the explicit
+environment ID and a 40-character deployment revision.
 
-Formspree 目标邮箱和后台登录信息只在 Formspree 中管理，不写入仓库。
-当前预约是待人工确认的意向收集，不管理实时余位。免费方案当前提供
-每月 50 次提交和 30 天提交历史；正式长期运营前应根据业务量决定升级
-或迁移。
+`scripts/provision-cloudbase.mjs` uses `@cloudbase/manager-node` 5.6.6 and
+`@cloudbase/node-sdk` 3.18.3. It creates missing resources, verifies their
+postconditions with bounded retries, preserves existing `enabled` and `version`
+fields, and fails closed on collection, index, or seed drift. It will never
+delete or rebuild a collection, index, or document.
 
-## Learn More
+Provisioning covers these eleven collections:
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+```text
+courts
+session_templates
+sessions
+court_allocations
+bookings
+booking_codes
+audit_logs
+notification_outbox
+rate_limits
+idempotency
+system_state
+```
+
+It creates the nine planned compound indexes, courts `01` through `11`, and the
+sixteen 60-minute templates `slot-0700` through `slot-2200`.
+
+The scripts cannot configure database ACLs, Auth, RBAC, gateway routes, CORS,
+function runtime environment values, SES approval, snapshots, or rollback.
+Those are manual hard gates below. A green workflow is not production approval.
+
+## Manual hard gates before staging is ready
+
+Record the operator, time, environment ID, and evidence for every item. Complete
+the snapshot and change-control gate below before the first workflow run. That
+run additively provisions the database and creates or updates the functions, but
+it does not configure ACLs, Auth/RBAC, gateway/CORS, runtime environment values,
+or SES. The bootstrap run is therefore expected to fail its final function-detail
+verification after provisioning and deployment because the exact runtime key
+sets are not present yet. Complete those console gates, manually re-check the
+keys, rerun the workflow, and run synthetic smoke tests before allowing traffic.
+
+### 1. Snapshot and change control
+
+- Confirm the environment is the isolated test environment.
+- Take a restorable database snapshot before provisioning or redeployment and
+  record its identifier and retention period.
+- Record the currently deployed function versions, descriptions, routes,
+  triggers, and environment-variable key names. Do not copy secret values into
+  tickets or logs.
+- Agree on the rollback owner and maintenance window before making changes.
+
+### 2. Deny direct database access
+
+In CloudBase database security rules, set all eleven collections listed above to
+deny direct client read and write. Verify both an anonymous client and an
+authenticated staff client are denied. All booking data access must traverse the
+public or admin HTTP function; CloudBase login alone must not grant database
+access.
+
+### 3. Configure Auth v2 and least-privilege staff access
+
+- Enable CloudBase Auth v2 username/password authentication.
+- Keep public self-registration explicitly disabled.
+- Create `booking_staff` with permission to invoke only the admin HTTP resource;
+  do not grant system-administrator, database, public-function, or deployment
+  privileges.
+- Create the initial staff account in the console, assign only `booking_staff`,
+  and verify a non-member token receives 403 while that account can sign in.
+- Keep the public route anonymous and require identity authentication on the
+  admin route.
+
+### 4. Configure one gateway origin and CORS ownership
+
+Expose public and admin paths under the same API origin stored in
+`BOOKING_API_BASE_URL`; do not publish unrelated cross-origin admin endpoints.
+The public path has gateway authentication off. The admin path has identity
+authentication on.
+
+The public handler owns its CORS allowlist and preflight response. The gateway
+owns admin CORS because the admin handler intentionally emits no CORS headers.
+Do not configure duplicate, conflicting headers. Allow exactly these current
+site/development origins unless an approved domain migration updates both code
+and operations:
+
+```text
+https://lingko-ljx.github.io
+http://127.0.0.1:3001
+http://localhost:3001
+```
+
+Validate admin `OPTIONS` at the deployed gateway before login testing: it must
+return the intended allow-origin/method/header policy without invoking business
+logic. Also verify an unlisted origin receives no permissive CORS response.
+
+### 5. Set exact function runtime configuration
+
+Set values directly on each CloudBase function. Do not put them in GitHub
+variables, `cloudbaserc.json`, source files, screenshots, or logs.
+
+- `booking-public-api` requires exactly
+  `PUBLIC_ALLOWED_ORIGINS`, `PUBLIC_RESULT_URL`, `DATA_TIMEZONE`,
+  `RATE_LIMIT_SALT`, `PHONE_HASH_SALT`, and `IDEMPOTENCY_SALT`.
+  `DATA_TIMEZONE` must equal `Asia/Shanghai`. Use independent high-entropy salts.
+  `PUBLIC_RESULT_URL` must be HTTPS, contain no query/fragment/credentials, and
+  use one of the configured allowed origins.
+- `booking-admin-api` requires only `CLOUDBASE_ENV_ID` and `DATA_TIMEZONE`, with
+  `DATA_TIMEZONE=Asia/Shanghai`. The admin function must not read or receive
+  `PHONE_HASH_SALT`; hashing is performed only by the public API paths. This
+  is an intentional least-privilege refinement of the older planning table.
+- `booking-mailer` receives exactly seven variables:
+  `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`, `SES_REGION`,
+  `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, `SES_REPLY_TO`, and
+  `STAFF_NOTIFICATION_EMAIL`.
+
+Missing or invalid public/admin configuration fails closed with a sanitized
+variable-name-only error. After setting the variables, invoke each handler with
+synthetic input and inspect sanitized logs; merely seeing the keys in the
+console is not a runtime smoke test.
+
+### 6. Complete SES approval and timer verification
+
+Confirm the SES sending domain/address and service-notification template are
+approved, and that `SES_TEMPLATE_ID` is the numeric ID for that approved
+template. Send one synthetic staff notification and one optional customer
+notification. Confirm delivery/provider IDs, then remove synthetic personal data
+and Outbox entries according to the test-data procedure.
+
+Independently inspect `booking-mailer` after deployment. It must be Active and
+have exactly one timer named `booking-mailer-every-minute` with the seven-field
+schedule `0 * * * * * *`. Review the next invocation log and verify the
+deterministic daily retention marker prevents duplicate daily retention work.
+
+### 7. Staging acceptance
+
+- Exercise availability, create, lookup, cancel, and reschedule-response routes
+  with synthetic data; confirm matching audit and Outbox records.
+- Exercise authenticated dashboard and mutation routes with the initial staff
+  account; confirm anonymous and wrong-role requests fail.
+- Repeat the admin `OPTIONS` and disallowed-origin checks against the final
+  gateway URL.
+- Verify the Pages repository variables point to this staging API/environment,
+  then build and test the static site.
+- Do not mark staging ready until runtime variables, ACLs, Auth/RBAC, routes,
+  CORS, SES, timer, and synthetic smoke evidence are all signed off.
+
+## Rollback
+
+Stop traffic first if authorization, privacy, or allocation invariants fail.
+Restore the previous gateway routing and deploy the last known-good function
+revision/configuration. The provisioning script is additive and deliberately
+has no destructive rollback; do not delete/rebuild resources to resolve drift.
+Escalate drift for review.
+
+Restore a database snapshot only under the recorded change procedure, after
+preserving evidence and reconciling bookings created since the snapshot. Rotate
+credentials or salts if exposure is suspected; understand that rotating
+`PHONE_HASH_SALT` changes lookup compatibility and therefore requires an
+approved data-migration plan. After any rollback, rerun authorization, CORS,
+booking lifecycle, Outbox, timer, and privacy checks before reopening traffic.

@@ -1,21 +1,7 @@
 import { resolveBookingApiBaseUrl } from "../booking-config";
+import { siteConfiguration } from "../site-config";
 
-function validatedBasePath(value: string | undefined): string {
-  const candidate = value?.trim() ?? "";
-  const normalized = candidate === "/" ? "" : candidate.replace(/\/+$/, "");
-  const hasDotSegment = normalized.split("/").some(
-    (segment) => segment === "." || segment === "..",
-  );
-  if (
-    hasDotSegment ||
-    (normalized && !/^\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(normalized))
-  ) {
-    throw new Error("PAGES_BASE_PATH must be empty or a safe absolute path");
-  }
-  return normalized;
-}
-
-const basePath = validatedBasePath(process.env.PAGES_BASE_PATH);
+const basePath = siteConfiguration.basePath;
 const required = process.env.GITHUB_PAGES === "true";
 const apiBaseUrl = resolveBookingApiBaseUrl(
   process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL,

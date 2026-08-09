@@ -23,13 +23,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/configure-pages@v5
+      - id: pages
+        uses: actions/configure-pages@v5
       - run: npm ci
       - name: Build static site
         env:
           GITHUB_PAGES: "true"
-          PAGES_BASE_PATH: /${{ github.event.repository.name }}
-          NEXT_PUBLIC_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          NEXT_PUBLIC_SITE_URL: ${{ steps.pages.outputs.base_url }}
           NEXT_PUBLIC_BOOKING_API_BASE_URL: ${{ vars.BOOKING_API_BASE_URL }}
           NEXT_PUBLIC_CLOUDBASE_ENV_ID: ${{ vars.CLOUDBASE_ENV_ID }}
         run: npm run build:pages

@@ -67,3 +67,7 @@ export interface IdProvider {
   bookingCode(): string;
   eventId(): string;
 }
+
+export interface PhoneHasher {
+  hash(normalizedPhone: string): string;
+}

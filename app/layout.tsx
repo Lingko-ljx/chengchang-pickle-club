@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { siteConfiguration } from "./site-config";
 
-const defaultSiteUrl =
-  "https://chengchang-pickle-club.hujingseuits.chatgpt.site/";
-const siteUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? defaultSiteUrl);
+const siteUrl = new URL(siteConfiguration.siteUrl);
 const faviconUrl = new URL("favicon.svg", siteUrl).toString();
 const socialImageUrl = new URL("og.png", siteUrl).toString();
 
@@ -16,18 +15,34 @@ export const metadata: Metadata = {
     icon: faviconUrl,
     shortcut: faviconUrl,
   },
+  alternates: {
+    canonical: siteConfiguration.siteUrl,
+  },
   openGraph: {
     type: "website",
+    url: siteConfiguration.siteUrl,
     locale: "zh_CN",
     title: "澄场 PICKLE CLUB",
     description: "为城市留一块会呼吸的球场",
-    images: [{ url: socialImageUrl }],
+    images: [
+      {
+        url: socialImageUrl,
+        width: 1734,
+        height: 907,
+        alt: "Chengchang PICKLE CLUB social preview",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "澄场 PICKLE CLUB",
     description: "为城市留一块会呼吸的球场",
-    images: [socialImageUrl],
+    images: [
+      {
+        url: socialImageUrl,
+        alt: "Chengchang PICKLE CLUB social preview",
+      },
+    ],
   },
 };
 

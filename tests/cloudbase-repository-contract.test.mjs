@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -180,6 +180,12 @@ function serviceFor(database) {
       bookingId: () => "booking-001",
       bookingCode: () => "ABCD2345",
       eventId: () => `event-${++event}`,
+    },
+    {
+      hash: (phone) =>
+        createHmac("sha256", "repository-contract-phone-salt")
+          .update(phone)
+          .digest("hex"),
     },
   );
 }

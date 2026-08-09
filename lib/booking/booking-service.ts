@@ -1,7 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chooseCourt } from "./allocation.ts";
 import { BookingError } from "./errors.ts";
-import type { BookingRepository, BookingTransaction, Clock, IdProvider } from "./ports.ts";
+import type {
+  BookingRepository,
+  BookingTransaction,
+  Clock,
+  IdProvider,
+  PhoneHasher,
+} from "./ports.ts";
 import { assertTransition } from "./state-machine.ts";
 import type {
   AdminBookingFilter,
@@ -67,6 +73,11 @@ const secureIds: IdProvider = {
   bookingId: () => randomUUID(),
   bookingCode: () => encodeBookingCode(randomBytes(20)),
   eventId: () => randomUUID(),
+};
+const unavailablePhoneHasher: PhoneHasher = {
+  hash: () => {
+    throw new Error("PHONE_HASHER_NOT_CONFIGURED");
+  },
 };
 
 interface VersionedCommand {
@@ -177,21 +188,25 @@ export class BookingService {
   private readonly repository: BookingRepository;
   private readonly clock: Clock;
   private readonly ids: IdProvider;
+  private readonly phoneHasher: PhoneHasher;
 
   constructor(
     repository: BookingRepository,
     clock: Clock = systemClock,
     ids: IdProvider = secureIds,
+    phoneHasher: PhoneHasher = unavailablePhoneHasher,
   ) {
     this.repository = repository;
     this.clock = clock;
     this.ids = ids;
+    this.phoneHasher = phoneHasher;
   }
 
   async create(input: unknown): Promise<BookingRecord> {
     const command = validateCreateBooking(input);
     const phone = normalizePhone(command.phone);
     if (!phone) throw new BookingError("INVALID_INPUT");
+    const phoneHash = this.phoneHasher.hash(phone);
     const email = command.email?.trim();
     const parsed = parseSessionId(command.sessionId);
     const now = this.clock.now().toISOString();
@@ -232,7 +247,7 @@ export class BookingService {
         status: "pending",
         name: command.name.trim(),
         phone,
-        phoneHash: hash(phone),
+        phoneHash,
         ...(email ? { email } : {}),
         ...(command.note === undefined ? {} : { note: command.note.trim() }),
         privacyConsentAt: now,
@@ -272,7 +287,7 @@ export class BookingService {
   async lookup(code: string, phone: string): Promise<BookingRecord | null> {
     const normalizedPhone = normalizePhone(phone);
     if (typeof code !== "string" || code.trim() === "" || !normalizedPhone) return null;
-    const requestedPhoneHash = hash(normalizedPhone);
+    const requestedPhoneHash = this.phoneHasher.hash(normalizedPhone);
     return this.repository.runTransaction(async (transaction) => {
       const id = await transaction.getBookingIdByCodeHash(bookingCodeId(code));
       if (!id) return null;

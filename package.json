@@ -14,16 +14,18 @@
     "build:cloudbase:admin": "node scripts/build-cloudbase-functions.mjs booking-admin-api",
     "build:cloudbase:mailer": "node scripts/build-cloudbase-functions.mjs booking-mailer",
     "build:cloudbase": "node scripts/build-cloudbase-functions.mjs booking-public-api booking-admin-api booking-mailer",
+    "render:cloudbase": "node scripts/render-cloudbase-config.mjs",
+    "provision:cloudbase": "node scripts/provision-cloudbase.mjs",
     "start": "vinext start",
     "test": "npm run build && npm run test:unit",
     "test:unit": "node scripts/run-unit-tests.mjs",
     "test:pages": "node --test tests/pages-static-export.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern public/admin-app.js",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern public/admin-app.js --ignore-pattern cloudbase/functions/*/index.js",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@cloudbase/js-sdk": "^2.32.0",
-    "@cloudbase/node-sdk": "^3.18.3",
+    "@cloudbase/node-sdk": "3.18.3",
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",
@@ -31,8 +33,8 @@
     "tencentcloud-sdk-nodejs-ses": "4.1.271"
   },
   "devDependencies": {
-    "@cloudbase/cli": "^3.7.0",
-    "@cloudbase/manager-node": "^5.6.6",
+    "@cloudbase/cli": "3.7.0",
+    "@cloudbase/manager-node": "5.6.6",
     "@cloudflare/vite-plugin": "1.37.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",

@@ -43,7 +43,12 @@ function serviceFixture(seed = {}) {
   const clock = { now: () => new Date(NOW) };
   return {
     repository,
-    service: new BookingService(repository, clock, ids()),
+    service: new BookingService(repository, clock, ids(), {
+      hash: (phone) =>
+        createHmac("sha256", "public-contract-phone-salt")
+          .update(phone)
+          .digest("hex"),
+    }),
   };
 }
 

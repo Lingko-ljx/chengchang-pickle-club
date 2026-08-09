@@ -20,6 +20,7 @@ import {
 } from "./http/request.ts";
 import { errorResponse, jsonResponse, type HttpResponse } from "./http/response.ts";
 import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-repository.ts";
+import { readAdminRuntimeConfiguration } from "./runtime-config.ts";
 
 interface AdminBookingService {
   confirm(input: { bookingId: string; expectedVersion: number; actorId: string }): Promise<BookingRecord>;
@@ -362,19 +363,14 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
   };
 }
 
-function requiredEnvironment(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing configuration: ${name}`);
-  return value;
-}
-
 let productionHandler: ReturnType<typeof createAdminApiHandler> | undefined;
 
 export async function main(event: CloudBaseHttpEvent): Promise<HttpResponse> {
   try {
+    const configuration = readAdminRuntimeConfiguration(process.env);
     productionHandler ??= createAdminApiHandler({
       service: new BookingService(new CloudBaseBookingRepository()),
-      envId: requiredEnvironment("CLOUDBASE_ENV_ID"),
+      envId: configuration.envId,
     });
     return await productionHandler(event);
   } catch (error) {

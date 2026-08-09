@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { resolvePagesBasePath } from "../app/site-config.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -28,11 +29,16 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
+  const basePath = resolvePagesBasePath(process.env.PAGES_BASE_PATH);
   assert.match(html, /<form[^>]+id="booking-form"[^>]+method="post"/i);
   assert.match(html, /action="https:\/\/booking-api\.example\.invalid\/v1\/bookings"/);
   assert.match(html, /data-availability-url="https:\/\/booking-api\.example\.invalid\/v1\/availability"/);
-  assert.match(html, /data-booking-result-path="\/booking\/result\/"/);
-  assert.match(html, /data-booking-status-path="\/booking\/status\/"/);
+  assert.ok(
+    html.includes(`data-booking-result-path="${basePath}/booking/result/"`),
+  );
+  assert.ok(
+    html.includes(`data-booking-status-path="${basePath}/booking/status/"`),
+  );
   assert.match(html, /name="mode"[^>]+value="open"/);
   assert.match(html, /name="mode"[^>]+value="private"/);
   assert.match(html, /name="date"/);

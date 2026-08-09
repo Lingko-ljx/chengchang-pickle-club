@@ -36,6 +36,21 @@ test("exports the real booking form without a framework client runtime", async (
   );
   assert.doesNotMatch(html, /_next\/static\/chunks\/[^"]+\.js/);
   assert.doesNotMatch(html, /self\.__next|__next_f|modulepreload/);
+  assert.match(
+    html,
+    /<link rel="canonical" href="https:\/\/lingko-ljx\.github\.io\/chengchang-pickle-club\/"/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:url" content="https:\/\/lingko-ljx\.github\.io\/chengchang-pickle-club\/"/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:image" content="https:\/\/lingko-ljx\.github\.io\/chengchang-pickle-club\/og\.png"/,
+  );
+  assert.match(html, /<meta property="og:image:width" content="1734"/);
+  assert.match(html, /<meta property="og:image:height" content="907"/);
+  assert.match(html, /<meta property="og:image:alt" content="[^"]+"/);
 
   const scriptTags = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
   assert.equal(scriptTags.length, 1);

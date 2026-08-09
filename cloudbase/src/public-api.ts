@@ -14,6 +14,7 @@ import {
 } from "./http/request.ts";
 import { createRateLimiter, type RateLimiter } from "./http/rate-limit.ts";
 import { errorResponse, jsonResponse, type HttpResponse } from "./http/response.ts";
+import { readPublicRuntimeConfiguration } from "./runtime-config.ts";
 
 const TEN_MINUTES = 10 * 60 * 1000;
 
@@ -379,22 +380,27 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
   };
 }
 
-function requiredEnvironment(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing configuration: ${name}`);
-  return value;
-}
-
 let productionHandler: ReturnType<typeof createPublicApiHandler> | undefined;
 
 export async function main(event: CloudBaseHttpEvent): Promise<HttpResponse> {
   try {
+    const configuration = readPublicRuntimeConfiguration(process.env);
     productionHandler ??= createPublicApiHandler({
-      service: new BookingService(new CloudBaseBookingRepository()),
-      rateLimiter: createRateLimiter({ salt: requiredEnvironment("RATE_LIMIT_SALT") }),
-      allowedOrigins: requiredEnvironment("PUBLIC_ALLOWED_ORIGINS"),
-      resultUrl: requiredEnvironment("PUBLIC_RESULT_URL"),
-      idempotencySalt: requiredEnvironment("IDEMPOTENCY_SALT"),
+      service: new BookingService(
+        new CloudBaseBookingRepository(),
+        undefined,
+        undefined,
+        {
+          hash: (phone) =>
+            createHmac("sha256", configuration.phoneHashSalt)
+              .update(phone)
+              .digest("hex"),
+        },
+      ),
+      rateLimiter: createRateLimiter({ salt: configuration.rateLimitSalt }),
+      allowedOrigins: configuration.allowedOrigins,
+      resultUrl: configuration.resultUrl,
+      idempotencySalt: configuration.idempotencySalt,
     });
     return await productionHandler(event);
   } catch (error) {

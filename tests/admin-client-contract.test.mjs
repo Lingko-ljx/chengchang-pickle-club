@@ -70,6 +70,7 @@ async function renderAdminPage(basePath = "/chengchang-pickle-club") {
       "process.env.GITHUB_PAGES": '"true"',
       "process.env.NODE_ENV": '"production"',
       "process.env.PAGES_BASE_PATH": JSON.stringify(basePath),
+      "process.env.NEXT_PUBLIC_SITE_URL": '"https://lingko-ljx.github.io/chengchang-pickle-club/"',
       "process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL": '"https://booking-api.example.invalid"',
       "process.env.NEXT_PUBLIC_CLOUDBASE_ENV_ID": '"booking-test-000000"',
     },

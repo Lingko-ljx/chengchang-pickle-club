@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash, createHmac } from "node:crypto";
 import test from "node:test";
 import {
   BookingService,
@@ -64,6 +65,12 @@ function testIds() {
   };
 }
 
+function phoneHasher(salt = "test-phone-salt") {
+  return {
+    hash: (phone) => createHmac("sha256", salt).update(phone).digest("hex"),
+  };
+}
+
 function setup(options = {}) {
   let now = options.now ?? new Date("2098-12-01T00:00:00.000Z");
   const clock = {
@@ -85,7 +92,7 @@ function setup(options = {}) {
   return {
     clock,
     repository,
-    service: new BookingService(repository, clock, testIds()),
+    service: new BookingService(repository, clock, testIds(), phoneHasher(options.phoneSalt)),
   };
 }
 
@@ -98,6 +105,64 @@ async function getAllocation(repository, sessionId, courtId) {
     (await transaction.getAllocations(sessionId, [courtId]))[0] ?? null,
   );
 }
+
+test("create and lookup fail closed when no phone hasher is configured", async () => {
+  const repository = new MemoryBookingRepository({
+    courts: courtIds.map((id) => ({ id, enabled: true, version: 1 })),
+    sessionTemplates: [
+      { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
+    ],
+  });
+  const service = new BookingService(
+    repository,
+    { now: () => new Date("2098-12-01T00:00:00.000Z") },
+    testIds(),
+  );
+
+  await assert.rejects(() => service.create(command()), /PHONE_HASHER_NOT_CONFIGURED/);
+  await assert.rejects(() => service.lookup("TESTCODE", "13800138000"), /PHONE_HASHER_NOT_CONFIGURED/);
+});
+
+test("create fails closed before an idempotency replay when no phone hasher is configured", async () => {
+  const configured = setup();
+  await configured.service.create(command({ idempotencyKey: "existing-request" }));
+  const unconfigured = new BookingService(
+    configured.repository,
+    configured.clock,
+    testIds(),
+  );
+
+  await assert.rejects(
+    () => unconfigured.create(command({ idempotencyKey: "existing-request" })),
+    /PHONE_HASHER_NOT_CONFIGURED/,
+  );
+});
+
+test("create stores a salted phone HMAC rather than a bare SHA-256 digest", async () => {
+  const salt = "deployment-phone-salt";
+  const { repository, service } = setup({ phoneSalt: salt });
+  const created = await service.create(command());
+  const stored = await getBooking(repository, created.id);
+  const expected = createHmac("sha256", salt).update("13800138000").digest("hex");
+  const bareDigest = createHash("sha256").update("13800138000").digest("hex");
+
+  assert.equal(stored.phoneHash, expected);
+  assert.notEqual(stored.phoneHash, bareDigest);
+});
+
+test("phone lookup succeeds only with the same HMAC salt", async () => {
+  const { clock, repository, service } = setup({ phoneSalt: "salt-a" });
+  const created = await service.create(command());
+  const differentSalt = new BookingService(
+    repository,
+    clock,
+    testIds(),
+    phoneHasher("salt-b"),
+  );
+
+  assert.equal((await service.lookup(created.code, "138 0013 8000"))?.id, created.id);
+  assert.equal(await differentSalt.lookup(created.code, "13800138000"), null);
+});
 
 test("eleven private bookings fill eleven courts and the twelfth fails", async () => {
   const { service } = setup();
@@ -464,6 +529,7 @@ test("failure of the second new-booking Outbox write rolls back every create wri
     repository,
     { now: () => new Date("2098-12-01T00:00:00.000Z") },
     testIds(),
+    phoneHasher(),
   );
 
   await assert.rejects(() => service.create(command()), /SECOND_NOTIFICATION_FAILURE/);
