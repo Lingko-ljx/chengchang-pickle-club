@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import test from "node:test";
 import { BookingService, allocationId, courtIds } from "../lib/booking/booking-service.ts";
 import { BookingError } from "../lib/booking/errors.ts";
@@ -186,12 +186,14 @@ test("JSON creation returns a sanitized 201 envelope and requires client idempot
       partySize: 2,
       name: "A** L*******",
       phone: "138****8000",
-      version: 1,
+      actionVersion: 1,
+      canCancelUntil: "2098-12-31T23:00:00.000Z",
       canCancel: true,
     },
   });
   assert.equal("id" in responseBody(created).data, false);
   assert.equal("phoneHash" in responseBody(created).data, false);
+  assert.equal("version" in responseBody(created).data, false);
 
   const missingKey = await handler(
     jsonEvent("POST", "/v1/bookings", createPayload({ idempotency_key: "" })),
@@ -216,7 +218,7 @@ test("a fifth player is rejected with INVALID_PARTY_SIZE", async () => {
   });
 });
 
-test("base64 native forms normalize date and start_time, derive an hourly key, and redirect safely", async () => {
+test("base64 native forms derive the exact canonical hourly HMAC and redirect safely", async () => {
   const captured = [];
   const service = {
     async create(command) {
@@ -257,6 +259,12 @@ test("base64 native forms normalize date and start_time, derive an hourly key, a
 
   const first = await handler(event);
   await handler(event);
+  const changedParams = new URLSearchParams(params);
+  changedParams.set("phone", "139 0013 9001");
+  await handler({
+    ...event,
+    body: Buffer.from(changedParams.toString()).toString("base64"),
+  });
   assert.equal(first.statusCode, 303);
   assert.deepEqual(first.headers, {
     Location: "https://example.test/booking/result?code=FORMCODE2345",
@@ -265,8 +273,113 @@ test("base64 native forms normalize date and start_time, derive an hourly key, a
   assert.equal(captured[0].sessionId, MORNING);
   assert.equal(captured[0].partySize, 4);
   assert.equal(captured[0].privacyConsent, true);
-  assert.match(captured[0].idempotencyKey, /^[a-f0-9]{64}$/);
+  const expected = createHmac("sha256", "test-idempotency-salt")
+    .update(JSON.stringify([
+      MORNING,
+      "private",
+      4,
+      "Grace Hopper",
+      "13900139000",
+      "",
+      "",
+      true,
+      "2098-12-01T10",
+    ]))
+    .digest("hex");
+  assert.equal(captured[0].idempotencyKey, expected);
   assert.equal(captured[1].idempotencyKey, captured[0].idempotencyKey);
+  assert.notEqual(captured[2].idempotencyKey, captured[0].idempotencyKey);
+});
+
+test("client idempotency keys are HMAC-fingerprinted by canonical request and remain hour-stable", async () => {
+  const captured = [];
+  let instant = new Date(NOW);
+  const service = {
+    async create(command) {
+      captured.push(command);
+      return {
+        code: `CLIENTKEY${captured.length}`,
+        status: "pending",
+        date: DATE,
+        startAt: "2098-12-31T23:00:00.000Z",
+        endAt: "2099-01-01T00:00:00.000Z",
+        mode: command.mode,
+        partySize: command.partySize,
+        name: command.name,
+        phone: command.phone,
+        version: 1,
+        canCancelUntil: "2098-12-31T23:00:00.000Z",
+      };
+    },
+  };
+  const handler = handlerFor(service, { now: () => new Date(instant) });
+  const payload = createPayload({ idempotency_key: "  shared-key  " });
+
+  await handler(jsonEvent("POST", "/v1/bookings", payload));
+  instant = new Date("2098-12-01T03:35:00.000Z");
+  await handler(jsonEvent("POST", "/v1/bookings", payload));
+  await handler(jsonEvent("POST", "/v1/bookings", { ...payload, phone: "13900139000" }));
+
+  const expected = createHmac("sha256", "test-idempotency-salt")
+    .update(JSON.stringify([
+      "public-api-client-v1",
+      "shared-key",
+      MORNING,
+      "open",
+      2,
+      "Ada Lovelace",
+      "13800138000",
+      "ada@example.com",
+      "Near the net",
+      true,
+    ]))
+    .digest("hex");
+  assert.equal(captured[0].idempotencyKey, expected);
+  assert.equal(captured[1].idempotencyKey, expected);
+  assert.notEqual(captured[2].idempotencyKey, expected);
+  assert.notEqual(captured[0].idempotencyKey, "shared-key");
+});
+
+test("the same low-entropy client key cannot return another canonical booking", async () => {
+  const { service } = serviceFixture();
+  const handler = handlerFor(service);
+  const firstPayload = createPayload({ idempotency_key: "1" });
+  const first = await handler(jsonEvent("POST", "/v1/bookings", firstPayload));
+  const retry = await handler(jsonEvent("POST", "/v1/bookings", firstPayload));
+  const other = await handler(jsonEvent("POST", "/v1/bookings", {
+    ...firstPayload,
+    phone: "13900139000",
+  }));
+
+  assert.equal(responseBody(retry).data.code, responseBody(first).data.code);
+  assert.notEqual(responseBody(other).data.code, responseBody(first).data.code);
+  assert.equal(responseBody(other).data.phone, "139****9000");
+});
+
+test("URL-encoded JSON enhancement requests cannot use the native blank-key fallback", async () => {
+  const { service } = serviceFixture();
+  const params = new URLSearchParams({
+    date: DATE,
+    start_time: "07:00",
+    mode: "open",
+    party_size: "2",
+    name: "Ada Lovelace",
+    phone: "13800138000",
+    privacy_consent: "on",
+    idempotency_key: "",
+  });
+  const response = await handlerFor(service)({
+    httpMethod: "POST",
+    path: "/v1/bookings",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(responseBody(response).error.code, "INVALID_INPUT");
 });
 
 test("honeypot submissions receive a generic 202 without creating a booking", async () => {
@@ -303,6 +416,36 @@ test("an exhausted session is a sanitized 409 SESSION_FULL", async () => {
   });
 });
 
+test("public phone validation rejects incomplete numbers and masks an eight-digit number", async () => {
+  const { service } = serviceFixture();
+  const handler = handlerFor(service);
+
+  const shortCreate = await handler(
+    jsonEvent("POST", "/v1/bookings", createPayload({ phone: "123-4567" })),
+  );
+  assert.equal(shortCreate.statusCode, 400);
+  assert.equal(responseBody(shortCreate).error.code, "INVALID_INPUT");
+
+  const created = await handler(
+    jsonEvent("POST", "/v1/bookings", createPayload({
+      idempotency_key: "eight-digit-phone",
+      phone: "1234-5678",
+    })),
+  );
+  assert.equal(created.statusCode, 201);
+  assert.equal(responseBody(created).data.phone, "123*5678");
+  assert.notEqual(responseBody(created).data.phone, "12345678");
+
+  const shortLookup = await handler(
+    jsonEvent("POST", "/v1/bookings/lookup", {
+      code: responseBody(created).data.code,
+      phone: "4567",
+    }),
+  );
+  assert.equal(shortLookup.statusCode, 400);
+  assert.equal(responseBody(shortLookup).error.code, "INVALID_INPUT");
+});
+
 test("lookup requires code plus the full normalized phone and sanitizes not-found cases identically", async () => {
   const { service } = serviceFixture();
   const booking = await service.create({
@@ -325,6 +468,9 @@ test("lookup requires code plus the full normalized phone and sanitizes not-foun
   assert.equal(responseBody(found).data.code, booking.code);
   assert.equal(responseBody(found).data.phone, "138****8000");
   assert.equal(responseBody(found).data.name, "A** L*******");
+  assert.equal(responseBody(found).data.actionVersion, booking.version);
+  assert.equal(responseBody(found).data.canCancelUntil, booking.canCancelUntil);
+  assert.equal("version" in responseBody(found).data, false);
 
   const wrongCode = await handler(
     jsonEvent("POST", "/v1/bookings/lookup", {
@@ -338,13 +484,7 @@ test("lookup requires code plus the full normalized phone and sanitizes not-foun
       phone: "13800138001",
     }),
   );
-  const suffixOnly = await handler(
-    jsonEvent("POST", "/v1/bookings/lookup", {
-      code: booking.code,
-      phone: "8000",
-    }),
-  );
-  for (const response of [wrongCode, wrongPhone, suffixOnly]) {
+  for (const response of [wrongCode, wrongPhone]) {
     assert.equal(response.statusCode, 404);
     assert.deepEqual(responseBody(response), NOT_FOUND);
   }
@@ -388,7 +528,9 @@ test("customer cancellation authenticates by code and phone and requires expecte
   );
   assert.equal(cancelled.statusCode, 200);
   assert.equal(responseBody(cancelled).data.status, "cancelled");
-  assert.equal(responseBody(cancelled).data.version, 2);
+  assert.equal(responseBody(cancelled).data.actionVersion, 2);
+  assert.equal(responseBody(cancelled).data.canCancelUntil, booking.canCancelUntil);
+  assert.equal("version" in responseBody(cancelled).data, false);
 });
 
 test("customer reschedule response authenticates ownership and preserves conflict status", async () => {
@@ -431,58 +573,169 @@ test("customer reschedule response authenticates ownership and preserves conflic
   assert.equal(responseBody(accepted).data.status, "confirmed");
   assert.equal(responseBody(accepted).data.date, DATE);
   assert.equal(responseBody(accepted).data.startTime, "08:00");
+  assert.equal(responseBody(accepted).data.actionVersion, 3);
+  assert.equal(responseBody(accepted).data.canCancelUntil, "2099-01-01T00:00:00.000Z");
+  assert.equal("version" in responseBody(accepted).data, false);
 });
 
-test("rate limits run before booking transactions and ignore forwarding headers", async () => {
-  const limiter = {
-    async consume(request) {
-      if (request.scope === "lookup-ip") {
-        assert.equal(request.key, "anonymous");
-        assert.equal(request.limit, 3);
-        return false;
-      }
-      throw new Error("UNEXPECTED_RATE_LIMIT_BUCKET");
-    },
-  };
-  const service = {
-    async lookup() {
-      throw new Error("RATE_LIMIT_RAN_AFTER_LOOKUP");
-    },
-  };
-  const response = await handlerFor(service, { rateLimiter: limiter })(
-    jsonEvent(
-      "POST",
-      "/v1/bookings/lookup",
-      { code: "PUBLIC123", phone: "13800138000" },
-      { headers: { "x-forwarded-for": "203.0.113.9" } },
-    ),
-  );
-
-  assert.equal(response.statusCode, 429);
-  assert.equal(responseBody(response).error.code, "RATE_LIMITED");
-});
-
-test("trusted gateway addresses receive the documented create bucket", async () => {
-  const limiter = {
-    async consume(request) {
-      assert.deepEqual(request, {
+test("create rate limits use exact trusted and anonymous buckets before service", async () => {
+  const cases = [
+    {
+      requestContext: { http: { sourceIp: "198.51.100.7" } },
+      expected: {
         scope: "create-ip",
         key: "198.51.100.7",
         limit: 5,
         windowMs: 10 * 60 * 1000,
-      });
-      return false;
+      },
     },
-  };
-  const response = await handlerFor(
-    { create: async () => { throw new Error("CREATE_SHOULD_NOT_RUN"); } },
-    { rateLimiter: limiter },
-  )(
-    jsonEvent("POST", "/v1/bookings", createPayload(), {
-      requestContext: { http: { sourceIp: "198.51.100.7" } },
-    }),
-  );
-  assert.equal(response.statusCode, 429);
+    {
+      requestContext: undefined,
+      expected: {
+        scope: "create-ip",
+        key: "anonymous",
+        limit: 2,
+        windowMs: 10 * 60 * 1000,
+      },
+    },
+  ];
+
+  for (const item of cases) {
+    const timeline = [];
+    const response = await handlerFor(
+      {
+        async create() {
+          timeline.push("service:create");
+          throw new Error("CREATE_SHOULD_NOT_RUN");
+        },
+      },
+      {
+        rateLimiter: {
+          async consume(request) {
+            timeline.push({ rate: request });
+            return false;
+          },
+        },
+      },
+    )(
+      jsonEvent("POST", "/v1/bookings", createPayload(), {
+        requestContext: item.requestContext,
+      }),
+    );
+    assert.equal(response.statusCode, 429);
+    assert.deepEqual(timeline, [{ rate: item.expected }]);
+  }
+});
+
+test("lookup rate limits IP before code-plus-phone with exact thresholds", async () => {
+  const cases = [
+    {
+      overrides: { requestContext: { http: { sourceIp: "198.51.100.8" } } },
+      ipKey: "198.51.100.8",
+      ipLimit: 10,
+    },
+    {
+      overrides: { headers: { "x-forwarded-for": "203.0.113.9" } },
+      ipKey: "anonymous",
+      ipLimit: 3,
+    },
+  ];
+
+  for (const item of cases) {
+    const timeline = [];
+    const response = await handlerFor(
+      {
+        async lookup() {
+          timeline.push("service:lookup");
+          return {
+            code: "PUBLIC123",
+            status: "pending",
+            date: DATE,
+            startAt: "2098-12-31T23:00:00.000Z",
+            endAt: "2099-01-01T00:00:00.000Z",
+            mode: "open",
+            partySize: 1,
+            name: "Ada Lovelace",
+            phone: "13800138000",
+            version: 1,
+            canCancelUntil: "2098-12-31T23:00:00.000Z",
+          };
+        },
+      },
+      {
+        rateLimiter: {
+          async consume(request) {
+            timeline.push({ rate: request });
+            return true;
+          },
+        },
+      },
+    )(
+      jsonEvent("POST", "/v1/bookings/lookup", {
+        code: "public123",
+        phone: "138 0013-8000",
+      }, item.overrides),
+    );
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(timeline, [
+      {
+        rate: {
+          scope: "lookup-ip",
+          key: item.ipKey,
+          limit: item.ipLimit,
+          windowMs: 10 * 60 * 1000,
+        },
+      },
+      {
+        rate: {
+          scope: "lookup-booking",
+          key: "PUBLIC123\0" + "13800138000",
+          limit: 5,
+          windowMs: 10 * 60 * 1000,
+        },
+      },
+      "service:lookup",
+    ]);
+  }
+});
+
+test("cancel and reschedule rate limits use the normalized code before any service call", async () => {
+  for (const suffix of ["cancel", "reschedule-response"]) {
+    const timeline = [];
+    const response = await handlerFor(
+      {
+        async lookup() {
+          timeline.push("service:lookup");
+          throw new Error("LOOKUP_SHOULD_NOT_RUN");
+        },
+      },
+      {
+        rateLimiter: {
+          async consume(request) {
+            timeline.push({ rate: request });
+            return false;
+          },
+        },
+      },
+    )(
+      jsonEvent("POST", `/v1/bookings/public123/${suffix}`, {
+        phone: "13800138000",
+        expected_version: 1,
+        accept: true,
+      }),
+    );
+    assert.equal(response.statusCode, 429);
+    assert.deepEqual(timeline, [
+      {
+        rate: {
+          scope: "booking-mutation",
+          key: "PUBLIC123",
+          limit: 5,
+          windowMs: 10 * 60 * 1000,
+        },
+      },
+    ]);
+  }
 });
 
 test("rate limiter hashes salted keys and exhausts the counter without exposing raw values", async () => {

@@ -73,6 +73,12 @@ function normalizePhone(value: unknown): string {
   return typeof value === "string" ? value.replace(/\D/g, "") : "";
 }
 
+function completePhone(value: unknown): string {
+  const phone = normalizePhone(value);
+  if (!/^\d{8,15}$/.test(phone)) throw new BookingError("INVALID_INPUT");
+  return phone;
+}
+
 function normalizeCode(value: string): string {
   return value.trim().toUpperCase();
 }
@@ -101,12 +107,8 @@ function shanghaiHour(date: Date): string {
   return `${value.year}-${value.month}-${value.day}T${value.hour}`;
 }
 
-function derivedIdempotencyKey(
-  salt: string,
-  now: Date,
-  command: Record<string, unknown>,
-): string {
-  const canonical = JSON.stringify([
+function canonicalBookingFields(command: Record<string, unknown>): unknown[] {
+  return [
     command.sessionId,
     command.mode,
     command.partySize,
@@ -115,7 +117,27 @@ function derivedIdempotencyKey(
     command.email ?? "",
     command.note ?? "",
     command.privacyConsent,
-    shanghaiHour(now),
+  ];
+}
+
+function derivedNativeIdempotencyKey(
+  salt: string,
+  now: Date,
+  command: Record<string, unknown>,
+): string {
+  const canonical = JSON.stringify([...canonicalBookingFields(command), shanghaiHour(now)]);
+  return createHmac("sha256", salt).update(canonical).digest("hex");
+}
+
+function fingerprintClientIdempotencyKey(
+  salt: string,
+  clientKey: string,
+  command: Record<string, unknown>,
+): string {
+  const canonical = JSON.stringify([
+    "public-api-client-v1",
+    clientKey.trim(),
+    ...canonicalBookingFields(command),
   ]);
   return createHmac("sha256", salt).update(canonical).digest("hex");
 }
@@ -135,7 +157,7 @@ function maskName(name: string | undefined): string | undefined {
 
 function maskPhone(phone: string | undefined): string | undefined {
   if (!phone) return undefined;
-  if (phone.length < 7) return "*".repeat(phone.length);
+  if (phone.length < 8) return "*".repeat(phone.length);
   return `${phone.slice(0, 3)}${"*".repeat(phone.length - 7)}${phone.slice(-4)}`;
 }
 
@@ -148,7 +170,8 @@ function publicBooking(booking: BookingRecord, now: Date): Record<string, unknow
     endTime: formatShanghaiTime(booking.endAt),
     mode: booking.mode,
     partySize: booking.partySize,
-    version: booking.version,
+    actionVersion: booking.version,
+    canCancelUntil: booking.canCancelUntil,
     canCancel:
       (booking.status === "pending" ||
         booking.status === "confirmed" ||
@@ -204,19 +227,21 @@ function createCommand(
     mode: stringField(body, "mode"),
     partySize,
     name: stringField(body, "name"),
-    phone: normalizePhone(field(body, "phone")),
+    phone: completePhone(field(body, "phone")),
     privacyConsent,
   };
   const email = stringField(body, "email");
   const note = stringField(body, "note");
   if (email) command.email = email;
   if (note) command.note = note;
-  let idempotencyKey =
+  const clientKey =
     stringField(body, "idempotency_key", "idempotencyKey") ||
     (requestHeader(event, "idempotency-key") ?? "").trim();
-  if (!idempotencyKey && isNativeForm) {
-    idempotencyKey = derivedIdempotencyKey(idempotencySalt, now, command);
-  }
+  const idempotencyKey = clientKey
+    ? fingerprintClientIdempotencyKey(idempotencySalt, clientKey, command)
+    : isNativeForm
+      ? derivedNativeIdempotencyKey(idempotencySalt, now, command)
+      : "";
   command.idempotencyKey = idempotencyKey;
   return command;
 }
@@ -239,9 +264,7 @@ function requiredVersion(body: Record<string, unknown>): number {
 }
 
 function requiredOwnership(body: Record<string, unknown>): string {
-  const phone = normalizePhone(field(body, "phone"));
-  if (!phone) throw new BookingError("INVALID_INPUT");
-  return phone;
+  return completePhone(field(body, "phone"));
 }
 
 function allowedOriginSet(value: string): Set<string> {
