@@ -26,12 +26,23 @@ test("runbook identifies every console-only database and identity hard gate", ()
   assert.match(readme, /self-registration[^\n]*disabled/i);
   assert.match(readme, /booking_staff/);
   assert.match(readme, /initial staff account/i);
+  assert.match(readme, /organization member/i);
+  assert.match(readme, /groups\[\]\.id[^\n]*booking_staff/i);
 });
 
 test("runbook assigns route, CORS, OPTIONS, and exact runtime configuration ownership", () => {
+  assert.match(readme, /Pages[^\n]*Source[^\n]*GitHub Actions/i);
   assert.match(readme, /same API origin/i);
   assert.match(readme, /admin[^\n]*OPTIONS/i);
   assert.match(readme, /gateway[^\n]*CORS/i);
+  assert.match(readme, /Web\s+security sources/i);
+  for (const source of [
+    "lingko-ljx.github.io",
+    "127.0.0.1:3001",
+    "localhost:3001",
+  ]) {
+    assert.match(readme, new RegExp(source.replaceAll(".", "\\.")), source);
+  }
   for (const name of [
     "PUBLIC_ALLOWED_ORIGINS",
     "PUBLIC_RESULT_URL",

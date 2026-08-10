@@ -31,6 +31,7 @@ export interface BookingRepository {
   runTransaction<T>(work: (transaction: BookingTransaction) => Promise<T>): Promise<T>;
   getBookingById(bookingId: string): Promise<BookingRecord | null>;
   listAvailability(date: string): Promise<AvailabilitySlot[]>;
+  listSessions(date: string): Promise<SessionRecord[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
   listPendingBookings(date: string): Promise<BookingRecord[]>;
   listMatrixBookings(date: string): Promise<BookingRecord[]>;

@@ -71,6 +71,20 @@ function phoneHasher(salt = "test-phone-salt") {
   };
 }
 
+function provisionedSessionTemplates() {
+  return Array.from({ length: 16 }, (_, index) => {
+    const startHour = index + 7;
+    const endHour = startHour + 1;
+    return {
+      id: `slot-${String(startHour).padStart(2, "0")}00`,
+      startTime: `${String(startHour).padStart(2, "0")}:00`,
+      endTime: `${String(endHour).padStart(2, "0")}:00`,
+      enabled: true,
+      version: 1,
+    };
+  });
+}
+
 function setup(options = {}) {
   let now = options.now ?? new Date("2098-12-01T00:00:00.000Z");
   const clock = {
@@ -95,6 +109,106 @@ function setup(options = {}) {
     service: new BookingService(repository, clock, testIds(), phoneHasher(options.phoneSalt)),
   };
 }
+
+test("fresh provision seeds expose every slot before the first booking", async () => {
+  const { repository, service } = setup({
+    sessionTemplates: provisionedSessionTemplates(),
+  });
+
+  const fresh = await service.listAvailability(FUTURE_DATE);
+
+  assert.equal(fresh.length, 16);
+  assert.deepEqual(fresh[0], {
+    sessionId: MORNING,
+    date: FUTURE_DATE,
+    startTime: "07:00",
+    endTime: "08:00",
+    openCapacity: 44,
+    acceptsOpenPartySizes: [1, 2, 3, 4],
+    privateCourtCount: 11,
+    acceptsOpen: true,
+    acceptsPrivate: true,
+  });
+  assert.equal(fresh.at(-1).sessionId, `${FUTURE_DATE}__slot-2200`);
+
+  const booking = await service.create(command({ mode: "private" }));
+  assert.equal(booking.sessionId, MORNING);
+  assert.equal(booking.courtId, "01");
+  assert.equal((await service.listAvailability(FUTURE_DATE))[0].privateCourtCount, 10);
+  assert.equal((await repository.listBookings({})).length, 1);
+});
+
+test("availability racing first create prefers the stored capacity without duplicates", async () => {
+  let releaseAvailability;
+  let reportSessionsRead;
+  const availabilityReleased = new Promise((resolve) => {
+    releaseAvailability = resolve;
+  });
+  const sessionsRead = new Promise((resolve) => {
+    reportSessionsRead = resolve;
+  });
+  class RacingRepository extends MemoryBookingRepository {
+    async listSessions(date) {
+      const snapshot = await super.listSessions(date);
+      reportSessionsRead();
+      return snapshot;
+    }
+
+    async listAvailability(date) {
+      await availabilityReleased;
+      return super.listAvailability(date);
+    }
+  }
+  const repository = new RacingRepository({
+    courts: courtIds.map((id) => ({ id, enabled: true, version: 1 })),
+    sessionTemplates: [
+      { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
+    ],
+  });
+  const service = new BookingService(
+    repository,
+    { now: () => new Date("2098-12-01T00:00:00.000Z") },
+    testIds(),
+    phoneHasher(),
+  );
+
+  const availability = service.listAvailability(FUTURE_DATE);
+  await sessionsRead;
+  await service.create(command({ mode: "private" }));
+  releaseAvailability();
+
+  const slots = await availability;
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].sessionId, MORNING);
+  assert.equal(slots[0].openCapacity, 40);
+  assert.equal(slots[0].privateCourtCount, 10);
+});
+
+test("session dates reject normalized invalid days and accept a real leap day", async () => {
+  const { service } = setup({ now: new Date("2026-01-01T00:00:00.000Z") });
+
+  for (const date of ["2026-02-29", "2026-02-31"]) {
+    await assert.rejects(
+      () =>
+        service.create(
+          command({
+            idempotencyKey: `invalid-${date}`,
+            sessionId: `${date}__slot-0700`,
+          }),
+        ),
+      /INVALID_INPUT/,
+    );
+  }
+
+  const leapDay = await service.create(
+    command({
+      idempotencyKey: "valid-leap-day",
+      sessionId: "2028-02-29__slot-0700",
+    }),
+  );
+  assert.equal(leapDay.date, "2028-02-29");
+  assert.equal(leapDay.startAt, "2028-02-28T23:00:00.000Z");
+});
 
 async function getBooking(repository, id) {
   return repository.runTransaction((transaction) => transaction.getBooking(id));
@@ -535,7 +649,11 @@ test("failure of the second new-booking Outbox write rolls back every create wri
   await assert.rejects(() => service.create(command()), /SECOND_NOTIFICATION_FAILURE/);
   assert.deepEqual(await service.listBookings({}), []);
   assert.deepEqual(await repository.listNotifications(), []);
-  assert.deepEqual(await service.listAvailability(FUTURE_DATE), []);
+  assert.equal(
+    await repository.runTransaction((transaction) => transaction.getSession(MORNING)),
+    null,
+  );
+  assert.equal((await service.listAvailability(FUTURE_DATE))[0].openCapacity, 44);
 
   const retried = await service.create(command());
   assert.equal(retried.id, "booking-2");

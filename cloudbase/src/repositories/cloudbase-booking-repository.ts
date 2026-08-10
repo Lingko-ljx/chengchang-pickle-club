@@ -203,7 +203,7 @@ export class CloudBaseBookingRepository implements BookingRepository {
     const sessions = await this.query<SessionRecord>(
       "sessions",
       { date, status: "open" },
-      500,
+      100,
       [["startAt", "asc"]],
     );
     const courts = await this.query<CourtRecord>("courts", { enabled: true }, 100);
@@ -247,6 +247,10 @@ export class CloudBaseBookingRepository implements BookingRepository {
       }),
     );
     return slots;
+  }
+
+  listSessions(date: string): Promise<SessionRecord[]> {
+    return this.query<SessionRecord>("sessions", { date }, 100, [["startAt", "asc"]]);
   }
 
   async listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {

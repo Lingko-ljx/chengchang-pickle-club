@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { BookingService } from "../../lib/booking/booking-service.ts";
+import { requireCalendarDate } from "../../lib/booking/calendar-date.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
 import type { BookingRecord } from "../../lib/booking/types.ts";
 import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-repository.ts";
@@ -291,8 +292,7 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
       }
 
       if (method === "GET" && path === "/v1/availability") {
-        const date = queryParameter(event, "date")?.trim() ?? "";
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BookingError("INVALID_INPUT");
+        const date = requireCalendarDate(queryParameter(event, "date")?.trim() ?? "");
         const slots = await dependencies.service.listAvailability(date);
         return jsonResponse(200, slots, headers);
       }

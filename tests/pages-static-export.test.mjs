@@ -7,17 +7,21 @@ test("exports the real booking form without a framework client runtime", async (
     new URL("../out/index.html", import.meta.url),
     "utf8",
   );
+  const apiBaseUrl = process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL?.replace(
+    /\/+$/,
+    "",
+  );
+
+  assert.ok(apiBaseUrl, "Pages verification requires the booking API base URL");
 
   assert.match(html, /\u6f84\u573a PICKLE CLUB/);
   assert.match(html, /\/chengchang-pickle-club\/_next\//);
   assert.doesNotMatch(html, /(?:href|src)="\/_next\//);
-  assert.match(
-    html,
-    /action="https:\/\/booking-api\.example\.invalid\/v1\/bookings"/,
-  );
-  assert.match(
-    html,
-    /data-availability-url="https:\/\/booking-api\.example\.invalid\/v1\/availability"/,
+  assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
+  assert.ok(
+    html.includes(
+      `data-availability-url="${apiBaseUrl}/v1/availability"`,
+    ),
   );
   assert.match(
     html,

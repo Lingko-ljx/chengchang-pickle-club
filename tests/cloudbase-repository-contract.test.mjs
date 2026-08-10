@@ -80,18 +80,60 @@ class FakeCollection {
     this.state = state;
     this.name = name;
     this.transactional = transactional;
+    this.condition = {};
+    this.orders = [];
+    this.offset = 0;
+    this.pageSize = 100;
   }
 
   doc(id) {
     return new FakeDocument(this.sdk, this.state, this.name, id);
   }
 
-  where() {
+  where(condition) {
     if (this.transactional) {
       this.sdk.whereCalls += 1;
       throw new Error("TRANSACTION_WHERE_FORBIDDEN");
     }
-    throw new Error("FAKE_QUERY_NOT_IMPLEMENTED");
+    this.condition = clone(condition);
+    return this;
+  }
+
+  orderBy(field, direction) {
+    this.orders.push([field, direction]);
+    return this;
+  }
+
+  skip(value) {
+    this.offset = value;
+    return this;
+  }
+
+  limit(value) {
+    this.pageSize = value;
+    return this;
+  }
+
+  async get() {
+    this.sdk.queries.push({
+      collection: this.name,
+      condition: clone(this.condition),
+      orders: clone(this.orders),
+      offset: this.offset,
+      pageSize: this.pageSize,
+    });
+    const values = Array.from(this.state.get(this.name)?.values() ?? [])
+      .filter((record) =>
+        Object.entries(this.condition).every(([key, value]) => record[key] === value),
+      )
+      .sort((left, right) => {
+        for (const [field, direction] of this.orders) {
+          const compared = String(left[field]).localeCompare(String(right[field]));
+          if (compared) return direction === "asc" ? compared : -compared;
+        }
+        return 0;
+      });
+    return { data: values.slice(this.offset, this.offset + this.pageSize).map(clone) };
   }
 }
 
@@ -105,6 +147,7 @@ class FakeCloudBaseDatabase {
     );
     this.readIds = [];
     this.operations = [];
+    this.queries = [];
     this.whereCalls = 0;
     this.retryAttempts = [];
     this.command = { removeValue: { removeField: true }, remove: () => this.command.removeValue };
@@ -170,9 +213,29 @@ function seededDatabase() {
   });
 }
 
-function serviceFor(database) {
+function provisionedTemplates() {
+  return Object.fromEntries(
+    Array.from({ length: 16 }, (_, index) => {
+      const startHour = index + 7;
+      const endHour = startHour + 1;
+      const id = `slot-${String(startHour).padStart(2, "0")}00`;
+      return [
+        id,
+        {
+          id,
+          startTime: `${String(startHour).padStart(2, "0")}:00`,
+          endTime: `${String(endHour).padStart(2, "0")}:00`,
+          enabled: true,
+          version: 1,
+        },
+      ];
+    }).reverse(),
+  );
+}
+
+function serviceFor(database, now = "2026-08-01T00:00:00.000Z") {
   let event = 0;
-  const clock = { now: () => new Date("2026-08-01T00:00:00.000Z") };
+  const clock = { now: () => new Date(now) };
   return new BookingService(
     new CloudBaseBookingRepository(database, clock),
     clock,
@@ -189,6 +252,79 @@ function serviceFor(database) {
     },
   );
 }
+
+test("fresh CloudBase provision synthesizes sixteen slots then materializes the first booking", async () => {
+  const database = new FakeCloudBaseDatabase({
+    courts: Object.fromEntries(courtIds.map((id) => [id, { id, enabled: true, version: 1 }])),
+    session_templates: provisionedTemplates(),
+  });
+  const service = serviceFor(database);
+
+  const fresh = await service.listAvailability("2026-08-10");
+
+  assert.equal(fresh.length, 16);
+  assert.deepEqual(fresh.map(({ startTime }) => startTime), [
+    "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
+    "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00",
+  ]);
+  assert.equal(fresh[0].openCapacity, 44);
+  assert.equal(fresh[0].privateCourtCount, 11);
+  assert.equal(database.value("sessions", "2026-08-10__slot-0700"), undefined);
+  assert.deepEqual(database.retryAttempts, []);
+  assert.equal(database.operations.some(({ type }) => type === "set"), false);
+  assert.equal(database.queries.every(({ pageSize }) => pageSize <= 100), true);
+  assert.deepEqual(
+    database.queries.find(({ collection }) => collection === "sessions"),
+    {
+      collection: "sessions",
+      condition: { date: "2026-08-10", status: "open" },
+      orders: [["startAt", "asc"]],
+      offset: 0,
+      pageSize: 100,
+    },
+  );
+
+  await service.create(bookingCommand());
+  const afterCreate = await service.listAvailability("2026-08-10");
+  const bookedSlot = afterCreate.find(({ sessionId: id }) => id === sessionId);
+  assert.equal(afterCreate.length, 16);
+  assert.equal(bookedSlot.openCapacity, 42);
+  assert.equal(bookedSlot.privateCourtCount, 10);
+  assert.equal(database.value("sessions", sessionId).enabledCourtIds.length, 11);
+});
+
+test("CloudBase availability omits disabled and past templates and excludes disabled courts", async () => {
+  const templates = provisionedTemplates();
+  templates["slot-0900"].enabled = false;
+  const database = new FakeCloudBaseDatabase({
+    courts: Object.fromEntries(
+      courtIds.map((id) => [id, { id, enabled: id !== "11", version: 1 }]),
+    ),
+    session_templates: templates,
+    sessions: {
+      "2026-08-01__slot-1000": {
+        id: "2026-08-01__slot-1000",
+        date: "2026-08-01",
+        templateId: "slot-1000",
+        startAt: "2026-08-01T02:00:00.000Z",
+        endAt: "2026-08-01T03:00:00.000Z",
+        status: "closed",
+        enabledCourtIds: courtIds,
+        version: 2,
+      },
+    },
+  });
+  const service = serviceFor(database, "2026-07-31T23:30:00.000Z");
+
+  const slots = await service.listAvailability("2026-08-01");
+
+  assert.equal(slots.length, 13);
+  assert.equal(slots[0].startTime, "08:00");
+  assert.equal(slots.some(({ startTime }) => startTime === "09:00"), false);
+  assert.equal(slots.some(({ startTime }) => startTime === "10:00"), false);
+  assert.equal(slots.every(({ openCapacity }) => openCapacity === 40), true);
+  assert.equal(slots.every(({ privateCourtCount }) => privateCourtCount === 10), true);
+});
 
 function pagedBookingDatabase(records, trace) {
   return {

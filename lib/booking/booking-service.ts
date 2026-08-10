@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chooseCourt } from "./allocation.ts";
+import { requireCalendarDate } from "./calendar-date.ts";
 import { BookingError } from "./errors.ts";
 import type {
   BookingRepository,
@@ -117,10 +118,8 @@ interface PreparedSession {
 
 function parseSessionId(sessionId: string): { date: string; templateId: string } {
   const match = /^(\d{4}-\d{2}-\d{2})__(.+)$/.exec(sessionId);
-  if (!match || Number.isNaN(Date.parse(`${match[1]}T00:00:00.000Z`))) {
-    throw new BookingError("INVALID_INPUT");
-  }
-  return { date: match[1], templateId: match[2] };
+  if (!match) throw new BookingError("INVALID_INPUT");
+  return { date: requireCalendarDate(match[1]), templateId: match[2] };
 }
 
 function shanghaiInstant(date: string, time: string): string {
@@ -552,8 +551,54 @@ export class BookingService {
     return this.repository.redactBooking(bookingId, actorId, expectedVersion, actorType);
   }
 
-  listAvailability(date: string): Promise<AvailabilitySlot[]> {
-    return this.repository.listAvailability(date);
+  async listAvailability(date: string): Promise<AvailabilitySlot[]> {
+    const calendarDate = requireCalendarDate(date);
+    const now = this.clock.now().toISOString();
+    const [storedAvailability, storedSessions, templates, courts] = await Promise.all([
+      this.repository.listAvailability(calendarDate),
+      this.repository.listSessions(calendarDate),
+      this.repository.listSessionTemplates(),
+      this.repository.listCourts(),
+    ]);
+    const materializedSessionIds = new Set([
+      ...storedSessions.map((session) => session.id),
+      ...storedAvailability.map((slot) => slot.sessionId),
+    ]);
+    const enabledCourtCount = courts.filter(
+      (court) => court.enabled && courtIds.includes(court.id),
+    ).length;
+    const synthetic = enabledCourtCount === 0
+      ? []
+      : templates.flatMap((template): AvailabilitySlot[] => {
+          const sessionId = `${calendarDate}__${template.id}`;
+          if (!template.enabled || materializedSessionIds.has(sessionId)) return [];
+          const startAt = shanghaiInstant(calendarDate, template.startTime);
+          const endAt = shanghaiInstant(calendarDate, template.endTime);
+          if (Date.parse(endAt) - Date.parse(startAt) !== 60 * 60 * 1000 || startAt <= now) {
+            return [];
+          }
+          return [{
+            sessionId,
+            date: calendarDate,
+            startTime: template.startTime,
+            endTime: template.endTime,
+            openCapacity: enabledCourtCount * 4,
+            acceptsOpenPartySizes: [1, 2, 3, 4],
+            privateCourtCount: enabledCourtCount,
+            acceptsOpen: true,
+            acceptsPrivate: true,
+          }];
+        });
+
+    const bySessionId = new Map(synthetic.map((slot) => [slot.sessionId, slot]));
+    for (const slot of storedAvailability) bySessionId.set(slot.sessionId, slot);
+    return Array.from(bySessionId.values())
+      .filter((slot) => shanghaiInstant(slot.date, slot.startTime) > now)
+      .sort(
+        (left, right) =>
+          left.startTime.localeCompare(right.startTime) ||
+          left.sessionId.localeCompare(right.sessionId),
+      );
   }
 
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {

@@ -50,6 +50,9 @@ test("Pages workflow verifies the static site immediately after building", async
   assert.notEqual(buildIndex, -1, "workflow must include the named Pages build step");
   assert.deepEqual(steps[buildIndex + 1], {
     name: "Verify static site",
+    env: {
+      NEXT_PUBLIC_BOOKING_API_BASE_URL: "${{ vars.BOOKING_API_BASE_URL }}",
+    },
     run: "npm run test:pages",
   });
 });
