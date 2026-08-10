@@ -62,8 +62,19 @@ interface DatabaseReference {
 const systemClock: Clock = { now: () => new Date() };
 
 function rows<T>(response: DocumentResponse): T[] {
-  if (Array.isArray(response.data)) return response.data as T[];
-  return response.data ? [response.data as T] : [];
+  const values = Array.isArray(response.data)
+    ? response.data
+    : response.data
+      ? [response.data]
+      : [];
+  return values.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value as T;
+    }
+    const document = { ...value };
+    delete document._id;
+    return document as T;
+  });
 }
 
 async function getDocument<T>(document: DocumentReference): Promise<T | null> {

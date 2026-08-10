@@ -18,33 +18,38 @@ function clone(value) {
 }
 
 class FakeDocument {
-  constructor(sdk, state, collectionName, id) {
+  constructor(sdk, state, collectionName, id, transactional) {
     this.sdk = sdk;
     this.state = state;
     this.collectionName = collectionName;
     this.id = id;
+    this.transactional = transactional;
   }
 
   async get() {
     this.sdk.readIds.push(this.id);
     this.sdk.operations.push({ type: "get", collection: this.collectionName, id: this.id });
     const value = this.state.get(this.collectionName)?.get(this.id);
-    return { data: value === undefined ? [] : [clone(value)] };
+    if (value === undefined) return { data: [] };
+    const document = { ...clone(value), _id: this.id };
+    return { data: this.transactional ? document : [document] };
   }
 
   async set(data) {
+    const value = clone(data);
     this.sdk.operations.push({
       type: "set",
       collection: this.collectionName,
       id: this.id,
-      data: clone(data),
+      data: value,
     });
+    if (Object.hasOwn(value, "_id")) throw new Error("INVALID_PARAM");
     let collection = this.state.get(this.collectionName);
     if (!collection) {
       collection = new Map();
       this.state.set(this.collectionName, collection);
     }
-    collection.set(this.id, clone(data));
+    collection.set(this.id, value);
     return { updated: 1 };
   }
 
@@ -87,7 +92,13 @@ class FakeCollection {
   }
 
   doc(id) {
-    return new FakeDocument(this.sdk, this.state, this.name, id);
+    return new FakeDocument(
+      this.sdk,
+      this.state,
+      this.name,
+      id,
+      this.transactional,
+    );
   }
 
   where(condition) {
@@ -122,7 +133,8 @@ class FakeCollection {
       offset: this.offset,
       pageSize: this.pageSize,
     });
-    const values = Array.from(this.state.get(this.name)?.values() ?? [])
+    const values = Array.from(this.state.get(this.name)?.entries() ?? [])
+      .map(([id, record]) => ({ ...clone(record), _id: id }))
       .filter((record) =>
         Object.entries(this.condition).every(([key, value]) => record[key] === value),
       )
@@ -193,7 +205,7 @@ function bookingCommand(overrides = {}) {
   };
 }
 
-function seededDatabase() {
+function seededDatabase(extraSeed = {}) {
   return new FakeCloudBaseDatabase({
     courts: Object.fromEntries(
       courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
@@ -210,6 +222,7 @@ function seededDatabase() {
         version: 1,
       },
     },
+    ...extraSeed,
   });
 }
 
@@ -410,6 +423,61 @@ test("create reads every deterministic allocation document without a transaction
         updatedAt: "2026-08-01T00:00:00.000Z",
       },
     ],
+  );
+});
+
+test("create reuses an existing partially occupied allocation without persisting CloudBase _id", async () => {
+  const allocation = {
+    id: `${sessionId}__court-01`,
+    sessionId,
+    courtId: "01",
+    mode: "open",
+    occupiedPlayers: 1,
+    bookingIds: ["booking-existing"],
+    version: 1,
+  };
+  const database = seededDatabase({
+    court_allocations: { [allocation.id]: allocation },
+  });
+
+  const created = await serviceFor(database).create(bookingCommand());
+
+  assert.equal(created.courtId, "01");
+  assert.deepEqual(database.value("court_allocations", allocation.id), {
+    ...allocation,
+    occupiedPlayers: 3,
+    bookingIds: ["booking-existing", "booking-001"],
+    version: 2,
+  });
+  assert.equal(
+    database.operations
+      .filter(({ type }) => type === "set")
+      .some(({ data }) => Object.hasOwn(data, "_id")),
+    false,
+  );
+});
+
+test("booking lifecycle read-modify-write never persists CloudBase _id", async () => {
+  const database = seededDatabase();
+  const service = serviceFor(database);
+  const created = await service.create(bookingCommand());
+  database.operations.length = 0;
+
+  const confirmed = await service.confirm({
+    bookingId: created.id,
+    expectedVersion: created.version,
+    actorId: "profile-staff-7",
+  });
+
+  assert.equal(confirmed.status, "confirmed");
+  assert.equal(confirmed.version, 2);
+  assert.equal(Object.hasOwn(confirmed, "_id"), false);
+  assert.equal(Object.hasOwn(database.value("bookings", created.id), "_id"), false);
+  assert.equal(
+    database.operations
+      .filter(({ type }) => type === "set")
+      .some(({ data }) => Object.hasOwn(data, "_id")),
+    false,
   );
 });
 
