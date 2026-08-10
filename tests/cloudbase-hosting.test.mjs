@@ -133,12 +133,13 @@ test("public API smoke requires a non-empty availability response and bounded re
           },
         });
       }
-      if (url.endsWith("/v1/admin/dashboard")) {
+      if (url.includes("/v1/admin/")) {
         return new Response(null, {
           status: 204,
           headers: {
             "Access-Control-Allow-Origin": "https://booking-staging.example",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+            "Access-Control-Allow-Methods":
+              init.headers["Access-Control-Request-Method"],
             "Access-Control-Allow-Headers": "Authorization, Content-Type",
           },
         });
@@ -160,6 +161,8 @@ test("public API smoke requires a non-empty availability response and bounded re
   assert.deepEqual(requests.map(({ url }) => url), [
     "https://booking-api.example/v1/bookings",
     "https://booking-api.example/v1/admin/dashboard",
+    "https://booking-api.example/v1/admin/bookings/smoke-booking/confirm",
+    "https://booking-api.example/v1/admin/courts/01",
     "https://booking-api.example/v1/availability?date=2099-01-01",
   ]);
   assert.deepEqual(requests[0].init.headers, {
@@ -167,12 +170,14 @@ test("public API smoke requires a non-empty availability response and bounded re
     "Access-Control-Request-Method": "POST",
     "Access-Control-Request-Headers": "content-type,idempotency-key",
   });
-  assert.deepEqual(requests[1].init.headers, {
-    Origin: "https://booking-staging.example",
-    "Access-Control-Request-Method": "GET",
-    "Access-Control-Request-Headers": "authorization,content-type",
-  });
-  assert.equal("Authorization" in requests[1].init.headers, false);
+  for (const [index, requestedMethod] of ["GET", "POST", "PUT"].entries()) {
+    assert.deepEqual(requests[index + 1].init.headers, {
+      Origin: "https://booking-staging.example",
+      "Access-Control-Request-Method": requestedMethod,
+      "Access-Control-Request-Headers": "authorization,content-type",
+    });
+    assert.equal("Authorization" in requests[index + 1].init.headers, false);
+  }
 
   let availabilityAttempts = 0;
   await assert.rejects(
@@ -189,12 +194,12 @@ test("public API smoke requires a non-empty availability response and bounded re
               },
             });
           }
-          if (url.endsWith("/v1/admin/dashboard")) {
+          if (url.includes("/v1/admin/")) {
             return new Response(null, {
               status: 204,
               headers: {
                 "Access-Control-Allow-Origin": "https://booking-staging.example",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+                "Access-Control-Allow-Methods": "GET, POST, PUT",
                 "Access-Control-Allow-Headers": "Authorization, Content-Type",
               },
             });
@@ -238,4 +243,107 @@ test("API smoke rejects incomplete public or admin preflight before static deplo
     /CloudBase public API smoke verification failed/,
   );
   assert.equal(availabilityCalls, 0);
+});
+
+test("API smoke rejects every admin method, header, or origin mismatch", async () => {
+  const mismatches = [
+    {
+      name: "GET method",
+      suffix: "/v1/admin/dashboard",
+      methods: "POST",
+    },
+    {
+      name: "POST method",
+      suffix: "/v1/admin/bookings/smoke-booking/confirm",
+      methods: "GET",
+    },
+    {
+      name: "PUT method",
+      suffix: "/v1/admin/courts/01",
+      methods: "GET",
+    },
+    {
+      name: "Authorization header",
+      suffix: "/v1/admin/dashboard",
+      headers: "Content-Type",
+    },
+    {
+      name: "Content-Type header",
+      suffix: "/v1/admin/bookings/smoke-booking/confirm",
+      headers: "Authorization",
+    },
+    {
+      name: "origin",
+      suffix: "/v1/admin/courts/01",
+      origin: "https://wrong-origin.example",
+    },
+  ];
+
+  for (const mismatch of mismatches) {
+    const observedUrls = [];
+    let availabilityCalls = 0;
+    await assert.rejects(
+      () =>
+        verifyCloudBaseApi(configuration, {
+          fetchImpl: async (url, init) => {
+            observedUrls.push(url);
+            if (url.endsWith("/v1/bookings")) {
+              return new Response(null, {
+                status: 204,
+                headers: {
+                  "Access-Control-Allow-Origin":
+                    "https://booking-staging.example",
+                  "Access-Control-Allow-Methods": "POST, OPTIONS",
+                  "Access-Control-Allow-Headers":
+                    "Content-Type, Idempotency-Key",
+                },
+              });
+            }
+            if (url.includes("/v1/admin/")) {
+              const isMismatch = url.endsWith(mismatch.suffix);
+              return new Response(null, {
+                status: 204,
+                headers: {
+                  "Access-Control-Allow-Origin":
+                    isMismatch && mismatch.origin
+                      ? mismatch.origin
+                      : "https://booking-staging.example",
+                  "Access-Control-Allow-Methods":
+                    isMismatch && mismatch.methods
+                      ? mismatch.methods
+                      : init.headers["Access-Control-Request-Method"],
+                  "Access-Control-Allow-Headers":
+                    isMismatch && mismatch.headers
+                      ? mismatch.headers
+                      : "Authorization, Content-Type",
+                },
+              });
+            }
+            availabilityCalls += 1;
+            return new Response(
+              JSON.stringify({
+                data: [{ sessionId: "2099-01-01__slot-0700" }],
+              }),
+              {
+                status: 200,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Access-Control-Allow-Origin":
+                    "https://booking-staging.example",
+                },
+              },
+            );
+          },
+          attempts: 1,
+          delay: async () => undefined,
+        }),
+      /CloudBase public API smoke verification failed/,
+      mismatch.name,
+    );
+    assert.ok(
+      observedUrls.some((url) => url.endsWith(mismatch.suffix)),
+      `${mismatch.name} preflight was not verified`,
+    );
+    assert.equal(availabilityCalls, 0, mismatch.name);
+  }
 });

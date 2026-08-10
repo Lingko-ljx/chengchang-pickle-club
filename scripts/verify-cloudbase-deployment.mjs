@@ -52,11 +52,32 @@ export function hasExactRuntimeEnvironment(detail, name) {
   );
 }
 
+const expectedMailerCron = "0 * * * * * *";
+
+function validTriggerDescription(description) {
+  if (description === expectedMailerCron) return true;
+  if (typeof description !== "string") return false;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(description);
+  } catch {
+    return false;
+  }
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed) &&
+    Object.keys(parsed).length === 1 &&
+    parsed.cron === expectedMailerCron
+  );
+}
+
 function validTrigger(trigger) {
   return (
     trigger?.TriggerName === "booking-mailer-every-minute" &&
     trigger?.Type === "timer" &&
-    trigger?.TriggerDesc === "0 * * * * * *"
+    validTriggerDescription(trigger?.TriggerDesc)
   );
 }
 
