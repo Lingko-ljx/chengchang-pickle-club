@@ -263,7 +263,7 @@ async function detailsFixture(overrides = {}) {
       {
         TriggerName: "booking-mailer-every-minute",
         Type: "timer",
-        TriggerDesc: "0 * * * * * *",
+        TriggerDesc: JSON.stringify({ cron: "0 * * * * * *" }),
       },
     ]),
     ...overrides,
@@ -304,6 +304,60 @@ test("deployment verifier accepts exact function details without printing Enviro
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "CloudBase deployment configuration verified\n");
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /SECRET_CANARY|never-print/);
+});
+
+test("deployment verifier keeps compatibility with the planned plain cron trigger description", async (t) => {
+  const directory = await detailsFixture({
+    "booking-mailer": detail("booking-mailer", [
+      {
+        TriggerName: "booking-mailer-every-minute",
+        Type: "timer",
+        TriggerDesc: "0 * * * * * *",
+      },
+    ]),
+  });
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const result = runVerifier(directory);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "CloudBase deployment configuration verified\n");
+});
+
+test("deployment verifier rejects malformed, extra, or incorrect mailer schedules", async (t) => {
+  const invalidDescriptions = [
+    JSON.stringify({ cron: "0 * * * * * *", timezone: "Asia/Shanghai" }),
+    JSON.stringify({ cron: "0 */2 * * * * *" }),
+    "0 */2 * * * * *",
+    "{not-json}",
+  ];
+  const directories = await Promise.all(
+    invalidDescriptions.map((TriggerDesc) =>
+      detailsFixture({
+        "booking-mailer": detail("booking-mailer", [
+          {
+            TriggerName: "booking-mailer-every-minute",
+            Type: "timer",
+            TriggerDesc,
+          },
+        ]),
+      }),
+    ),
+  );
+  t.after(() =>
+    Promise.all(
+      directories.map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    ),
+  );
+
+  for (const directory of directories) {
+    const result = runVerifier(directory);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "CloudBase deployment verification failed\n");
+  }
 });
 
 test("deployment verifier fails closed when the exact mailer timer is absent", async (t) => {

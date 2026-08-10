@@ -202,16 +202,22 @@ export async function verifyCloudBaseApi(configuration, options = {}) {
         requiredHeaders: ["Content-Type", "Idempotency-Key"],
         requestTimeoutMs,
       });
-      await verifyPreflight({
-        fetchImpl,
-        url: `${configuration.apiBaseUrl}/v1/admin/dashboard`,
-        siteOrigin,
-        requestedMethod: "GET",
-        requestedHeaders: ["authorization", "content-type"],
-        requiredMethods: ["GET", "POST", "PUT", "OPTIONS"],
-        requiredHeaders: ["Authorization", "Content-Type"],
-        requestTimeoutMs,
-      });
+      for (const [path, method] of [
+        ["/v1/admin/dashboard", "GET"],
+        ["/v1/admin/bookings/smoke-booking/confirm", "POST"],
+        ["/v1/admin/courts/01", "PUT"],
+      ]) {
+        await verifyPreflight({
+          fetchImpl,
+          url: `${configuration.apiBaseUrl}${path}`,
+          siteOrigin,
+          requestedMethod: method,
+          requestedHeaders: ["authorization", "content-type"],
+          requiredMethods: [method],
+          requiredHeaders: ["Authorization", "Content-Type"],
+          requestTimeoutMs,
+        });
+      }
       const response = await fetchImpl(
         `${configuration.apiBaseUrl}/v1/availability?date=${smokeDate}`,
         {
