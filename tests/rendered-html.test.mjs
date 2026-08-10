@@ -30,9 +30,13 @@ test("server renders the real booking form and current venue contract", async ()
 
   const html = await response.text();
   const basePath = resolvePagesBasePath(process.env.PAGES_BASE_PATH);
+  const apiBaseUrl = process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL;
+  assert.ok(apiBaseUrl, "configured rendering requires a booking API base URL");
   assert.match(html, /<form[^>]+id="booking-form"[^>]+method="post"/i);
-  assert.match(html, /action="https:\/\/booking-api\.example\.invalid\/v1\/bookings"/);
-  assert.match(html, /data-availability-url="https:\/\/booking-api\.example\.invalid\/v1\/availability"/);
+  assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
+  assert.ok(
+    html.includes(`data-availability-url="${apiBaseUrl}/v1/availability"`),
+  );
   assert.ok(
     html.includes(`data-booking-result-path="${basePath}/booking/result/"`),
   );
