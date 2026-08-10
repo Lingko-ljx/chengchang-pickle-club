@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { BookingService } from "../lib/booking/booking-service.ts";
+import { cloudbaseApp } from "../cloudbase/src/cloudbase-app.ts";
 import { CloudBaseBookingRepository } from "../cloudbase/src/repositories/cloudbase-booking-repository.ts";
 import { functionTargets, parseTargets } from "../scripts/build-cloudbase-functions.mjs";
 
@@ -18,34 +19,45 @@ function clone(value) {
 }
 
 class FakeDocument {
-  constructor(sdk, state, collectionName, id) {
+  constructor(sdk, state, collectionName, id, transactional) {
     this.sdk = sdk;
     this.state = state;
     this.collectionName = collectionName;
     this.id = id;
+    this.transactional = transactional;
   }
 
   async get() {
     this.sdk.readIds.push(this.id);
-    this.sdk.operations.push({ type: "get", collection: this.collectionName, id: this.id });
-    const value = this.state.get(this.collectionName)?.get(this.id);
-    return { data: value === undefined ? [] : [clone(value)] };
+    const operation = { type: "get", collection: this.collectionName, id: this.id };
+    this.sdk.operations.push(operation);
+    return this.run(async () => {
+      const value = this.state.get(this.collectionName)?.get(this.id);
+      if (value === undefined) return { data: [] };
+      const document = { ...clone(value), _id: this.id };
+      return { data: this.transactional ? document : [document] };
+    });
   }
 
   async set(data) {
-    this.sdk.operations.push({
+    const value = clone(data);
+    const operation = {
       type: "set",
       collection: this.collectionName,
       id: this.id,
-      data: clone(data),
+      data: value,
+    };
+    this.sdk.operations.push(operation);
+    return this.run(async () => {
+      if (Object.hasOwn(value, "_id")) throw new Error("INVALID_PARAM");
+      let collection = this.state.get(this.collectionName);
+      if (!collection) {
+        collection = new Map();
+        this.state.set(this.collectionName, collection);
+      }
+      collection.set(this.id, value);
+      return { updated: 1 };
     });
-    let collection = this.state.get(this.collectionName);
-    if (!collection) {
-      collection = new Map();
-      this.state.set(this.collectionName, collection);
-    }
-    collection.set(this.id, clone(data));
-    return { updated: 1 };
   }
 
   async update(data) {
@@ -55,22 +67,30 @@ class FakeDocument {
       id: this.id,
       data: clone(data),
     });
-    const collection = this.state.get(this.collectionName);
-    const current = collection?.get(this.id);
-    if (!collection || current === undefined) throw new Error("DOCUMENT_NOT_FOUND");
-    const next = { ...clone(current) };
-    for (const [key, value] of Object.entries(data)) {
-      if (value && typeof value === "object" && value.removeField === true) delete next[key];
-      else next[key] = clone(value);
-    }
-    collection.set(this.id, next);
-    return { updated: 1 };
+    return this.run(async () => {
+      const collection = this.state.get(this.collectionName);
+      const current = collection?.get(this.id);
+      if (!collection || current === undefined) throw new Error("DOCUMENT_NOT_FOUND");
+      const next = { ...clone(current) };
+      for (const [key, value] of Object.entries(data)) {
+        if (value && typeof value === "object" && value.removeField === true) delete next[key];
+        else next[key] = clone(value);
+      }
+      collection.set(this.id, next);
+      return { updated: 1 };
+    });
   }
 
   async remove() {
     this.sdk.operations.push({ type: "remove", collection: this.collectionName, id: this.id });
-    this.state.get(this.collectionName)?.delete(this.id);
-    return { deleted: 1 };
+    return this.run(async () => {
+      this.state.get(this.collectionName)?.delete(this.id);
+      return { deleted: 1 };
+    });
+  }
+
+  run(operation) {
+    return this.transactional ? this.sdk.runTransactionOperation(operation) : operation();
   }
 }
 
@@ -87,7 +107,13 @@ class FakeCollection {
   }
 
   doc(id) {
-    return new FakeDocument(this.sdk, this.state, this.name, id);
+    return new FakeDocument(
+      this.sdk,
+      this.state,
+      this.name,
+      id,
+      this.transactional,
+    );
   }
 
   where(condition) {
@@ -122,7 +148,8 @@ class FakeCollection {
       offset: this.offset,
       pageSize: this.pageSize,
     });
-    const values = Array.from(this.state.get(this.name)?.values() ?? [])
+    const values = Array.from(this.state.get(this.name)?.entries() ?? [])
+      .map(([id, record]) => ({ ...clone(record), _id: id }))
       .filter((record) =>
         Object.entries(this.condition).every(([key, value]) => record[key] === value),
       )
@@ -150,11 +177,32 @@ class FakeCloudBaseDatabase {
     this.queries = [];
     this.whereCalls = 0;
     this.retryAttempts = [];
+    this.transactionInFlight = 0;
+    this.maxTransactionInFlight = 0;
+    this.transactionBusyErrors = 0;
     this.command = { removeValue: { removeField: true }, remove: () => this.command.removeValue };
   }
 
   collection(name) {
     return new FakeCollection(this, this.state, name, false);
+  }
+
+  async runTransactionOperation(operation) {
+    if (this.transactionInFlight !== 0) {
+      this.transactionBusyErrors += 1;
+      throw new Error("ResourceUnavailable.TransactionBusy");
+    }
+    this.transactionInFlight += 1;
+    this.maxTransactionInFlight = Math.max(
+      this.maxTransactionInFlight,
+      this.transactionInFlight,
+    );
+    try {
+      await Promise.resolve();
+      return await operation();
+    } finally {
+      this.transactionInFlight -= 1;
+    }
   }
 
   async runTransaction(work, retries) {
@@ -193,7 +241,7 @@ function bookingCommand(overrides = {}) {
   };
 }
 
-function seededDatabase() {
+function seededDatabase(extraSeed = {}) {
   return new FakeCloudBaseDatabase({
     courts: Object.fromEntries(
       courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
@@ -210,6 +258,7 @@ function seededDatabase() {
         version: 1,
       },
     },
+    ...extraSeed,
   });
 }
 
@@ -358,6 +407,20 @@ function pagedBookingDatabase(records, trace) {
   };
 }
 
+test("production CloudBase app explicitly enables the SDK keepalive contract", () => {
+  assert.equal(cloudbaseApp.config.keepalive, true);
+});
+
+test("CloudBase booking create keeps one SDK operation in flight per transaction", async () => {
+  const database = seededDatabase();
+
+  const booking = await serviceFor(database).create(bookingCommand());
+
+  assert.equal(booking.id, "booking-001");
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+});
+
 test("create reads every deterministic allocation document without a transaction query", async () => {
   // Catches replacing the deterministic eleven doc reads with a transaction where() query.
   const database = seededDatabase();
@@ -410,6 +473,61 @@ test("create reads every deterministic allocation document without a transaction
         updatedAt: "2026-08-01T00:00:00.000Z",
       },
     ],
+  );
+});
+
+test("create reuses an existing partially occupied allocation without persisting CloudBase _id", async () => {
+  const allocation = {
+    id: `${sessionId}__court-01`,
+    sessionId,
+    courtId: "01",
+    mode: "open",
+    occupiedPlayers: 1,
+    bookingIds: ["booking-existing"],
+    version: 1,
+  };
+  const database = seededDatabase({
+    court_allocations: { [allocation.id]: allocation },
+  });
+
+  const created = await serviceFor(database).create(bookingCommand());
+
+  assert.equal(created.courtId, "01");
+  assert.deepEqual(database.value("court_allocations", allocation.id), {
+    ...allocation,
+    occupiedPlayers: 3,
+    bookingIds: ["booking-existing", "booking-001"],
+    version: 2,
+  });
+  assert.equal(
+    database.operations
+      .filter(({ type }) => type === "set")
+      .some(({ data }) => Object.hasOwn(data, "_id")),
+    false,
+  );
+});
+
+test("booking lifecycle read-modify-write never persists CloudBase _id", async () => {
+  const database = seededDatabase();
+  const service = serviceFor(database);
+  const created = await service.create(bookingCommand());
+  database.operations.length = 0;
+
+  const confirmed = await service.confirm({
+    bookingId: created.id,
+    expectedVersion: created.version,
+    actorId: "profile-staff-7",
+  });
+
+  assert.equal(confirmed.status, "confirmed");
+  assert.equal(confirmed.version, 2);
+  assert.equal(Object.hasOwn(confirmed, "_id"), false);
+  assert.equal(Object.hasOwn(database.value("bookings", created.id), "_id"), false);
+  assert.equal(
+    database.operations
+      .filter(({ type }) => type === "set")
+      .some(({ data }) => Object.hasOwn(data, "_id")),
+    false,
   );
 });
 

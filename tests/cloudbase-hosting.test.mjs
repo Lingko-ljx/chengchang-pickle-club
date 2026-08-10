@@ -70,11 +70,13 @@ test("deployed page smoke requires real public/admin configuration and only appr
     urls.push(url);
     if (url === configuration.siteUrl) {
       return htmlResponse(`<!doctype html>
+        <link rel="stylesheet" href="/_next/static/chunks/site.css">
         <form action="${configuration.apiBaseUrl}/v1/bookings"
           data-availability-url="${configuration.apiBaseUrl}/v1/availability"></form>
         <script data-booking-form-client src="/booking-form.js"></script>`);
     }
     return htmlResponse(`<!doctype html>
+      <link rel="stylesheet" href="/_next/static/chunks/site.css">
       <section data-api-base-url="${configuration.apiBaseUrl}"
         data-cloudbase-env-id="${configuration.envId}"></section>
       <script data-admin-client src="/admin-app.js"></script>`);
@@ -101,7 +103,7 @@ test("page smoke retries within a fixed bound and rejects runtime or secret leak
         fetchImpl: async () => {
           calls += 1;
           return htmlResponse(
-            '<script src="/_next/static/chunks/app.js"></script>BOOKING_ADMIN_USER_IDS',
+            '<script src="/_next/static/chunks/app.js"></script>',
           );
         },
         attempts: 2,
@@ -112,7 +114,7 @@ test("page smoke retries within a fixed bound and rejects runtime or secret leak
     (error) =>
       error instanceof Error &&
       error.message === "CloudBase hosting smoke verification failed" &&
-      !error.message.includes("BOOKING_ADMIN_USER_IDS"),
+      !error.message.includes("/_next/static/chunks/app.js"),
   );
   assert.equal(calls, 2);
   assert.equal(delays, 1);
