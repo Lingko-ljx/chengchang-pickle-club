@@ -43,6 +43,14 @@ Configure GitHub secrets `TENCENTCLOUD_SECRET_ID` and
 `TENCENTCLOUD_SECRET_KEY`. The workflow maps them to the no-underscore variable
 names required by CloudBase CLI without printing either value.
 
+CloudBase CLI 3.7.0 ignores those environment credentials when its default empty
+login store wins credential resolution. The workflow therefore invokes the CLI
+through `scripts/run-cloudbase-cli.mjs`. That wrapper creates an exclusive,
+permission-restricted credential store immediately before each CLI process,
+removes the two credential variables from the child environment, passes no
+credential on the command line, and deletes the store in `finally` after either
+success or failure. It refuses to overwrite any pre-existing credential store.
+
 Automation cannot infer whether an opaque CloudBase environment ID belongs to a
 production environment. Before every run, an administrator must confirm in the
 CloudBase console that `CLOUDBASE_ENV_ID` is the isolated test environment, type
