@@ -64,6 +64,7 @@ test("preflight validates both repository variables, staging, confirmation, and 
   assert.match(step.run, /CONFIRMED_CLOUDBASE_ENV_ID[^\n]*CLOUDBASE_ENV_ID/);
   assert.doesNotMatch(source, /\becho\b/);
   assert.doesNotMatch(source, /TENCENTCLOUD_SECRET_(?:ID|KEY):\s*(?!\$\{\{)/);
+  assert.doesNotMatch(source, /BOOKING_SES_SECRET_(?:ID|KEY)/);
 });
 
 test("workflow tests and lints before rendering, provisioning, or deployment", async () => {
@@ -179,8 +180,8 @@ const environmentKeys = {
   ],
   "booking-admin-api": ["CLOUDBASE_ENV_ID", "DATA_TIMEZONE"],
   "booking-mailer": [
-    "TENCENTCLOUD_SECRET_ID",
-    "TENCENTCLOUD_SECRET_KEY",
+    "BOOKING_SES_SECRET_ID",
+    "BOOKING_SES_SECRET_KEY",
     "SES_REGION",
     "SES_FROM_EMAIL",
     "SES_TEMPLATE_ID",
@@ -343,10 +344,28 @@ test("deployment verifier requires each exact least-privilege runtime key set", 
       "PHONE_HASH_SALT",
     ]),
   });
+  const reservedPrefixDirectory = await detailsFixture({
+    "booking-mailer": detail("booking-mailer", [
+      {
+        TriggerName: "booking-mailer-every-minute",
+        Type: "timer",
+        TriggerDesc: "0 * * * * * *",
+      },
+    ], [
+      "TENCENTCLOUD_SECRET_ID",
+      "TENCENTCLOUD_SECRET_KEY",
+      ...environmentKeys["booking-mailer"].slice(2),
+    ]),
+  });
   t.after(() => rm(missingDirectory, { recursive: true, force: true }));
   t.after(() => rm(extraDirectory, { recursive: true, force: true }));
+  t.after(() => rm(reservedPrefixDirectory, { recursive: true, force: true }));
 
-  for (const directory of [missingDirectory, extraDirectory]) {
+  for (const directory of [
+    missingDirectory,
+    extraDirectory,
+    reservedPrefixDirectory,
+  ]) {
     const result = runVerifier(directory);
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");

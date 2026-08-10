@@ -200,9 +200,12 @@ variables, `cloudbaserc.json`, source files, screenshots, or logs.
   `PHONE_HASH_SALT`; hashing is performed only by the public API paths. This
   is an intentional least-privilege refinement of the older planning table.
 - `booking-mailer` receives exactly seven variables:
-  `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`, `SES_REGION`,
+  `BOOKING_SES_SECRET_ID`, `BOOKING_SES_SECRET_KEY`, `SES_REGION`,
   `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, `SES_REPLY_TO`, and
   `STAFF_NOTIFICATION_EMAIL`.
+  The `TENCENTCLOUD_` prefix is reserved by CloudBase, so do not use the GitHub
+  CAM secret names as function runtime variable names. Their values are copied
+  into the two `BOOKING_SES_*` variables directly in the CloudBase console.
 
 Missing or invalid public/admin configuration fails closed with a sanitized
 variable-name-only error. After setting the variables, invoke each handler with

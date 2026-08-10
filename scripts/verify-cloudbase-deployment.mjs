@@ -19,8 +19,8 @@ const expectedRuntimeEnvironmentKeys = {
   ],
   "booking-admin-api": ["CLOUDBASE_ENV_ID", "DATA_TIMEZONE"],
   "booking-mailer": [
-    "TENCENTCLOUD_SECRET_ID",
-    "TENCENTCLOUD_SECRET_KEY",
+    "BOOKING_SES_SECRET_ID",
+    "BOOKING_SES_SECRET_KEY",
     "SES_REGION",
     "SES_FROM_EMAIL",
     "SES_TEMPLATE_ID",

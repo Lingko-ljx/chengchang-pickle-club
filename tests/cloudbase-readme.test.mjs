@@ -56,11 +56,17 @@ test("runbook assigns route, CORS, OPTIONS, and exact runtime configuration owne
     "SES_TEMPLATE_ID",
     "SES_REPLY_TO",
     "STAFF_NOTIFICATION_EMAIL",
-    "TENCENTCLOUD_SECRET_ID",
-    "TENCENTCLOUD_SECRET_KEY",
+    "BOOKING_SES_SECRET_ID",
+    "BOOKING_SES_SECRET_KEY",
   ]) {
     assert.match(readme, new RegExp(`\\b${name}\\b`), name);
   }
+  const runtimeSection = readme.match(/### 5\.[\s\S]*?(?=### 6\.)/)?.[0] ?? "";
+  assert.match(runtimeSection, /TENCENTCLOUD_[^\n]*reserved/i);
+  assert.doesNotMatch(
+    runtimeSection,
+    /\bTENCENTCLOUD_SECRET_(?:ID|KEY)\b/,
+  );
   assert.match(
     readme,
     /booking-admin-api[\s\S]{0,200}must not read or receive[\s\S]{0,80}PHONE_HASH_SALT/i,
