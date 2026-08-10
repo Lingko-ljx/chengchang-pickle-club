@@ -124,10 +124,12 @@ class CloudBaseBookingTransaction implements BookingTransaction {
   }
 
   async getCourts(courtIds: readonly string[]): Promise<CourtRecord[]> {
-    const courts = await Promise.all(
-      courtIds.map((id) => getDocument<CourtRecord>(this.transaction.collection("courts").doc(id))),
-    );
-    return courts.filter((court): court is CourtRecord => court !== null);
+    const courts: CourtRecord[] = [];
+    for (const id of courtIds) {
+      const court = await getDocument<CourtRecord>(this.transaction.collection("courts").doc(id));
+      if (court) courts.push(court);
+    }
+    return courts;
   }
 
   async getIdempotency(keyHash: string): Promise<string | null> {
@@ -140,14 +142,14 @@ class CloudBaseBookingTransaction implements BookingTransaction {
     sessionId: string,
     courtIds: readonly string[],
   ): Promise<CourtAllocation[]> {
-    const allocations = await Promise.all(
-      courtIds.map((courtId) =>
-        getDocument<CourtAllocation>(
-          this.transaction.collection("court_allocations").doc(allocationId(sessionId, courtId)),
-        ),
-      ),
-    );
-    return allocations.filter((allocation): allocation is CourtAllocation => allocation !== null);
+    const allocations: CourtAllocation[] = [];
+    for (const courtId of courtIds) {
+      const allocation = await getDocument<CourtAllocation>(
+        this.transaction.collection("court_allocations").doc(allocationId(sessionId, courtId)),
+      );
+      if (allocation) allocations.push(allocation);
+    }
+    return allocations;
   }
 
   async putSession(value: SessionRecord): Promise<void> {

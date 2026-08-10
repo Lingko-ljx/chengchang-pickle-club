@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { BookingService } from "../lib/booking/booking-service.ts";
+import { cloudbaseApp } from "../cloudbase/src/cloudbase-app.ts";
 import { CloudBaseBookingRepository } from "../cloudbase/src/repositories/cloudbase-booking-repository.ts";
 import { functionTargets, parseTargets } from "../scripts/build-cloudbase-functions.mjs";
 
@@ -28,29 +29,35 @@ class FakeDocument {
 
   async get() {
     this.sdk.readIds.push(this.id);
-    this.sdk.operations.push({ type: "get", collection: this.collectionName, id: this.id });
-    const value = this.state.get(this.collectionName)?.get(this.id);
-    if (value === undefined) return { data: [] };
-    const document = { ...clone(value), _id: this.id };
-    return { data: this.transactional ? document : [document] };
+    const operation = { type: "get", collection: this.collectionName, id: this.id };
+    this.sdk.operations.push(operation);
+    return this.run(async () => {
+      const value = this.state.get(this.collectionName)?.get(this.id);
+      if (value === undefined) return { data: [] };
+      const document = { ...clone(value), _id: this.id };
+      return { data: this.transactional ? document : [document] };
+    });
   }
 
   async set(data) {
     const value = clone(data);
-    this.sdk.operations.push({
+    const operation = {
       type: "set",
       collection: this.collectionName,
       id: this.id,
       data: value,
+    };
+    this.sdk.operations.push(operation);
+    return this.run(async () => {
+      if (Object.hasOwn(value, "_id")) throw new Error("INVALID_PARAM");
+      let collection = this.state.get(this.collectionName);
+      if (!collection) {
+        collection = new Map();
+        this.state.set(this.collectionName, collection);
+      }
+      collection.set(this.id, value);
+      return { updated: 1 };
     });
-    if (Object.hasOwn(value, "_id")) throw new Error("INVALID_PARAM");
-    let collection = this.state.get(this.collectionName);
-    if (!collection) {
-      collection = new Map();
-      this.state.set(this.collectionName, collection);
-    }
-    collection.set(this.id, value);
-    return { updated: 1 };
   }
 
   async update(data) {
@@ -60,22 +67,30 @@ class FakeDocument {
       id: this.id,
       data: clone(data),
     });
-    const collection = this.state.get(this.collectionName);
-    const current = collection?.get(this.id);
-    if (!collection || current === undefined) throw new Error("DOCUMENT_NOT_FOUND");
-    const next = { ...clone(current) };
-    for (const [key, value] of Object.entries(data)) {
-      if (value && typeof value === "object" && value.removeField === true) delete next[key];
-      else next[key] = clone(value);
-    }
-    collection.set(this.id, next);
-    return { updated: 1 };
+    return this.run(async () => {
+      const collection = this.state.get(this.collectionName);
+      const current = collection?.get(this.id);
+      if (!collection || current === undefined) throw new Error("DOCUMENT_NOT_FOUND");
+      const next = { ...clone(current) };
+      for (const [key, value] of Object.entries(data)) {
+        if (value && typeof value === "object" && value.removeField === true) delete next[key];
+        else next[key] = clone(value);
+      }
+      collection.set(this.id, next);
+      return { updated: 1 };
+    });
   }
 
   async remove() {
     this.sdk.operations.push({ type: "remove", collection: this.collectionName, id: this.id });
-    this.state.get(this.collectionName)?.delete(this.id);
-    return { deleted: 1 };
+    return this.run(async () => {
+      this.state.get(this.collectionName)?.delete(this.id);
+      return { deleted: 1 };
+    });
+  }
+
+  run(operation) {
+    return this.transactional ? this.sdk.runTransactionOperation(operation) : operation();
   }
 }
 
@@ -162,11 +177,32 @@ class FakeCloudBaseDatabase {
     this.queries = [];
     this.whereCalls = 0;
     this.retryAttempts = [];
+    this.transactionInFlight = 0;
+    this.maxTransactionInFlight = 0;
+    this.transactionBusyErrors = 0;
     this.command = { removeValue: { removeField: true }, remove: () => this.command.removeValue };
   }
 
   collection(name) {
     return new FakeCollection(this, this.state, name, false);
+  }
+
+  async runTransactionOperation(operation) {
+    if (this.transactionInFlight !== 0) {
+      this.transactionBusyErrors += 1;
+      throw new Error("ResourceUnavailable.TransactionBusy");
+    }
+    this.transactionInFlight += 1;
+    this.maxTransactionInFlight = Math.max(
+      this.maxTransactionInFlight,
+      this.transactionInFlight,
+    );
+    try {
+      await Promise.resolve();
+      return await operation();
+    } finally {
+      this.transactionInFlight -= 1;
+    }
   }
 
   async runTransaction(work, retries) {
@@ -370,6 +406,20 @@ function pagedBookingDatabase(records, trace) {
     },
   };
 }
+
+test("production CloudBase app explicitly enables the SDK keepalive contract", () => {
+  assert.equal(cloudbaseApp.config.keepalive, true);
+});
+
+test("CloudBase booking create keeps one SDK operation in flight per transaction", async () => {
+  const database = seededDatabase();
+
+  const booking = await serviceFor(database).create(bookingCommand());
+
+  assert.equal(booking.id, "booking-001");
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+});
 
 test("create reads every deterministic allocation document without a transaction query", async () => {
   // Catches replacing the deterministic eleven doc reads with a transaction where() query.
