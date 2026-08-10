@@ -74,7 +74,7 @@ jobs:
         env:
           TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-        run: npx tcb -e "$CLOUDBASE_ENV_ID" --yes fn deploy --all
+        run: node scripts/run-cloudbase-cli.mjs -- -e "$CLOUDBASE_ENV_ID" --yes fn deploy --all
       - name: Verify deployed function configuration and mailer timer
         env:
           TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
@@ -88,7 +88,7 @@ jobs:
           mkdir "$details_dir"
           for attempt in $(seq 1 30); do
             for function_name in booking-public-api booking-admin-api booking-mailer; do
-              npx tcb -e "$CLOUDBASE_ENV_ID" --yes fn detail "$function_name" --json > "$details_dir/$function_name.json"
+              node scripts/run-cloudbase-cli.mjs -- -e "$CLOUDBASE_ENV_ID" --yes fn detail "$function_name" --json > "$details_dir/$function_name.json"
             done
             if node scripts/verify-cloudbase-deployment.mjs "$details_dir" "$CLOUDBASE_DEPLOYMENT_REVISION"; then
               break
