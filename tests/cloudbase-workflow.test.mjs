@@ -67,7 +67,7 @@ test("preflight validates both repository variables, staging, confirmation, and 
 });
 
 test("workflow tests and lints before rendering, provisioning, or deployment", async () => {
-  const { value } = await workflow();
+  const { source, value } = await workflow();
   const steps = value.jobs.deploy.steps;
   const commands = steps
     .filter((step) => typeof step.run === "string")
@@ -81,7 +81,7 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
     ["Provision additive database resources", "npm run provision:cloudbase"],
     [
       "Deploy all CloudBase functions",
-      'npx tcb -e "$CLOUDBASE_ENV_ID" --yes fn deploy --all',
+      'node scripts/run-cloudbase-cli.mjs -- -e "$CLOUDBASE_ENV_ID" --yes fn deploy --all',
     ],
   ]);
 
@@ -104,8 +104,9 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
   assert.match(verify.run, /booking-public-api booking-admin-api booking-mailer/);
   assert.match(
     verify.run,
-    /fn detail "\$function_name" --json > "\$details_dir\/\$function_name\.json"/,
+    /run-cloudbase-cli\.mjs -- -e "\$CLOUDBASE_ENV_ID" --yes fn detail "\$function_name" --json > "\$details_dir\/\$function_name\.json"/,
   );
+  assert.doesNotMatch(source, /\bnpx tcb\b/);
   assert.match(
     verify.run,
     /node scripts\/verify-cloudbase-deployment\.mjs "\$details_dir" "\$CLOUDBASE_DEPLOYMENT_REVISION"/,
