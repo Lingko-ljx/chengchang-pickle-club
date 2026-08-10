@@ -125,6 +125,34 @@ test("OPTIONS returns 204 and CORS only echoes an exact allowlisted origin", asy
   assert.notEqual(lookalike.headers["Access-Control-Allow-Origin"], "*");
 });
 
+test("availability rejects normalized invalid dates and accepts a real leap day", async () => {
+  const requestedDates = [];
+  const handler = handlerFor({
+    async listAvailability(date) {
+      requestedDates.push(date);
+      return [];
+    },
+  });
+
+  for (const date of ["2026-02-29", "2026-02-31"]) {
+    const response = await handler(
+      jsonEvent("GET", "/v1/availability", undefined, {
+        queryStringParameters: { date },
+      }),
+    );
+    assert.equal(response.statusCode, 400);
+    assert.equal(responseBody(response).error.code, "INVALID_INPUT");
+  }
+
+  const leapDay = await handler(
+    jsonEvent("GET", "/v1/availability", undefined, {
+      queryStringParameters: { date: "2028-02-29" },
+    }),
+  );
+  assert.equal(leapDay.statusCode, 200);
+  assert.deepEqual(requestedDates, ["2028-02-29"]);
+});
+
 test("availability advertises open party sizes that fit one court, not aggregate seats", async () => {
   const session = {
     id: MORNING,
@@ -156,20 +184,18 @@ test("availability advertises open party sizes that fit one court, not aggregate
   );
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(responseBody(response), {
-    data: [
-      {
-        sessionId: MORNING,
-        date: DATE,
-        startTime: "07:00",
-        endTime: "08:00",
-        openCapacity: 4,
-        acceptsOpenPartySizes: [1, 2],
-        privateCourtCount: 0,
-        acceptsOpen: true,
-        acceptsPrivate: false,
-      },
-    ],
+  const slots = responseBody(response).data;
+  assert.equal(slots.length, 2);
+  assert.deepEqual(slots.find(({ sessionId }) => sessionId === MORNING), {
+    sessionId: MORNING,
+    date: DATE,
+    startTime: "07:00",
+    endTime: "08:00",
+    openCapacity: 4,
+    acceptsOpenPartySizes: [1, 2],
+    privateCourtCount: 0,
+    acceptsOpen: true,
+    acceptsPrivate: false,
   });
 });
 

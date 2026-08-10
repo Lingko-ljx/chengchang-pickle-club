@@ -244,6 +244,17 @@ export class MemoryBookingRepository implements BookingRepository {
       });
   }
 
+  async listSessions(date: string): Promise<SessionRecord[]> {
+    await this.queue;
+    return Array.from(this.state.sessions.values())
+      .filter((session) => session.date === date)
+      .sort(
+        (left, right) =>
+          left.startAt.localeCompare(right.startAt) || left.id.localeCompare(right.id),
+      )
+      .map(cloneValue);
+  }
+
   async listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {
     await this.queue;
     const normalizedQuery = filter.query?.trim().toLowerCase();

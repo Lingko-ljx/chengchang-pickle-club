@@ -29,6 +29,8 @@ npm run test:pages
 `PAGES_BASE_PATH`. Production URLs must use HTTPS and cannot contain credentials,
 a query, or a fragment. The Pages workflow consumes `actions/configure-pages`
 outputs, so both a GitHub project URL and a custom-domain root URL are supported.
+In GitHub **Settings → Pages**, set **Source** to **GitHub Actions** before the
+first release; the legacy branch publisher must not remain active.
 
 ## Staging-only CloudBase workflow
 
@@ -142,11 +144,15 @@ access.
 
 - Enable CloudBase Auth v2 username/password authentication.
 - Keep public self-registration explicitly disabled.
-- Create `booking_staff` with permission to invoke only the admin HTTP resource;
+- Create a custom role whose identity—not only its display name—is exactly
+  `booking_staff`. Grant it permission to invoke only the admin HTTP resource;
   do not grant system-administrator, database, public-function, or deployment
   privileges.
-- Create the initial staff account in the console, assign only `booking_staff`,
-  and verify a non-member token receives 403 while that account can sign in.
+- Create the initial staff account as a CloudBase Auth organization member, not
+  merely as a CAM sub-user or ordinary registered user, and assign only
+  `booking_staff`. After login, call `/auth/v1/user/me` and verify
+  `groups[].id` contains `booking_staff`; also verify a non-member token receives
+  403 while that account can sign in.
 - Keep the public route anonymous and require identity authentication on the
   admin route.
 
@@ -168,6 +174,11 @@ https://lingko-ljx.github.io
 http://127.0.0.1:3001
 http://localhost:3001
 ```
+
+Before browser login testing, add the matching host entries to CloudBase **Web
+security sources** (WEB safety domains): `lingko-ljx.github.io`,
+`127.0.0.1:3001`, and `localhost:3001`. This browser-SDK allowlist is separate
+from the API CORS policy above; both must be configured and tested.
 
 Validate admin `OPTIONS` at the deployed gateway before login testing: it must
 return the intended allow-origin/method/header policy without invoking business

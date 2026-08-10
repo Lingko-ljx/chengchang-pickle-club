@@ -35,6 +35,8 @@ jobs:
           NEXT_PUBLIC_CLOUDBASE_ENV_ID: ${{ vars.CLOUDBASE_ENV_ID }}
         run: npm run build:pages
       - name: Verify static site
+        env:
+          NEXT_PUBLIC_BOOKING_API_BASE_URL: ${{ vars.BOOKING_API_BASE_URL }}
         run: npm run test:pages
       - run: touch out/.nojekyll
       - uses: actions/upload-pages-artifact@v4
