@@ -100,7 +100,7 @@ async function html(fetchImpl, url, timeoutMs) {
 }
 
 const forbiddenStaticContent =
-  /\/_next\/static\/chunks\/|self\.__next|__next_f|modulepreload|BOOKING_ADMIN_USER_IDS|BOOKING_SES_SECRET|TENCENTCLOUD_SECRET|PHONE_HASH_SALT|RATE_LIMIT_SALT|IDEMPOTENCY_SALT|AKID[A-Za-z0-9]+|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY/i;
+  /\/_next\/static\/chunks\/[^"'<>\s]*\.m?js(?:[?#][^"'<>\s]*)?|self\.__next|__next_f|modulepreload|BOOKING_ADMIN_USER_IDS|BOOKING_SES_SECRET|TENCENTCLOUD_SECRET|PHONE_HASH_SALT|RATE_LIMIT_SALT|IDEMPOTENCY_SALT|AKID[A-Za-z0-9]+|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY/i;
 
 function verifyRootHtml(body, configuration) {
   if (
