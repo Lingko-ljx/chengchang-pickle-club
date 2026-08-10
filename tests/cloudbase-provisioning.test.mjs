@@ -3,9 +3,13 @@ import test from "node:test";
 
 import {
   createProvisioningClients,
+  formatProvisioningError,
   provisionCloudbase,
+  provisionFromEnvironment,
   readProvisioningConfiguration,
 } from "../scripts/provision-cloudbase.mjs";
+
+const TEST_ENV_ID = "booking-test-000001";
 
 const COLLECTIONS = [
   "courts",
@@ -74,6 +78,68 @@ function indexInfo(name, fields, unique = false) {
   };
 }
 
+class FakeManagerApi {
+  constructor(managerDatabase, aclTags = {}) {
+    this.managerDatabase = managerDatabase;
+    this.aclTags = new Map(Object.entries(aclTags));
+    this.calls = { describe: [], modify: [] };
+    this.failModifyAt = null;
+    this.modifyAttempts = 0;
+    this.deferModifications = false;
+    this.pendingAclTags = new Map();
+    this.invalidDescribeFor = null;
+  }
+
+  async call(options) {
+    assert.deepEqual(Object.keys(options).sort(), ["Action", "Param"]);
+    const { Action, Param } = options;
+    assert.deepEqual(Object.keys(Param).sort(),
+      Action === "ModifyDatabaseACL"
+        ? ["AclTag", "CollectionName", "EnvId"]
+        : ["CollectionName", "EnvId"]);
+    assert.equal(Param.EnvId, TEST_ENV_ID);
+    assert.equal(this.managerDatabase.collections.has(Param.CollectionName), true);
+
+    if (Action === "DescribeDatabaseACL") {
+      this.calls.describe.push(clone(options));
+      if (Param.CollectionName === this.invalidDescribeFor) {
+        return { RequestId: `describe-acl-${Param.CollectionName}` };
+      }
+      return {
+        AclTag: this.aclTags.get(Param.CollectionName) ?? "READONLY",
+        RequestId: `describe-acl-${Param.CollectionName}`,
+      };
+    }
+    if (Action === "ModifyDatabaseACL") {
+      this.calls.modify.push(clone(options));
+      this.modifyAttempts += 1;
+      assert.equal(Param.AclTag, "ADMINONLY");
+      if (this.modifyAttempts === this.failModifyAt) {
+        throw new Error(`simulated ACL failure: ${Param.CollectionName}`);
+      }
+      if (this.deferModifications) {
+        this.pendingAclTags.set(Param.CollectionName, Param.AclTag);
+      } else {
+        this.aclTags.set(Param.CollectionName, Param.AclTag);
+      }
+      return { RequestId: `modify-acl-${Param.CollectionName}` };
+    }
+    assert.fail(`unexpected manager API action: ${Action}`);
+  }
+
+  resetCalls() {
+    this.calls = { describe: [], modify: [] };
+    this.modifyAttempts = 0;
+  }
+
+  revealModifications() {
+    for (const [collectionName, aclTag] of this.pendingAclTags) {
+      this.aclTags.set(collectionName, aclTag);
+    }
+    this.pendingAclTags.clear();
+  }
+}
+
 class FakeManagerDatabase {
   constructor(collections = []) {
     this.collections = new Set(collections);
@@ -81,6 +147,7 @@ class FakeManagerDatabase {
       collections.map((name) => [name, [indexInfo("_id_", ["_id"], true)]]),
     );
     this.calls = { create: [], describe: [], list: [], update: [] };
+    this.managerApi = new FakeManagerApi(this);
   }
 
   async listCollections(options) {
@@ -144,7 +211,18 @@ class FakeManagerDatabase {
 
   resetCalls() {
     this.calls = { create: [], describe: [], list: [], update: [] };
+    this.managerApi.resetCalls();
   }
+}
+
+function provisionForTest({ managerDatabase, database, verification }) {
+  return provisionCloudbase({
+    envId: TEST_ENV_ID,
+    managerApi: managerDatabase.managerApi,
+    managerDatabase,
+    database,
+    verification,
+  });
 }
 
 class FakeDocumentDatabase {
@@ -191,14 +269,44 @@ function expectedIndexCreate(name, fields) {
   };
 }
 
+function expectedAclModify(collectionName) {
+  return {
+    Action: "ModifyDatabaseACL",
+    Param: {
+      EnvId: TEST_ENV_ID,
+      CollectionName: collectionName,
+      AclTag: "ADMINONLY",
+    },
+  };
+}
+
+function expectedAclDescribe(collectionName) {
+  return {
+    Action: "DescribeDatabaseACL",
+    Param: { EnvId: TEST_ENV_ID, CollectionName: collectionName },
+  };
+}
+
 test("creates eleven collections, nine ordered indexes, eleven courts, and sixteen hourly templates", async () => {
   const managerDatabase = new FakeManagerDatabase();
   const database = new FakeDocumentDatabase();
 
-  await provisionCloudbase({ managerDatabase, database });
+  const result = await provisionForTest({ managerDatabase, database });
 
   assert.deepEqual(managerDatabase.calls.create, COLLECTIONS);
   assert.deepEqual([...managerDatabase.collections], COLLECTIONS);
+  assert.deepEqual(
+    managerDatabase.managerApi.calls.describe.slice(0, COLLECTIONS.length),
+    COLLECTIONS.map(expectedAclDescribe),
+  );
+  assert.deepEqual(
+    managerDatabase.managerApi.calls.modify,
+    COLLECTIONS.map(expectedAclModify),
+  );
+  assert.deepEqual(
+    COLLECTIONS.map((name) => managerDatabase.managerApi.aclTags.get(name)),
+    COLLECTIONS.map(() => "ADMINONLY"),
+  );
   assert.deepEqual(
     managerDatabase.calls.update.flatMap(([collection, options]) =>
       options.CreateIndexes.map((index) => [collection, index]),
@@ -221,12 +329,18 @@ test("creates eleven collections, nine ordered indexes, eleven courts, and sixte
       ]),
     ],
   );
+  assert.deepEqual(result, {
+    createdCollections: 11,
+    updatedCollectionAcls: 11,
+    createdIndexes: 9,
+    createdSeeds: 27,
+  });
 });
 
 test("an exact rerun is a no-op and preserves existing enabled and version values", async () => {
   const managerDatabase = new FakeManagerDatabase();
   const database = new FakeDocumentDatabase();
-  await provisionCloudbase({ managerDatabase, database });
+  await provisionForTest({ managerDatabase, database });
   database.values.set("courts/03", { id: "03", enabled: false, version: 7 });
   database.values.set("session_templates/slot-1900", {
     id: "slot-1900",
@@ -238,10 +352,15 @@ test("an exact rerun is a no-op and preserves existing enabled and version value
   managerDatabase.resetCalls();
   database.resetCalls();
 
-  await provisionCloudbase({ managerDatabase, database });
+  const result = await provisionForTest({ managerDatabase, database });
 
   assert.deepEqual(managerDatabase.calls.create, []);
   assert.deepEqual(managerDatabase.calls.update, []);
+  assert.deepEqual(managerDatabase.managerApi.calls.modify, []);
+  assert.deepEqual(
+    managerDatabase.managerApi.calls.describe.slice(0, COLLECTIONS.length),
+    COLLECTIONS.map(expectedAclDescribe),
+  );
   assert.deepEqual(database.calls.set, []);
   assert.deepEqual(database.values.get("courts/03"), {
     id: "03",
@@ -255,12 +374,69 @@ test("an exact rerun is a no-op and preserves existing enabled and version value
     enabled: false,
     version: 12,
   });
+  assert.deepEqual(result, {
+    createdCollections: 0,
+    updatedCollectionAcls: 0,
+    createdIndexes: 0,
+    createdSeeds: 0,
+  });
+});
+
+test("an interrupted ACL hardening run resumes without rewriting completed collections", async () => {
+  const managerDatabase = new FakeManagerDatabase();
+  const database = new FakeDocumentDatabase();
+  managerDatabase.managerApi.failModifyAt = 6;
+
+  await assert.rejects(
+    () => provisionForTest({ managerDatabase, database }),
+    /simulated ACL failure: booking_codes/,
+  );
+  assert.deepEqual(
+    COLLECTIONS.slice(0, 5).map(
+      (name) => managerDatabase.managerApi.aclTags.get(name),
+    ),
+    COLLECTIONS.slice(0, 5).map(() => "ADMINONLY"),
+  );
+  assert.deepEqual([...managerDatabase.collections], COLLECTIONS.slice(0, 6));
+  assert.deepEqual(managerDatabase.calls.update, []);
+  assert.deepEqual(database.calls.set, []);
+
+  managerDatabase.managerApi.failModifyAt = null;
+  managerDatabase.resetCalls();
+  database.resetCalls();
+  const result = await provisionForTest({ managerDatabase, database });
+
+  assert.deepEqual(
+    managerDatabase.managerApi.calls.modify,
+    COLLECTIONS.slice(5).map(expectedAclModify),
+  );
+  assert.deepEqual(result, {
+    createdCollections: 5,
+    updatedCollectionAcls: 6,
+    createdIndexes: 9,
+    createdSeeds: 27,
+  });
+});
+
+test("an invalid ACL preflight response fails closed before any ACL or data write", async () => {
+  const managerDatabase = new FakeManagerDatabase(COLLECTIONS);
+  const database = new FakeDocumentDatabase();
+  managerDatabase.managerApi.invalidDescribeFor = "courts";
+
+  await assert.rejects(
+    () => provisionForTest({ managerDatabase, database }),
+    /INVALID_MANAGER_RESPONSE: DescribeDatabaseACL\/courts/,
+  );
+  assert.deepEqual(managerDatabase.calls.create, []);
+  assert.deepEqual(managerDatabase.calls.update, []);
+  assert.deepEqual(managerDatabase.managerApi.calls.modify, []);
+  assert.deepEqual(database.calls.set, []);
 });
 
 test("same-name index drift fails closed before any create, update, or seed write", async () => {
   const managerDatabase = new FakeManagerDatabase();
   const database = new FakeDocumentDatabase();
-  await provisionCloudbase({ managerDatabase, database });
+  await provisionForTest({ managerDatabase, database });
   const drifted = managerDatabase.indexes
     .get("bookings")
     .find(({ Name }) => Name === "bookings_sessionId_status");
@@ -274,18 +450,19 @@ test("same-name index drift fails closed before any create, update, or seed writ
   database.resetCalls();
 
   await assert.rejects(
-    () => provisionCloudbase({ managerDatabase, database }),
+    () => provisionForTest({ managerDatabase, database }),
     /INDEX_DRIFT: bookings\/bookings_sessionId_status/,
   );
   assert.deepEqual(managerDatabase.calls.create, []);
   assert.deepEqual(managerDatabase.calls.update, []);
+  assert.deepEqual(managerDatabase.managerApi.calls.modify, []);
   assert.deepEqual(database.calls.set, []);
 });
 
 test("same-key index drift under a different name fails before any mutation", async () => {
   const managerDatabase = new FakeManagerDatabase();
   const database = new FakeDocumentDatabase();
-  await provisionCloudbase({ managerDatabase, database });
+  await provisionForTest({ managerDatabase, database });
   const indexes = managerDatabase.indexes.get("bookings");
   const expected = indexes.find(
     ({ Name }) => Name === "bookings_sessionId_status",
@@ -297,18 +474,19 @@ test("same-key index drift under a different name fails before any mutation", as
   database.resetCalls();
 
   await assert.rejects(
-    () => provisionCloudbase({ managerDatabase, database }),
+    () => provisionForTest({ managerDatabase, database }),
     /INDEX_DRIFT: bookings\/bookings_sessionId_status/,
   );
   assert.deepEqual(managerDatabase.calls.create, []);
   assert.deepEqual(managerDatabase.calls.update, []);
+  assert.deepEqual(managerDatabase.managerApi.calls.modify, []);
   assert.deepEqual(database.calls.set, []);
 });
 
 test("same-ID seed drift fails closed while operational enabled/version changes remain valid", async () => {
   const managerDatabase = new FakeManagerDatabase();
   const database = new FakeDocumentDatabase();
-  await provisionCloudbase({ managerDatabase, database });
+  await provisionForTest({ managerDatabase, database });
   database.values.set("session_templates/slot-0700", {
     id: "slot-0700",
     startTime: "07:15",
@@ -322,11 +500,12 @@ test("same-ID seed drift fails closed while operational enabled/version changes 
   database.resetCalls();
 
   await assert.rejects(
-    () => provisionCloudbase({ managerDatabase, database }),
+    () => provisionForTest({ managerDatabase, database }),
     /SEED_DRIFT: session_templates\/slot-0700/,
   );
   assert.deepEqual(managerDatabase.calls.create, []);
   assert.deepEqual(managerDatabase.calls.update, []);
+  assert.deepEqual(managerDatabase.managerApi.calls.modify, []);
   assert.deepEqual(database.calls.set, []);
 });
 
@@ -373,14 +552,59 @@ test("requires an explicit staging gate and reads only the two named Tencent cre
   }
 });
 
+test("rejects an invalid environment gate before constructing any cloud client", async () => {
+  let constructorCalls = 0;
+  const dependencies = {
+    CloudBaseManager: class {
+      constructor() {
+        constructorCalls += 1;
+      }
+    },
+    cloudbase: {
+      init() {
+        constructorCalls += 1;
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => provisionFromEnvironment({
+      CLOUDBASE_DEPLOYMENT_STAGE: "production",
+      CLOUDBASE_ENV_ID: TEST_ENV_ID,
+      TENCENTCLOUD_SECRETID: "secret-id-canary",
+      TENCENTCLOUD_SECRETKEY: "secret-key-canary",
+    }, dependencies),
+    /Invalid configuration: CLOUDBASE_DEPLOYMENT_STAGE/,
+  );
+  assert.equal(constructorCalls, 0);
+});
+
+test("formats unexpected cloud failures without printing credential values", () => {
+  const secretId = "secret-id-must-never-be-logged";
+  const secretKey = "secret-key-must-never-be-logged";
+  const message = formatProvisioningError(
+    new Error(`upstream echoed ${secretId} and ${secretKey}`),
+  );
+
+  assert.equal(message, "CloudBase provisioning failed");
+  assert.equal(message.includes(secretId), false);
+  assert.equal(message.includes(secretKey), false);
+});
+
 test("initializes manager 5.6 and node SDK 3.18 clients with their real option shapes", () => {
   const calls = [];
   const managerDatabase = { kind: "manager-database" };
+  const managerApi = { kind: "manager-api" };
   const database = { kind: "document-database" };
   class FakeCloudBaseManager {
     constructor(options) {
       calls.push(["manager", clone(options)]);
       this.database = managerDatabase;
+    }
+
+    commonService(service, version) {
+      calls.push(["manager-common-service", service, version]);
+      return managerApi;
     }
   }
   const cloudbase = {
@@ -406,7 +630,7 @@ test("initializes manager 5.6 and node SDK 3.18 clients with their real option s
       CloudBaseManager: FakeCloudBaseManager,
       cloudbase,
     }),
-    { managerDatabase, database },
+    { managerApi, managerDatabase, database },
   );
   assert.deepEqual(calls, [
     [
@@ -425,6 +649,7 @@ test("initializes manager 5.6 and node SDK 3.18 clients with their real option s
         secretKey: "secret-key-canary",
       },
     ],
+    ["manager-common-service", "tcb", "2018-06-08"],
     ["node-sdk-database"],
   ]);
 });
@@ -454,7 +679,7 @@ test("retries bounded post-condition reads until created resources are actually 
   const database = new FakeDocumentDatabase();
   let waits = 0;
 
-  const result = await provisionCloudbase({
+  const result = await provisionForTest({
     managerDatabase,
     database,
     verification: {
@@ -470,9 +695,42 @@ test("retries bounded post-condition reads until created resources are actually 
   assert.equal(waits, 1);
   assert.deepEqual(result, {
     createdCollections: 11,
+    updatedCollectionAcls: 11,
     createdIndexes: 9,
     createdSeeds: 27,
   });
+});
+
+test("retries bounded ACL post-condition reads until ADMINONLY is visible", async () => {
+  const managerDatabase = new FakeManagerDatabase();
+  const database = new FakeDocumentDatabase();
+  managerDatabase.managerApi.deferModifications = true;
+  let waits = 0;
+
+  const result = await provisionForTest({
+    managerDatabase,
+    database,
+    verification: {
+      attempts: 3,
+      delayMs: 0,
+      wait: async () => {
+        waits += 1;
+        managerDatabase.managerApi.revealModifications();
+      },
+    },
+  });
+
+  assert.equal(waits, 1);
+  assert.deepEqual(result, {
+    createdCollections: 11,
+    updatedCollectionAcls: 11,
+    createdIndexes: 9,
+    createdSeeds: 27,
+  });
+  assert.deepEqual(
+    COLLECTIONS.map((name) => managerDatabase.managerApi.aclTags.get(name)),
+    COLLECTIONS.map(() => "ADMINONLY"),
+  );
 });
 
 test("fails after bounded verification when seed writes never become visible", async () => {
@@ -481,7 +739,7 @@ test("fails after bounded verification when seed writes never become visible", a
   let waits = 0;
 
   await assert.rejects(
-    () => provisionCloudbase({
+    () => provisionForTest({
       managerDatabase,
       database,
       verification: {

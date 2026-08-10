@@ -4,7 +4,7 @@ import test from "node:test";
 
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
-test("runbook identifies every console-only database and identity hard gate", () => {
+test("runbook identifies automated database ACLs and console identity hard gates", () => {
   for (const collection of [
     "courts",
     "session_templates",
@@ -20,7 +20,11 @@ test("runbook identifies every console-only database and identity hard gate", ()
   ]) {
     assert.match(readme, new RegExp(`\\b${collection}\\b`), collection);
   }
-  assert.match(readme, /deny direct client read and write/i);
+  assert.match(readme, /DescribeDatabaseACL/);
+  assert.match(readme, /ModifyDatabaseACL/);
+  assert.match(readme, /ADMINONLY/);
+  assert.match(readme, /anonymous Web SDK client/i);
+  assert.match(readme, /booking_staff[^\n]*Web SDK client/i);
   assert.match(readme, /Auth v2/i);
   assert.match(readme, /username\/password/i);
   assert.match(readme, /self-registration[^\n]*disabled/i);

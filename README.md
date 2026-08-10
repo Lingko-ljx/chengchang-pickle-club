@@ -85,8 +85,10 @@ environment ID and a 40-character deployment revision.
 `scripts/provision-cloudbase.mjs` uses `@cloudbase/manager-node` 5.6.6 and
 `@cloudbase/node-sdk` 3.18.3. It creates missing resources, verifies their
 postconditions with bounded retries, preserves existing `enabled` and `version`
-fields, and fails closed on collection, index, or seed drift. It will never
-delete or rebuild a collection, index, or document.
+fields, and fails closed on collection, index, seed, or ACL response drift. It
+uses the TCB `DescribeDatabaseACL` and `ModifyDatabaseACL` APIs to move every
+managed collection only toward the `ADMINONLY` client ACL. It will never lower
+that ACL. It will never delete or rebuild a collection, index, or document.
 
 Provisioning covers these eleven collections:
 
@@ -107,17 +109,19 @@ system_state
 It creates the nine planned compound indexes, courts `01` through `11`, and the
 sixteen 60-minute templates `slot-0700` through `slot-2200`.
 
-The scripts cannot configure database ACLs, Auth, RBAC, gateway routes, CORS,
-function runtime environment values, SES approval, snapshots, or rollback.
-Those are manual hard gates below. A green workflow is not production approval.
+The scripts configure only the eleven collection ACLs described above. They
+cannot configure Auth, RBAC, gateway routes, CORS, function runtime environment
+values, SES approval, snapshots, or rollback. Those remain manual hard gates
+below. A green workflow is not production approval.
 
 ## Manual hard gates before staging is ready
 
 Record the operator, time, environment ID, and evidence for every item. Complete
 the snapshot and change-control gate below before the first workflow run. That
-run additively provisions the database and creates or updates the functions, but
-it does not configure ACLs, Auth/RBAC, gateway/CORS, runtime environment values,
-or SES. The bootstrap run is therefore expected to fail its final function-detail
+run additively provisions the database, enforces `ADMINONLY` on its eleven
+collections, and creates or updates the functions, but it does not configure
+Auth/RBAC, gateway/CORS, runtime environment values, or SES. The bootstrap run
+is therefore expected to fail its final function-detail
 verification after provisioning and deployment because the exact runtime key
 sets are not present yet. Complete those console gates, manually re-check the
 keys, rerun the workflow, and run synthetic smoke tests before allowing traffic.
@@ -134,11 +138,17 @@ keys, rerun the workflow, and run synthetic smoke tests before allowing traffic.
 
 ### 2. Deny direct database access
 
-In CloudBase database security rules, set all eleven collections listed above to
-deny direct client read and write. Verify both an anonymous client and an
-authenticated staff client are denied. All booking data access must traverse the
-public or admin HTTP function; CloudBase login alone must not grant database
-access.
+Provisioning reads each collection's current basic ACL and changes only drifted
+collections to `ADMINONLY`, which the CloudBase console presents as no direct
+client access. A partial run can be rerun safely: collections already at
+`ADMINONLY` receive no write. The workflow also reads all eleven ACLs again with
+bounded retries and fails unless every result is exactly `ADMINONLY`.
+
+As the release hard gate, verify both an anonymous Web SDK client and an
+authenticated `booking_staff` Web SDK client are denied direct reads and writes
+for every collection. `booking_staff` is an application role, not a CloudBase
+database administrator. All booking data access must traverse the public or
+admin HTTP function; CloudBase login alone must not grant database access.
 
 ### 3. Configure Auth v2 and least-privilege staff access
 

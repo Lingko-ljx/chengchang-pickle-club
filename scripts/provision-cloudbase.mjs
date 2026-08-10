@@ -54,6 +54,13 @@ const templateSeeds = Array.from({ length: 16 }, (_, index) => {
 });
 
 const seedDefinitions = [...courtSeeds, ...templateSeeds];
+const databaseAclTags = new Set([
+  "READONLY",
+  "PRIVATE",
+  "ADMINWRITE",
+  "ADMINONLY",
+  "CUSTOM",
+]);
 
 class ProvisioningError extends Error {
   constructor(message) {
@@ -100,7 +107,11 @@ export function createProvisioningClients(
     secretId: configuration.secretId,
     secretKey: configuration.secretKey,
   });
-  return { managerDatabase: manager.database, database: app.database() };
+  return {
+    managerApi: manager.commonService("tcb", "2018-06-08"),
+    managerDatabase: manager.database,
+    database: app.database(),
+  };
 }
 
 async function listCollectionNames(managerDatabase) {
@@ -242,9 +253,66 @@ async function preflightSeeds(database, existingCollections) {
   return missing;
 }
 
-async function hasProvisionedPostconditions(managerDatabase, database) {
+async function describeDatabaseAcl(managerApi, envId, collectionName) {
+  const response = await managerApi.call({
+    Action: "DescribeDatabaseACL",
+    Param: { EnvId: envId, CollectionName: collectionName },
+  });
+  if (
+    !response ||
+    typeof response.RequestId !== "string" ||
+    response.RequestId.length === 0 ||
+    !databaseAclTags.has(response.AclTag)
+  ) {
+    throw new ProvisioningError(
+      `INVALID_MANAGER_RESPONSE: DescribeDatabaseACL/${collectionName}`,
+    );
+  }
+  return response.AclTag;
+}
+
+async function preflightDatabaseAcls(managerApi, envId, collections) {
+  const drifted = [];
+  for (const collectionName of collections) {
+    const aclTag = await describeDatabaseAcl(managerApi, envId, collectionName);
+    if (aclTag !== "ADMINONLY") drifted.push(collectionName);
+  }
+  return drifted;
+}
+
+async function hardenDatabaseAcl(managerApi, envId, collectionName) {
+  const response = await managerApi.call({
+    Action: "ModifyDatabaseACL",
+    Param: {
+      EnvId: envId,
+      CollectionName: collectionName,
+      AclTag: "ADMINONLY",
+    },
+  });
+  if (
+    !response ||
+    typeof response.RequestId !== "string" ||
+    response.RequestId.length === 0
+  ) {
+    throw new ProvisioningError(
+      `INVALID_MANAGER_RESPONSE: ModifyDatabaseACL/${collectionName}`,
+    );
+  }
+}
+
+async function hasProvisionedPostconditions(
+  managerApi,
+  envId,
+  managerDatabase,
+  database,
+) {
   const collections = await listCollectionNames(managerDatabase);
   if (collectionNames.some((name) => !collections.has(name))) return false;
+
+  for (const collectionName of collectionNames) {
+    const aclTag = await describeDatabaseAcl(managerApi, envId, collectionName);
+    if (aclTag !== "ADMINONLY") return false;
+  }
 
   for (const collectionName of new Set(indexDefinitions.map(([name]) => name))) {
     const response = await managerDatabase.describeCollection(collectionName);
@@ -290,7 +358,13 @@ async function hasProvisionedPostconditions(managerDatabase, database) {
 const waitFor = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function verifyPostconditions(managerDatabase, database, verification = {}) {
+async function verifyPostconditions(
+  managerApi,
+  envId,
+  managerDatabase,
+  database,
+  verification = {},
+) {
   const attempts = verification.attempts ?? 60;
   const delayMs = verification.delayMs ?? 5_000;
   const wait = verification.wait ?? waitFor;
@@ -298,17 +372,35 @@ async function verifyPostconditions(managerDatabase, database, verification = {}
     throw new ProvisioningError("INVALID_VERIFICATION_CONFIGURATION");
   }
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    if (await hasProvisionedPostconditions(managerDatabase, database)) return;
+    if (
+      await hasProvisionedPostconditions(
+        managerApi,
+        envId,
+        managerDatabase,
+        database,
+      )
+    ) return;
     if (attempt < attempts) await wait(delayMs);
   }
   throw new ProvisioningError("POSTCONDITION_NOT_MET");
 }
 
 export async function provisionCloudbase({
+  envId,
+  managerApi,
   managerDatabase,
   database,
   verification,
 }) {
+  if (
+    typeof envId !== "string" ||
+    !/^[a-z0-9][a-z0-9-]{2,63}$/i.test(envId) ||
+    typeof managerApi?.call !== "function" ||
+    typeof managerDatabase?.listCollections !== "function" ||
+    typeof database?.collection !== "function"
+  ) {
+    throw new ProvisioningError("INVALID_PROVISIONING_CONFIGURATION");
+  }
   const existingCollections = await listCollectionNames(managerDatabase);
   const missingIndexes = await preflightIndexes(managerDatabase, existingCollections);
   const missingSeeds = await preflightSeeds(database, existingCollections);
@@ -316,8 +408,23 @@ export async function provisionCloudbase({
     (name) => !existingCollections.has(name),
   );
 
+  const existingCollectionAcls = await preflightDatabaseAcls(
+    managerApi,
+    envId,
+    collectionNames.filter((name) => existingCollections.has(name)),
+  );
+  let updatedCollectionAcls = 0;
+  for (const name of existingCollectionAcls) {
+    await hardenDatabaseAcl(managerApi, envId, name);
+    updatedCollectionAcls += 1;
+  }
   for (const name of missingCollections) {
     await managerDatabase.createCollection(name);
+    const aclTag = await describeDatabaseAcl(managerApi, envId, name);
+    if (aclTag !== "ADMINONLY") {
+      await hardenDatabaseAcl(managerApi, envId, name);
+      updatedCollectionAcls += 1;
+    }
   }
   for (const [name, indexes] of missingIndexes) {
     if (indexes.length > 0) {
@@ -329,6 +436,8 @@ export async function provisionCloudbase({
   }
 
   await verifyPostconditions(
+    managerApi,
+    envId,
     managerDatabase,
     database,
     verification,
@@ -336,6 +445,7 @@ export async function provisionCloudbase({
 
   return {
     createdCollections: missingCollections.length,
+    updatedCollectionAcls,
     createdIndexes: [...missingIndexes.values()].reduce(
       (total, indexes) => total + indexes.length,
       0,
@@ -350,9 +460,16 @@ export async function provisionFromEnvironment(
 ) {
   const configuration = readProvisioningConfiguration(environment);
   const resolvedDependencies = dependencies ?? await loadDependencies();
-  return provisionCloudbase(
-    createProvisioningClients(configuration, resolvedDependencies),
-  );
+  return provisionCloudbase({
+    envId: configuration.envId,
+    ...createProvisioningClients(configuration, resolvedDependencies),
+  });
+}
+
+export function formatProvisioningError(error) {
+  return error instanceof ProvisioningError
+    ? error.message
+    : "CloudBase provisioning failed";
 }
 
 async function loadDependencies() {
@@ -373,11 +490,7 @@ if (import.meta.url === invokedPath) {
   try {
     await provisionFromEnvironment();
   } catch (error) {
-    console.error(
-      error instanceof ProvisioningError
-        ? error.message
-        : "CloudBase provisioning failed",
-    );
+    console.error(formatProvisioningError(error));
     process.exitCode = 1;
   }
 }
