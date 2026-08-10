@@ -145,6 +145,8 @@ test("admin production configuration requires Shanghai but never consumes the ph
     {
       CLOUDBASE_ENV_ID: "booking-test-000001",
       DATA_TIMEZONE: "Asia/Shanghai",
+      BOOKING_ADMIN_USER_IDS:
+        '["2086466604197666817","123456789"]',
       PHONE_HASH_SALT: "must-not-be-read",
     },
     {
@@ -158,12 +160,18 @@ test("admin production configuration requires Shanghai but never consumes the ph
   assert.deepEqual(runtime.readAdminRuntimeConfiguration(environment), {
     envId: "booking-test-000001",
     timeZone: "Asia/Shanghai",
+    allowedUserIds: ["2086466604197666817", "123456789"],
   });
-  assert.deepEqual(accessed, ["CLOUDBASE_ENV_ID", "DATA_TIMEZONE"]);
+  assert.deepEqual(accessed, [
+    "CLOUDBASE_ENV_ID",
+    "DATA_TIMEZONE",
+    "BOOKING_ADMIN_USER_IDS",
+  ]);
   assert.throws(
     () => runtime.readAdminRuntimeConfiguration({
       CLOUDBASE_ENV_ID: "booking-test-000001",
       DATA_TIMEZONE: "UTC",
+      BOOKING_ADMIN_USER_IDS: '["2086466604197666817"]',
     }),
     /DATA_TIMEZONE/,
   );
@@ -181,6 +189,7 @@ test("admin production configuration rejects every env ID that could change the 
       () => runtime.readAdminRuntimeConfiguration({
         CLOUDBASE_ENV_ID: envId,
         DATA_TIMEZONE: "Asia/Shanghai",
+        BOOKING_ADMIN_USER_IDS: '["2086466604197666817"]',
       }),
       (error) =>
         error instanceof Error &&
@@ -188,6 +197,53 @@ test("admin production configuration rejects every env ID that could change the 
         !error.message.includes(envId),
     );
   }
+});
+
+test("admin user allowlist is a strict JSON array of canonical exact IDs", async () => {
+  const runtime = await import("../cloudbase/src/runtime-config.ts");
+  const invalidValues = [
+    undefined,
+    "",
+    "{}",
+    '"2086466604197666817"',
+    "not-json",
+    "[2086466604197666817]",
+    '[""]',
+    '[" admin"]',
+    '["admin "]',
+    '["admin@example.com"]',
+    '["admin/child"]',
+    '["admin\\nchild"]',
+    '["administrator"]',
+    '["0"]',
+    '["01"]',
+    '["2086466604197666817","2086466604197666817"]',
+    `["${"9".repeat(33)}"]`,
+  ];
+
+  for (const value of invalidValues) {
+    assert.throws(
+      () => runtime.readAdminRuntimeConfiguration({
+        CLOUDBASE_ENV_ID: "booking-test-000001",
+        DATA_TIMEZONE: "Asia/Shanghai",
+        BOOKING_ADMIN_USER_IDS: value,
+      }),
+      (error) =>
+        error instanceof Error &&
+        /BOOKING_ADMIN_USER_IDS/.test(error.message) &&
+        !error.message.includes("admin@example.com") &&
+        !error.message.includes("admin/child"),
+      String(value),
+    );
+  }
+  assert.deepEqual(
+    runtime.readAdminRuntimeConfiguration({
+      CLOUDBASE_ENV_ID: "booking-test-000001",
+      DATA_TIMEZONE: "Asia/Shanghai",
+      BOOKING_ADMIN_USER_IDS: "[]",
+    }).allowedUserIds,
+    [],
+  );
 });
 
 test("public production entry sanitizes a missing phone salt before handling OPTIONS", async () => {
@@ -228,7 +284,11 @@ test("public production entry sanitizes a cross-origin result URL before handlin
 test("admin production entry sanitizes a non-Shanghai timezone before authentication", async () => {
   const { main } = await import("../cloudbase/src/admin-api.ts");
   const response = await withEnvironment(
-    { CLOUDBASE_ENV_ID: "booking-test-000001", DATA_TIMEZONE: "UTC" },
+    {
+      CLOUDBASE_ENV_ID: "booking-test-000001",
+      DATA_TIMEZONE: "UTC",
+      BOOKING_ADMIN_USER_IDS: '["2086466604197666817"]',
+    },
     () => main({
       httpMethod: "GET",
       path: "/v1/admin/dashboard",
@@ -254,6 +314,7 @@ test("admin production entry rejects an unsafe env ID before forwarding its bear
       {
         CLOUDBASE_ENV_ID: "attacker.example/",
         DATA_TIMEZONE: "Asia/Shanghai",
+        BOOKING_ADMIN_USER_IDS: '["2086466604197666817"]',
       },
       () => main({
         httpMethod: "GET",
@@ -266,6 +327,37 @@ test("admin production entry rejects an unsafe env ID before forwarding its bear
     assert.equal(response.statusCode, 500);
     assert.deepEqual(JSON.parse(response.body), sanitizedInternalError);
     assert.doesNotMatch(response.body, /attacker|staff-token-canary|CLOUDBASE_ENV_ID/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("admin production entry fails closed on a missing allowlist before authentication", async () => {
+  const { main } = await import("../cloudbase/src/admin-api.ts");
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("AUTH_FETCH_MUST_NOT_RUN");
+  };
+  try {
+    const response = await withEnvironment(
+      {
+        CLOUDBASE_ENV_ID: "booking-test-000001",
+        DATA_TIMEZONE: "Asia/Shanghai",
+        BOOKING_ADMIN_USER_IDS: undefined,
+      },
+      () => main({
+        httpMethod: "GET",
+        path: "/v1/admin/dashboard",
+        headers: { authorization: "Bearer staff-token-canary" },
+      }),
+    );
+
+    assert.equal(fetchCalls, 0);
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(JSON.parse(response.body), sanitizedInternalError);
+    assert.doesNotMatch(response.body, /BOOKING_ADMIN_USER_IDS|staff-token-canary/);
   } finally {
     globalThis.fetch = originalFetch;
   }

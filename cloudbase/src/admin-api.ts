@@ -74,6 +74,18 @@ export interface AdminApiDependencies {
   service: AdminBookingService;
   fetch?: AuthFetch;
   envId: string;
+  allowedUserIds: readonly string[];
+}
+
+function privateAdminResponse(response: HttpResponse): HttpResponse {
+  return {
+    ...response,
+    headers: {
+      ...response.headers,
+      "Cache-Control": "no-store, private",
+      Pragma: "no-cache",
+    },
+  };
 }
 
 const statuses = new Set<BookingStatus>([
@@ -237,14 +249,14 @@ function listFilter(event: CloudBaseHttpEvent): AdminBookingFilter {
 }
 
 export function createAdminApiHandler(dependencies: AdminApiDependencies) {
-  return async function adminApi(event: CloudBaseHttpEvent): Promise<HttpResponse> {
+  async function handleAdminApi(event: CloudBaseHttpEvent): Promise<HttpResponse> {
     try {
       const profile = await currentUser(
         requestHeader(event, "authorization"),
         dependencies.envId,
         dependencies.fetch,
       );
-      requireBookingStaff(profile);
+      requireBookingStaff(profile, dependencies.allowedUserIds);
       const actorId = profile.user_id;
       const method = requestMethod(event);
       const path = requestPath(event);
@@ -360,6 +372,9 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
     } catch (error) {
       return errorResponse(error);
     }
+  }
+  return async function adminApi(event: CloudBaseHttpEvent): Promise<HttpResponse> {
+    return privateAdminResponse(await handleAdminApi(event));
   };
 }
 
@@ -371,9 +386,10 @@ export async function main(event: CloudBaseHttpEvent): Promise<HttpResponse> {
     productionHandler ??= createAdminApiHandler({
       service: new BookingService(new CloudBaseBookingRepository()),
       envId: configuration.envId,
+      allowedUserIds: configuration.allowedUserIds,
     });
     return await productionHandler(event);
   } catch (error) {
-    return errorResponse(error);
+    return privateAdminResponse(errorResponse(error));
   }
 }

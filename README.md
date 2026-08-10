@@ -40,6 +40,8 @@ first release; the legacy branch publisher must not remain active.
 - `CLOUDBASE_DEPLOYMENT_STAGE=staging`
 - `CLOUDBASE_ENV_ID` set to the exact, administrator-confirmed test environment
 - `BOOKING_API_BASE_URL` set to the staging gateway origin
+- `CLOUDBASE_SITE_URL` set to that environment's default static-hosting HTTPS
+  root URL, with no path, credentials, query, or fragment
 
 Configure GitHub secrets `TENCENTCLOUD_SECRET_ID` and
 `TENCENTCLOUD_SECRET_KEY`. The workflow maps them to the no-underscore variable
@@ -61,13 +63,22 @@ environment. Production deployment belongs to a separate protected workflow;
 do not weaken `CLOUDBASE_DEPLOYMENT_STAGE=staging` here.
 
 The workflow runs `npm ci`, then runs `npm test` with `GITHUB_PAGES=false` and
-the staging public API/environment identifiers, and lints the source. Only after
-both gates pass does it build all functions, atomically render the ignored root
-`cloudbaserc.json`, provision additive database resources, deploy, and read each
-function detail independently. Every function must be Active
+the staging public API/environment identifiers, and lints the source. It also
+builds and verifies a root-directory static export with `PAGES_BASE_PATH=/`, but
+does not publish that export yet. Only after the local gates pass does it build
+all functions, atomically render the ignored root `cloudbaserc.json`, provision
+additive database resources, deploy, and read each function detail independently.
+Every function must be Active
 with Node.js 20.19, `index.main`, dependency installation enabled, and the
 current commit revision in its description. The mailer must also expose exactly
 the `booking-mailer-every-minute` timer with `0 * * * * * *`.
+
+Function exact-key verification and a bounded public API availability/CORS smoke
+run before any static publication. Only then does the credential wrapper run
+`hosting deploy out`; it never deletes remote files. A final bounded HTTP smoke
+requires the root and `/admin/` pages to contain the real API/environment/client
+markers and rejects framework runtime or secret material. The free-tier admin
+URL is `CLOUDBASE_SITE_URL` plus `/admin/`.
 
 A successful deploy does not prove the timer exists: CloudBase CLI 3.7 can
 report trigger or per-function errors without a failing process exit. Treat the
@@ -85,8 +96,10 @@ environment ID and a 40-character deployment revision.
 `scripts/provision-cloudbase.mjs` uses `@cloudbase/manager-node` 5.6.6 and
 `@cloudbase/node-sdk` 3.18.3. It creates missing resources, verifies their
 postconditions with bounded retries, preserves existing `enabled` and `version`
-fields, and fails closed on collection, index, or seed drift. It will never
-delete or rebuild a collection, index, or document.
+fields, and fails closed on collection, index, seed, or ACL response drift. It
+uses the TCB `DescribeDatabaseACL` and `ModifyDatabaseACL` APIs to move every
+managed collection only toward the `ADMINONLY` client ACL. It will never lower
+that ACL. It will never delete or rebuild a collection, index, or document.
 
 Provisioning covers these eleven collections:
 
@@ -107,20 +120,24 @@ system_state
 It creates the nine planned compound indexes, courts `01` through `11`, and the
 sixteen 60-minute templates `slot-0700` through `slot-2200`.
 
-The scripts cannot configure database ACLs, Auth, RBAC, gateway routes, CORS,
-function runtime environment values, SES approval, snapshots, or rollback.
-Those are manual hard gates below. A green workflow is not production approval.
+The scripts configure only the eleven collection ACLs described above. They
+cannot configure Auth, RBAC, gateway routes, CORS, function runtime environment
+values, SES approval, snapshots, or rollback. Those remain manual hard gates
+below. A green workflow is not production approval.
 
 ## Manual hard gates before staging is ready
 
 Record the operator, time, environment ID, and evidence for every item. Complete
 the snapshot and change-control gate below before the first workflow run. That
-run additively provisions the database and creates or updates the functions, but
-it does not configure ACLs, Auth/RBAC, gateway/CORS, runtime environment values,
-or SES. The bootstrap run is therefore expected to fail its final function-detail
+run additively provisions the database, enforces `ADMINONLY` on its eleven
+collections, and creates or updates the functions, but it does not configure
+Auth/RBAC, gateway/CORS, runtime environment values, or SES. The bootstrap run
+is therefore expected to fail its final function-detail
 verification after provisioning and deployment because the exact runtime key
-sets are not present yet. Complete those console gates, manually re-check the
-keys, rerun the workflow, and run synthetic smoke tests before allowing traffic.
+sets are not present yet. The workflow stops before public API validation or
+static publication in that state. Complete those console gates, manually
+re-check the keys, rerun the workflow, and run synthetic smoke tests before
+allowing traffic.
 
 ### 1. Snapshot and change control
 
@@ -134,25 +151,36 @@ keys, rerun the workflow, and run synthetic smoke tests before allowing traffic.
 
 ### 2. Deny direct database access
 
-In CloudBase database security rules, set all eleven collections listed above to
-deny direct client read and write. Verify both an anonymous client and an
-authenticated staff client are denied. All booking data access must traverse the
-public or admin HTTP function; CloudBase login alone must not grant database
-access.
+Provisioning reads each collection's current basic ACL and changes only drifted
+collections to `ADMINONLY`, which the CloudBase console presents as no direct
+client access. A partial run can be rerun safely: collections already at
+`ADMINONLY` receive no write. The workflow also reads all eleven ACLs again with
+bounded retries and fails unless every result is exactly `ADMINONLY`.
+
+As the release hard gate, verify both an anonymous Web SDK client and an
+authenticated `booking_staff` Web SDK client are denied direct reads and writes
+for every collection. `booking_staff` is an application role, not a CloudBase
+database administrator. All booking data access must traverse the public or
+admin HTTP function; CloudBase login alone must not grant database access.
 
 ### 3. Configure Auth v2 and least-privilege staff access
 
 - Enable CloudBase Auth v2 username/password authentication.
 - Keep public self-registration explicitly disabled.
-- Create a custom role whose identity—not only its display name—is exactly
-  `booking_staff`. Grant it permission to invoke only the admin HTTP resource;
-  do not grant system-administrator, database, public-function, or deployment
-  privileges.
-- Create the initial staff account as a CloudBase Auth organization member, not
-  merely as a CAM sub-user or ordinary registered user, and assign only
-  `booking_staff`. After login, call `/auth/v1/user/me` and verify
-  `groups[].id` contains `booking_staff`; also verify a non-member token receives
-  403 while that account can sign in.
+- For the free experience, create the initial staff account as a normal CloudBase
+  Auth organization member. Do not use the built-in super administrator, a CAM
+  sub-user, or an automatically privileged account.
+- After login, call `/auth/v1/user/me`, record the exact `user_id`, and set the
+  admin function runtime value to the strict JSON array
+  `BOOKING_ADMIN_USER_IDS=["<verified decimal user_id>"]`; similar IDs do not
+  match. The previously observed value `["2086466604197666817"]` belongs to the
+  built-in administrator and must not appear in the formal allowlist. If it is
+  present during setup, stop deployment, create the ordinary member, and replace
+  it before rerunning the workflow.
+- The handler also retains the exact `booking_staff` group path for a paid
+  upgrade. Migrating to that role later is optional and requires a separate
+  verified console change; this free-tier procedure does not claim to create a
+  custom role.
 - Keep the public route anonymous and require identity authentication on the
   admin route.
 
@@ -165,9 +193,10 @@ authentication on.
 
 The public handler owns its CORS allowlist and preflight response. The gateway
 owns admin CORS because the admin handler intentionally emits no CORS headers.
-Do not configure duplicate, conflicting headers. Allow exactly these current
-site/development origins unless an approved domain migration updates both code
-and operations:
+Do not configure duplicate, conflicting headers. `PUBLIC_ALLOWED_ORIGINS` must
+include the exact origin of `CLOUDBASE_SITE_URL` before static publication; the
+workflow's public API smoke sends that Origin and requires an exact allow-origin
+response. Retain only separately approved public/development origins:
 
 ```text
 https://lingko-ljx.github.io
@@ -175,10 +204,11 @@ http://127.0.0.1:3001
 http://localhost:3001
 ```
 
-Before browser login testing, add the matching host entries to CloudBase **Web
-security sources** (WEB safety domains): `lingko-ljx.github.io`,
-`127.0.0.1:3001`, and `localhost:3001`. This browser-SDK allowlist is separate
-from the API CORS policy above; both must be configured and tested.
+The workflow does not create or add CloudBase **Web security sources** (WEB
+safety domains). The free experience uses the environment's default static
+hosting origin. Treat GitHub Pages and loopback entries as separate pre-existing
+operator approvals when they are needed; do not silently broaden that list or
+promise that the free-tier workflow provisions new safety domains.
 
 Validate admin `OPTIONS` at the deployed gateway before login testing: it must
 return the intended allow-origin/method/header policy without invoking business
@@ -195,19 +225,30 @@ variables, `cloudbaserc.json`, source files, screenshots, or logs.
   `DATA_TIMEZONE` must equal `Asia/Shanghai`. Use independent high-entropy salts.
   `PUBLIC_RESULT_URL` must be HTTPS, contain no query/fragment/credentials, and
   use one of the configured allowed origins.
-- `booking-admin-api` requires only `CLOUDBASE_ENV_ID` and `DATA_TIMEZONE`, with
-  `DATA_TIMEZONE=Asia/Shanghai`. The admin function must not read or receive
-  `PHONE_HASH_SALT`; hashing is performed only by the public API paths. This
-  is an intentional least-privilege refinement of the older planning table.
+- `booking-admin-api` requires exactly `CLOUDBASE_ENV_ID`, `DATA_TIMEZONE`, and
+  `BOOKING_ADMIN_USER_IDS`, with `DATA_TIMEZONE=Asia/Shanghai`.
+  `BOOKING_ADMIN_USER_IDS` must be a strict JSON array of canonical decimal Auth
+  `user_id` strings (`^[1-9][0-9]{0,31}$`); duplicates and
+  malformed, blank, username-like, or overlong IDs fail closed. The admin
+  function must not read or receive
+  `PHONE_HASH_SALT`; hashing is performed only by the public API paths.
+  The value `[]` is valid for the first safe configuration or emergency
+  revocation: it denies every exact-ID user while preserving the independently
+  verified `booking_staff` role path.
 - `booking-mailer` receives exactly seven variables:
-  `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`, `SES_REGION`,
+  `BOOKING_SES_SECRET_ID`, `BOOKING_SES_SECRET_KEY`, `SES_REGION`,
   `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, `SES_REPLY_TO`, and
   `STAFF_NOTIFICATION_EMAIL`.
+  The `TENCENTCLOUD_` prefix is reserved by CloudBase, so do not use the GitHub
+  CAM secret names as function runtime variable names. Their values are copied
+  into the two `BOOKING_SES_*` variables directly in the CloudBase console.
 
 Missing or invalid public/admin configuration fails closed with a sanitized
 variable-name-only error. After setting the variables, invoke each handler with
 synthetic input and inspect sanitized logs; merely seeing the keys in the
 console is not a runtime smoke test.
+Every admin JSON, error, and CSV response also sets `Cache-Control: no-store,
+private` and `Pragma: no-cache`; public availability caching remains independent.
 
 ### 6. Complete SES approval and timer verification
 
@@ -228,6 +269,8 @@ deterministic daily retention marker prevents duplicate daily retention work.
   with synthetic data; confirm matching audit and Outbox records.
 - Exercise authenticated dashboard and mutation routes with the initial staff
   account; confirm anonymous and wrong-role requests fail.
+- Confirm the ordinary Auth user's exact ID is allowlisted and a lookalike ID is
+  rejected. Do not test with or configure the built-in super administrator.
 - Repeat the admin `OPTIONS` and disallowed-origin checks against the final
   gateway URL.
 - Verify the Pages repository variables point to this staging API/environment,

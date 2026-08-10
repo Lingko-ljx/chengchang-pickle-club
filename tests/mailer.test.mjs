@@ -14,8 +14,8 @@ const OFFICIAL_MESSAGE_ID = "qcloudses-30-4123414323-date-20210101094334-syNARhM
 
 function mailEnvironment(overrides = {}) {
   return {
-    TENCENTCLOUD_SECRET_ID: "secret-id-canary",
-    TENCENTCLOUD_SECRET_KEY: "secret-key-canary",
+    BOOKING_SES_SECRET_ID: "secret-id-canary",
+    BOOKING_SES_SECRET_KEY: "secret-key-canary",
     SES_REGION: "ap-guangzhou",
     SES_FROM_EMAIL: "service@example.invalid",
     SES_TEMPLATE_ID: "12345",
@@ -736,15 +736,45 @@ test("missing configuration performs no Outbox work, logs only its name, and sti
   assert.deepEqual(
     [...new Set(accessed)].sort(),
     [
+      "BOOKING_SES_SECRET_ID",
+      "BOOKING_SES_SECRET_KEY",
       "SES_FROM_EMAIL",
       "SES_REGION",
       "SES_REPLY_TO",
       "SES_TEMPLATE_ID",
       "STAFF_NOTIFICATION_EMAIL",
-      "TENCENTCLOUD_SECRET_ID",
-      "TENCENTCLOUD_SECRET_KEY",
     ],
   );
+});
+
+test("CloudBase-reserved legacy credential names cannot configure the mailer", async () => {
+  const warnings = [];
+  let retentionRuns = 0;
+
+  await runMailer(
+    workerDependencies({
+      environment: {
+        ...mailEnvironment({ BOOKING_SES_SECRET_ID: undefined }),
+        TENCENTCLOUD_SECRET_ID: "legacy-id-must-be-ignored",
+        TENCENTCLOUD_SECRET_KEY: "legacy-key-must-be-ignored",
+      },
+      outbox: {
+        listEligible: async () => {
+          throw new Error("OUTBOX_MUST_NOT_BE_READ");
+        },
+      },
+      logger: { warn: (...args) => warnings.push(structuredClone(args)) },
+      runRetention: async () => {
+        retentionRuns += 1;
+      },
+    }),
+  );
+
+  assert.equal(retentionRuns, 1);
+  assert.deepEqual(warnings, [
+    ["MISSING_CONFIGURATION", { variable: "BOOKING_SES_SECRET_ID" }],
+  ]);
+  assert.doesNotMatch(JSON.stringify(warnings), /legacy-(?:id|key)/);
 });
 
 test("production boundary rejects a fixed error while retention still runs after raw SDK failure", async () => {

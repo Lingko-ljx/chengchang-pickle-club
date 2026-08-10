@@ -39,6 +39,7 @@ test("CloudBase deployment is manual, staging-gated, and serialized by explicit 
     CLOUDBASE_DEPLOYMENT_REVISION: "${{ github.sha }}",
     CLOUDBASE_DEPLOYMENT_STAGE: "${{ vars.CLOUDBASE_DEPLOYMENT_STAGE }}",
     CLOUDBASE_ENV_ID: "${{ vars.CLOUDBASE_ENV_ID }}",
+    CLOUDBASE_SITE_URL: "${{ vars.CLOUDBASE_SITE_URL }}",
   });
 });
 
@@ -54,6 +55,7 @@ test("preflight validates both repository variables, staging, confirmation, and 
     "BOOKING_API_BASE_URL",
     "CLOUDBASE_DEPLOYMENT_STAGE",
     "CLOUDBASE_ENV_ID",
+    "CLOUDBASE_SITE_URL",
     "CONFIRMED_CLOUDBASE_ENV_ID",
     "TENCENTCLOUD_SECRETID",
     "TENCENTCLOUD_SECRETKEY",
@@ -64,6 +66,9 @@ test("preflight validates both repository variables, staging, confirmation, and 
   assert.match(step.run, /CONFIRMED_CLOUDBASE_ENV_ID[^\n]*CLOUDBASE_ENV_ID/);
   assert.doesNotMatch(source, /\becho\b/);
   assert.doesNotMatch(source, /TENCENTCLOUD_SECRET_(?:ID|KEY):\s*(?!\$\{\{)/);
+  assert.doesNotMatch(source, /BOOKING_SES_SECRET_(?:ID|KEY)/);
+  assert.doesNotMatch(source, /BOOKING_ADMIN_USER_IDS/);
+  assert.match(step.run, /verify-cloudbase-hosting\.mjs --check-config/);
 });
 
 test("workflow tests and lints before rendering, provisioning, or deployment", async () => {
@@ -72,11 +77,13 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
   const commands = steps
     .filter((step) => typeof step.run === "string")
     .map((step) => [step.name, step.run]);
-  assert.deepEqual(commands.slice(1, 8), [
+  assert.deepEqual(commands.slice(1, 10), [
     ["Install locked dependencies", "npm ci"],
     ["Run configured unit suite", "npm test"],
     ["Lint source before deployment", "npm run lint"],
     ["Build CloudBase functions", "npm run build:cloudbase"],
+    ["Build root CloudBase static site", "npm run build:pages"],
+    ["Verify root CloudBase static export", "npm run test:pages"],
     ["Render secret-free CloudBase config", "npm run render:cloudbase"],
     ["Provision additive database resources", "npm run provision:cloudbase"],
     [
@@ -92,15 +99,47 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
     NEXT_PUBLIC_CLOUDBASE_ENV_ID: "${{ env.CLOUDBASE_ENV_ID }}",
   });
 
+  const rootBuild = namedStep(steps, "Build root CloudBase static site");
+  const rootVerify = namedStep(steps, "Verify root CloudBase static export");
+  const expectedStaticEnvironment = {
+    GITHUB_PAGES: "true",
+    PAGES_BASE_PATH: "/",
+    NEXT_PUBLIC_SITE_URL: "${{ env.CLOUDBASE_SITE_URL }}",
+    NEXT_PUBLIC_BOOKING_API_BASE_URL: "${{ env.BOOKING_API_BASE_URL }}",
+    NEXT_PUBLIC_CLOUDBASE_ENV_ID: "${{ env.CLOUDBASE_ENV_ID }}",
+  };
+  assert.deepEqual(rootBuild.env, expectedStaticEnvironment);
+  assert.deepEqual(rootVerify.env, expectedStaticEnvironment);
+
   const provision = namedStep(steps, "Provision additive database resources");
   const deploy = namedStep(steps, "Deploy all CloudBase functions");
+  const deployStatic = namedStep(steps, "Deploy root CloudBase static site");
+  const smokeApi = namedStep(steps, "Verify deployed public booking API");
+  const smokeStatic = namedStep(steps, "Verify deployed root static site");
   const verify = namedStep(steps, "Verify deployed function configuration and mailer timer");
-  for (const step of [provision, deploy, verify]) {
+  for (const step of [provision, deploy, deployStatic, verify]) {
     assert.deepEqual(step.env, {
       TENCENTCLOUD_SECRETID: "${{ secrets.TENCENTCLOUD_SECRET_ID }}",
       TENCENTCLOUD_SECRETKEY: "${{ secrets.TENCENTCLOUD_SECRET_KEY }}",
     });
   }
+  assert.equal(
+    deployStatic.run,
+    'node scripts/run-cloudbase-cli.mjs -- -e "$CLOUDBASE_ENV_ID" --yes hosting deploy out',
+  );
+  assert.equal(
+    smokeApi.run,
+    "node scripts/verify-cloudbase-hosting.mjs --api-smoke",
+  );
+  assert.equal(
+    smokeStatic.run,
+    "node scripts/verify-cloudbase-hosting.mjs --smoke",
+  );
+  assert.ok(steps.indexOf(deploy) < steps.indexOf(verify));
+  assert.ok(steps.indexOf(verify) < steps.indexOf(smokeApi));
+  assert.ok(steps.indexOf(smokeApi) < steps.indexOf(deployStatic));
+  assert.ok(steps.indexOf(deployStatic) < steps.indexOf(smokeStatic));
+  assert.doesNotMatch(source, /hosting delete|hosting destroy/i);
   assert.match(verify.run, /booking-public-api booking-admin-api booking-mailer/);
   assert.match(
     verify.run,
@@ -177,10 +216,14 @@ const environmentKeys = {
     "PHONE_HASH_SALT",
     "IDEMPOTENCY_SALT",
   ],
-  "booking-admin-api": ["CLOUDBASE_ENV_ID", "DATA_TIMEZONE"],
+  "booking-admin-api": [
+    "CLOUDBASE_ENV_ID",
+    "DATA_TIMEZONE",
+    "BOOKING_ADMIN_USER_IDS",
+  ],
   "booking-mailer": [
-    "TENCENTCLOUD_SECRET_ID",
-    "TENCENTCLOUD_SECRET_KEY",
+    "BOOKING_SES_SECRET_ID",
+    "BOOKING_SES_SECRET_KEY",
     "SES_REGION",
     "SES_FROM_EMAIL",
     "SES_TEMPLATE_ID",
@@ -343,10 +386,39 @@ test("deployment verifier requires each exact least-privilege runtime key set", 
       "PHONE_HASH_SALT",
     ]),
   });
+  const missingAdminAllowlistDirectory = await detailsFixture({
+    "booking-admin-api": detail(
+      "booking-admin-api",
+      [],
+      environmentKeys["booking-admin-api"].slice(0, 2),
+    ),
+  });
+  const reservedPrefixDirectory = await detailsFixture({
+    "booking-mailer": detail("booking-mailer", [
+      {
+        TriggerName: "booking-mailer-every-minute",
+        Type: "timer",
+        TriggerDesc: "0 * * * * * *",
+      },
+    ], [
+      "TENCENTCLOUD_SECRET_ID",
+      "TENCENTCLOUD_SECRET_KEY",
+      ...environmentKeys["booking-mailer"].slice(2),
+    ]),
+  });
   t.after(() => rm(missingDirectory, { recursive: true, force: true }));
   t.after(() => rm(extraDirectory, { recursive: true, force: true }));
+  t.after(() =>
+    rm(missingAdminAllowlistDirectory, { recursive: true, force: true }),
+  );
+  t.after(() => rm(reservedPrefixDirectory, { recursive: true, force: true }));
 
-  for (const directory of [missingDirectory, extraDirectory]) {
+  for (const directory of [
+    missingDirectory,
+    extraDirectory,
+    missingAdminAllowlistDirectory,
+    reservedPrefixDirectory,
+  ]) {
     const result = runVerifier(directory);
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");

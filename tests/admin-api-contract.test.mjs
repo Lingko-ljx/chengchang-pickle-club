@@ -29,13 +29,17 @@ function responseBody(response) {
   return JSON.parse(response.body);
 }
 
-function authFetch(groups = [{ id: "booking_staff" }], trace = []) {
+function authFetch(
+  groups = [{ id: "booking_staff" }],
+  trace = [],
+  userId = "profile-staff-7",
+) {
   return async (url, init) => {
     trace.push({ type: "auth", url, authorization: init?.headers?.Authorization });
     return {
       ok: true,
       async json() {
-        return { user_id: "profile-staff-7", groups, name: "Complete profile fixture" };
+        return { user_id: userId, groups, name: "Complete profile fixture" };
       },
     };
   };
@@ -107,6 +111,7 @@ function handlerFor(service, options = {}) {
     service,
     fetch: options.fetch ?? authFetch(undefined, options.trace),
     envId: "booking-test-env",
+    allowedUserIds: options.allowedUserIds ?? ["999999999999999999"],
   });
 }
 
@@ -167,6 +172,83 @@ test("non-staff profiles return 403 and never enter the booking service", async 
 
   assert.equal(response.statusCode, 403);
   assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
+});
+
+test("an exact free-tier allowlisted user enters service without booking_staff", async () => {
+  const trace = [];
+  const userId = "2086466604197666817";
+  const handler = handlerFor(fakeService(trace), {
+    trace,
+    fetch: authFetch([{ id: "ordinary_user" }], trace, userId),
+    allowedUserIds: [userId],
+  });
+
+  const response = await handler(event("GET", "/v1/admin/bookings"));
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(
+    trace.map(({ type, name }) => ({ type, ...(name ? { name } : {}) })),
+    [{ type: "auth" }, { type: "service", name: "listBookings" }],
+  );
+});
+
+test("an empty or merely similar free-tier allowlist fails before service", async () => {
+  for (const allowedUserIds of [[], ["20864666041976668170"]]) {
+    const trace = [];
+    const handler = handlerFor(fakeService(trace), {
+      trace,
+      fetch: authFetch(
+        [{ id: "ordinary_user" }],
+        trace,
+        "2086466604197666817",
+      ),
+      allowedUserIds,
+    });
+
+    const response = await handler(event("GET", "/v1/admin/bookings"));
+    assert.equal(response.statusCode, 403);
+    assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
+  }
+});
+
+test("booking_staff remains authorized when the exact ID is not allowlisted", async () => {
+  const trace = [];
+  const handler = handlerFor(fakeService(trace), {
+    trace,
+    fetch: authFetch([{ id: "booking_staff" }], trace, "paid-role-user"),
+    allowedUserIds: [],
+  });
+
+  const response = await handler(event("GET", "/v1/admin/bookings"));
+  assert.equal(response.statusCode, 200);
+  assert.equal(trace.filter((entry) => entry.type === "service").length, 1);
+});
+
+test("every admin success, error, and CSV response disables shared caching", async () => {
+  const successHandler = handlerFor(fakeService());
+  const forbiddenHandler = handlerFor(fakeService(), {
+    fetch: authFetch([{ id: "ordinary_user" }]),
+    allowedUserIds: ["999999999999999999"],
+  });
+  const responses = [
+    await successHandler(event("GET", "/v1/admin/bookings")),
+    await forbiddenHandler(event("GET", "/v1/admin/bookings")),
+    await successHandler(
+      event("GET", "/v1/admin/export.csv", undefined, {
+        query: { from: DATE, to: DATE },
+      }),
+    ),
+  ];
+
+  assert.deepEqual(
+    responses.map(({ statusCode }) => statusCode),
+    [200, 403, 200],
+  );
+  for (const response of responses) {
+    assert.equal(response.headers["Cache-Control"], "no-store, private");
+    assert.equal(response.headers.Pragma, "no-cache");
+  }
+  assert.match(responses[2].headers["Content-Type"], /^text\/csv/);
 });
 
 test("official profile resolution precedes transactions and is the only audit identity source", async () => {

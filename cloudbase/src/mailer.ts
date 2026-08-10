@@ -14,8 +14,8 @@ import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-rep
 import { CloudBaseOutboxRepository } from "./repositories/cloudbase-outbox-repository.ts";
 
 const environmentNames = [
-  "TENCENTCLOUD_SECRET_ID",
-  "TENCENTCLOUD_SECRET_KEY",
+  "BOOKING_SES_SECRET_ID",
+  "BOOKING_SES_SECRET_KEY",
   "SES_REGION",
   "SES_FROM_EMAIL",
   "SES_TEMPLATE_ID",
@@ -65,8 +65,8 @@ function readConfiguration(environment: MailEnvironment):
   }
   return {
     config: {
-      secretId: values.TENCENTCLOUD_SECRET_ID as string,
-      secretKey: values.TENCENTCLOUD_SECRET_KEY as string,
+      secretId: values.BOOKING_SES_SECRET_ID as string,
+      secretKey: values.BOOKING_SES_SECRET_KEY as string,
       region: values.SES_REGION as string,
       fromEmail: values.SES_FROM_EMAIL as string,
       templateId,
