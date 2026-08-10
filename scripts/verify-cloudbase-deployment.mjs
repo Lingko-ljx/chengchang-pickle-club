@@ -17,7 +17,11 @@ const expectedRuntimeEnvironmentKeys = {
     "PHONE_HASH_SALT",
     "IDEMPOTENCY_SALT",
   ],
-  "booking-admin-api": ["CLOUDBASE_ENV_ID", "DATA_TIMEZONE"],
+  "booking-admin-api": [
+    "CLOUDBASE_ENV_ID",
+    "DATA_TIMEZONE",
+    "BOOKING_ADMIN_USER_IDS",
+  ],
   "booking-mailer": [
     "BOOKING_SES_SECRET_ID",
     "BOOKING_SES_SECRET_KEY",

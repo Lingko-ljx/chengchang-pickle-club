@@ -27,6 +27,33 @@ function requiredCloudbaseEnvironmentId(environment: RuntimeEnvironment): string
   return value;
 }
 
+function requiredAdminUserIds(environment: RuntimeEnvironment): readonly string[] {
+  const name = "BOOKING_ADMIN_USER_IDS";
+  const raw = requiredEnvironment(environment, name);
+  if (raw.length > 8192) invalidConfiguration(name);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    invalidConfiguration(name);
+  }
+  if (!Array.isArray(parsed) || parsed.length > 64) {
+    invalidConfiguration(name);
+  }
+  const values = parsed as unknown[];
+  if (
+    values.some(
+      (value) =>
+        typeof value !== "string" ||
+        !/^[1-9][0-9]{0,31}$/.test(value),
+    )
+  ) {
+    invalidConfiguration(name);
+  }
+  if (new Set(values).size !== values.length) invalidConfiguration(name);
+  return values as string[];
+}
+
 function invalidConfiguration(name: string): never {
   throw new Error(`Invalid configuration: ${name}`);
 }
@@ -110,5 +137,6 @@ export function readAdminRuntimeConfiguration(
   return {
     envId: requiredCloudbaseEnvironmentId(environment),
     timeZone: requiredShanghaiTimezone(environment),
+    allowedUserIds: requiredAdminUserIds(environment),
   } as const;
 }

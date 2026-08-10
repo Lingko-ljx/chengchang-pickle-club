@@ -150,6 +150,8 @@ test("availability rejects normalized invalid dates and accepts a real leap day"
     }),
   );
   assert.equal(leapDay.statusCode, 200);
+  assert.equal(leapDay.headers["Cache-Control"], undefined);
+  assert.equal(leapDay.headers.Pragma, undefined);
   assert.deepEqual(requestedDates, ["2028-02-29"]);
 });
 

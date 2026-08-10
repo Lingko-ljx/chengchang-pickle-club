@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+const rawBasePath = process.env.PAGES_BASE_PATH ?? "/chengchang-pickle-club";
+const basePath = rawBasePath === "/" ? "" : rawBasePath.replace(/\/+$/, "");
+const siteUrl = new URL(
+  process.env.NEXT_PUBLIC_SITE_URL ??
+    "https://lingko-ljx.github.io/chengchang-pickle-club/",
+).toString();
+const cloudbaseEnvId =
+  process.env.NEXT_PUBLIC_CLOUDBASE_ENV_ID ?? "booking-test-000000";
+const prefixed = (pathname) => `${basePath}${pathname}`;
+
 test("exports the real booking form without a framework client runtime", async () => {
   const html = await readFile(
     new URL("../out/index.html", import.meta.url),
@@ -15,8 +25,8 @@ test("exports the real booking form without a framework client runtime", async (
   assert.ok(apiBaseUrl, "Pages verification requires the booking API base URL");
 
   assert.match(html, /\u6f84\u573a PICKLE CLUB/);
-  assert.match(html, /\/chengchang-pickle-club\/_next\//);
-  assert.doesNotMatch(html, /(?:href|src)="\/_next\//);
+  assert.ok(html.includes(`${prefixed("/_next/")}`));
+  if (basePath) assert.doesNotMatch(html, /(?:href|src)="\/_next\//);
   assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
   assert.ok(
     html.includes(
@@ -25,32 +35,24 @@ test("exports the real booking form without a framework client runtime", async (
   );
   assert.match(
     html,
-    /data-booking-result-path="\/chengchang-pickle-club\/booking\/result\/"/,
+    new RegExp(`data-booking-result-path="${prefixed("/booking/result/")}"`),
   );
   assert.match(
     html,
-    /data-booking-status-path="\/chengchang-pickle-club\/booking\/status\/"/,
+    new RegExp(`data-booking-status-path="${prefixed("/booking/status/")}"`),
   );
   assert.match(html, /name="session_id"/);
   assert.match(html, /name="idempotency_key"/);
   assert.doesNotMatch(html, /Formspree|90 分钟|1—8|六片/);
-  assert.match(
-    html,
-    /src="\/chengchang-pickle-club\/booking-form\.js"/,
-  );
+  assert.ok(html.includes(`src="${prefixed("/booking-form.js")}"`));
   assert.doesNotMatch(html, /_next\/static\/chunks\/[^"]+\.js/);
   assert.doesNotMatch(html, /self\.__next|__next_f|modulepreload/);
-  assert.match(
-    html,
-    /<link rel="canonical" href="https:\/\/lingko-ljx\.github\.io\/chengchang-pickle-club\/"/,
-  );
-  assert.match(
-    html,
-    /<meta property="og:url" content="https:\/\/lingko-ljx\.github\.io\/chengchang-pickle-club\/"/,
-  );
-  assert.match(
-    html,
-    /<meta property="og:image" content="https:\/\/lingko-ljx\.github\.io\/chengchang-pickle-club\/og\.png"/,
+  assert.ok(html.includes(`<link rel="canonical" href="${siteUrl}"`));
+  assert.ok(html.includes(`<meta property="og:url" content="${siteUrl}"`));
+  assert.ok(
+    html.includes(
+      `<meta property="og:image" content="${new URL("og.png", siteUrl)}"`,
+    ),
   );
   assert.match(html, /<meta property="og:image:width" content="1734"/);
   assert.match(html, /<meta property="og:image:height" content="907"/);
@@ -66,13 +68,13 @@ test("exports result and status pages with only their ES5 clients", async () => 
     {
       file: "../out/booking/result/index.html",
       marker: /id="booking-result-shell"/,
-      script: /src="\/chengchang-pickle-club\/booking-result\.js"/,
+      script: `src="${prefixed("/booking-result.js")}"`,
       client: /data-booking-result-client/,
     },
     {
       file: "../out/booking/status/index.html",
       marker: /id="booking-status-shell"/,
-      script: /src="\/chengchang-pickle-club\/booking-status\.js"/,
+      script: `src="${prefixed("/booking-status.js")}"`,
       client: /data-booking-status-client/,
     },
   ];
@@ -80,7 +82,7 @@ test("exports result and status pages with only their ES5 clients", async () => 
   for (const page of pages) {
     const html = await readFile(new URL(page.file, import.meta.url), "utf8");
     assert.match(html, page.marker);
-    assert.match(html, page.script);
+    assert.ok(html.includes(page.script));
     assert.doesNotMatch(html, /_next\/static\/chunks\/[^\"]+\.js/);
     assert.doesNotMatch(html, /self\.__next|__next_f|modulepreload/);
     const scripts = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
@@ -92,13 +94,24 @@ test("exports result and status pages with only their ES5 clients", async () => 
 test("exports the admin shell with only its generated client", async () => {
   const html = await readFile(new URL("../out/admin/index.html", import.meta.url), "utf8");
   const client = await readFile(new URL("../out/admin-app.js", import.meta.url), "utf8");
+  const apiBaseUrl = process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL?.replace(
+    /\/+$/,
+    "",
+  );
+  assert.ok(apiBaseUrl, "Pages verification requires the booking API base URL");
   assert.match(html, /id="admin-login-form"/);
-  assert.match(html, /src="\/chengchang-pickle-club\/admin-app\.js"/);
+  assert.ok(html.includes(`data-api-base-url="${apiBaseUrl}"`));
+  assert.ok(html.includes(`data-cloudbase-env-id="${cloudbaseEnvId}"`));
+  assert.ok(html.includes(`src="${prefixed("/admin-app.js")}"`));
   assert.doesNotMatch(html, /_next\/static\/chunks\/[^\"]+\.js|self\.__next|__next_f|modulepreload/);
   const scripts = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
   assert.equal(scripts.length, 1);
   assert.match(scripts[0], /data-admin-client/);
   assert.match(client, /^"use strict";/);
+  assert.doesNotMatch(
+    `${html}\n${client}`,
+    /BOOKING_ADMIN_USER_IDS|BOOKING_SES_SECRET|TENCENTCLOUD_SECRET|PHONE_HASH_SALT|RATE_LIMIT_SALT|IDEMPOTENCY_SALT|AKID[A-Za-z0-9]+/,
+  );
 });
 
 test("status form cannot place the reserved phone in a native URL submission", async () => {
@@ -115,7 +128,7 @@ test("status form cannot place the reserved phone in a native URL submission", a
   assert.match(form, /\bmethod="post"/i);
   assert.match(
     form,
-    /\baction="\/chengchang-pickle-club\/booking\/status\/"/i,
+    new RegExp(`\\baction="${prefixed("/booking/status/")}"`, "i"),
   );
   assert.match(codeInput, /\bid="booking-status-code"/i);
   assert.match(phoneInput, /\bid="booking-status-phone"/i);

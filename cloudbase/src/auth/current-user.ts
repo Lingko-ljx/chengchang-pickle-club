@@ -50,8 +50,14 @@ export async function currentUser(
   }
 }
 
-export function requireBookingStaff(profile: CurrentUserProfile): void {
-  if (!profile.groups.some((group) => group.id === "booking_staff")) {
+export function requireBookingStaff(
+  profile: CurrentUserProfile,
+  allowedUserIds: readonly string[],
+): void {
+  const hasStaffRole = profile.groups.some(
+    (group) => group.id === "booking_staff",
+  );
+  if (!hasStaffRole && !allowedUserIds.includes(profile.user_id)) {
     throw new BookingError("FORBIDDEN");
   }
 }

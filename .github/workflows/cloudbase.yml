@@ -25,6 +25,7 @@ jobs:
       CLOUDBASE_DEPLOYMENT_REVISION: ${{ github.sha }}
       CLOUDBASE_DEPLOYMENT_STAGE: ${{ vars.CLOUDBASE_DEPLOYMENT_STAGE }}
       CLOUDBASE_ENV_ID: ${{ vars.CLOUDBASE_ENV_ID }}
+      CLOUDBASE_SITE_URL: ${{ vars.CLOUDBASE_SITE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,6 +42,7 @@ jobs:
           set -euo pipefail
           [ -n "${BOOKING_API_BASE_URL:-}" ] || { printf '%s\n' 'Missing repository variable: BOOKING_API_BASE_URL' >&2; exit 1; }
           [ -n "${CLOUDBASE_ENV_ID:-}" ] || { printf '%s\n' 'Missing repository variable: CLOUDBASE_ENV_ID' >&2; exit 1; }
+          [ -n "${CLOUDBASE_SITE_URL:-}" ] || { printf '%s\n' 'Missing repository variable: CLOUDBASE_SITE_URL' >&2; exit 1; }
           [ -n "${TENCENTCLOUD_SECRETID:-}" ] || { printf '%s\n' 'Missing repository secret: TENCENTCLOUD_SECRET_ID' >&2; exit 1; }
           [ -n "${TENCENTCLOUD_SECRETKEY:-}" ] || { printf '%s\n' 'Missing repository secret: TENCENTCLOUD_SECRET_KEY' >&2; exit 1; }
           if [ "${CLOUDBASE_DEPLOYMENT_STAGE:-}" != "staging" ]; then
@@ -51,6 +53,7 @@ jobs:
             printf '%s\n' 'Typed environment confirmation does not match CLOUDBASE_ENV_ID' >&2
             exit 1
           fi
+          node scripts/verify-cloudbase-hosting.mjs --check-config
       - name: Install locked dependencies
         run: npm ci
       - name: Run configured unit suite
@@ -63,6 +66,22 @@ jobs:
         run: npm run lint
       - name: Build CloudBase functions
         run: npm run build:cloudbase
+      - name: Build root CloudBase static site
+        env:
+          GITHUB_PAGES: "true"
+          PAGES_BASE_PATH: "/"
+          NEXT_PUBLIC_SITE_URL: ${{ env.CLOUDBASE_SITE_URL }}
+          NEXT_PUBLIC_BOOKING_API_BASE_URL: ${{ env.BOOKING_API_BASE_URL }}
+          NEXT_PUBLIC_CLOUDBASE_ENV_ID: ${{ env.CLOUDBASE_ENV_ID }}
+        run: npm run build:pages
+      - name: Verify root CloudBase static export
+        env:
+          GITHUB_PAGES: "true"
+          PAGES_BASE_PATH: "/"
+          NEXT_PUBLIC_SITE_URL: ${{ env.CLOUDBASE_SITE_URL }}
+          NEXT_PUBLIC_BOOKING_API_BASE_URL: ${{ env.BOOKING_API_BASE_URL }}
+          NEXT_PUBLIC_CLOUDBASE_ENV_ID: ${{ env.CLOUDBASE_ENV_ID }}
+        run: npm run test:pages
       - name: Render secret-free CloudBase config
         run: npm run render:cloudbase
       - name: Provision additive database resources
@@ -100,6 +119,15 @@ jobs:
             fi
             sleep 10
           done
+      - name: Verify deployed public booking API
+        run: node scripts/verify-cloudbase-hosting.mjs --api-smoke
+      - name: Deploy root CloudBase static site
+        env:
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: node scripts/run-cloudbase-cli.mjs -- -e "$CLOUDBASE_ENV_ID" --yes hosting deploy out
+      - name: Verify deployed root static site
+        run: node scripts/verify-cloudbase-hosting.mjs --smoke
       - name: Remove function detail files
         if: always()
         shell: bash
