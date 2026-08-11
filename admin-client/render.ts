@@ -64,6 +64,58 @@ export function confirmationMessage(
   return `${action} · 预约 ${booking.code} · ${booking.date}\n确认继续吗？`;
 }
 
+type ShanghaiInstantParts = {
+  date: string;
+  time: string;
+};
+
+const explicitOffsetInstant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function shanghaiInstantParts(instant: string): ShanghaiInstantParts | null {
+  if (!explicitOffsetInstant.test(instant)) return null;
+  const parsed = new Date(instant);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(parsed);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  if (!values.year || !values.month || !values.day || !values.hour || !values.minute) {
+    return null;
+  }
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+  };
+}
+
+export function formatShanghaiDateTime(instant: string): string {
+  const value = shanghaiInstantParts(instant);
+  return value ? `${value.date} ${value.time}` : "时间不可用";
+}
+
+export function formatShanghaiDateTimeRange(startAt: string, endAt: string): string {
+  const start = shanghaiInstantParts(startAt);
+  const end = shanghaiInstantParts(endAt);
+  if (!start || !end) return "时间不可用";
+  if (start.date === end.date) return `${start.date} ${start.time}–${end.time}`;
+  return `${start.date} ${start.time}–${end.date} ${end.time}`;
+}
+
+export function formatShanghaiBookingSchedule(
+  booking: Pick<AdminBooking, "date" | "startAt" | "endAt">,
+): string {
+  const start = shanghaiInstantParts(booking.startAt);
+  if (!start) return "时间不可用";
+  if (start.date !== booking.date) return "时间数据异常";
+  return formatShanghaiDateTimeRange(booking.startAt, booking.endAt);
+}
+
 function empty(element: Element) {
   element.replaceChildren();
 }
@@ -81,7 +133,7 @@ function bookingButton(booking: AdminBooking, onSelect: (booking: AdminBooking) 
   button.className = "admin-booking-row";
   button.append(
     text("strong", booking.code),
-    text("span", `${booking.startAt} · ${booking.courtId ?? "待分配"}`),
+    text("span", `${formatShanghaiBookingSchedule(booking)} · ${booking.courtId ?? "待分配"}`),
     text("span", `${statusLabels[booking.status] ?? booking.status} · ${booking.partySize} 人`),
   );
   button.addEventListener("click", () => onSelect(booking));
@@ -177,7 +229,7 @@ export function renderBookingDetail(
   }
   container.append(
     text("h3", booking.code),
-    text("p", `${booking.date} · ${booking.startAt}–${booking.endAt}`),
+    text("p", formatShanghaiBookingSchedule(booking)),
     text("p", `${booking.mode === "private" ? "包场" : "散客"} · ${booking.partySize} 人 · 场地 ${booking.courtId ?? "待分配"}`),
     text("p", `${booking.name ?? "已脱敏"} · ${booking.phone ?? "号码已脱敏"}`),
     text("p", booking.email ?? "未留邮箱"),
@@ -190,7 +242,7 @@ export function renderBookingDetail(
       const transition = audit.fromStatus && audit.toStatus
         ? ` ${audit.fromStatus} → ${audit.toStatus}`
         : "";
-      timeline.append(text("li", `${audit.action}${transition} · ${audit.at}`));
+      timeline.append(text("li", `${audit.action}${transition} · ${formatShanghaiDateTime(audit.at)}`));
     }
     container.append(timeline);
   }

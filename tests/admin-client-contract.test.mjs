@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { parse } from "acorn";
 import { build } from "esbuild";
 
@@ -16,6 +17,9 @@ import {
   BOOKING_ACTIONS,
   COURT_IDS,
   confirmationMessage,
+  formatShanghaiBookingSchedule,
+  formatShanghaiDateTime,
+  formatShanghaiDateTimeRange,
   matrixBookingsForCell,
   sessionTemplateDuration,
 } from "../admin-client/render.ts";
@@ -58,7 +62,7 @@ async function renderAdminPage(basePath = "/chengchang-pickle-club") {
         export default renderToStaticMarkup(Page());
       `,
       loader: "tsx",
-      resolveDir: new URL("..", import.meta.url).pathname.replace(/^\/(.:)/, "$1"),
+      resolveDir: fileURLToPath(new URL("..", import.meta.url)),
     },
     bundle: true,
     format: "cjs",
@@ -281,6 +285,32 @@ test("mutation confirmation identifies the booking, date and action", () => {
   assert.match(message, /BOOK-42/);
   assert.match(message, /2026-08-09/);
   assert.match(message, /取消预约/);
+});
+
+test("admin booking and audit instants render in Asia/Shanghai instead of raw UTC", () => {
+  assert.equal(
+    formatShanghaiDateTime("2026-08-13T23:00:00.000Z"),
+    "2026-08-14 07:00",
+  );
+  assert.equal(
+    formatShanghaiDateTimeRange(
+      "2026-08-13T23:00:00.000Z",
+      "2026-08-14T00:00:00.000Z",
+    ),
+    "2026-08-14 07:00–08:00",
+  );
+  assert.equal(formatShanghaiDateTime("not-an-instant"), "时间不可用");
+  assert.equal(formatShanghaiDateTime("2026-08-14T07:00:00"), "时间不可用");
+  assert.equal(formatShanghaiBookingSchedule({
+    date: "2026-08-14",
+    startAt: "2026-08-13T23:00:00.000Z",
+    endAt: "2026-08-14T00:00:00.000Z",
+  }), "2026-08-14 07:00–08:00");
+  assert.equal(formatShanghaiBookingSchedule({
+    date: "2026-08-13",
+    startAt: "2026-08-13T23:00:00.000Z",
+    endAt: "2026-08-14T00:00:00.000Z",
+  }), "时间数据异常");
 });
 
 test("session templates are fixed to exactly sixty minutes", () => {
