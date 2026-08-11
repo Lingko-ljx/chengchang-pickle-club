@@ -755,7 +755,7 @@ textarea:focus-visible {
 .coach-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .coach-card {
@@ -784,9 +784,30 @@ textarea:focus-visible {
 
 .portrait-three {
   background:
-    radial-gradient(circle at 58% 33%, #d8cdbf 0 10%, transparent 10.5%),
-    radial-gradient(ellipse at 54% 72%, #35372f 0 32%, transparent 32.5%),
-    linear-gradient(160deg, #7f8f6a 0 42%, #cac3b2 42%);
+    radial-gradient(circle at 62% 24%, var(--lime) 0 8%, transparent 8.5%),
+    linear-gradient(116deg, transparent 49.7%, rgba(255, 255, 255, 0.7) 50%, transparent 50.3%),
+    linear-gradient(160deg, #12575d 0 42%, #38a19a 42%);
+}
+
+.portrait-four {
+  background:
+    radial-gradient(circle at 32% 31%, var(--lime) 0 8%, transparent 8.5%),
+    linear-gradient(64deg, transparent 49.7%, rgba(255, 255, 255, 0.72) 50%, transparent 50.3%),
+    linear-gradient(18deg, #0d4d57 0 48%, #168b87 48%);
+}
+
+.portrait-five {
+  background:
+    radial-gradient(circle at 70% 70%, var(--lime) 0 8%, transparent 8.5%),
+    linear-gradient(0deg, transparent 49.7%, rgba(255, 255, 255, 0.72) 50%, transparent 50.3%),
+    linear-gradient(132deg, #23746f 0 51%, #0a4a54 51%);
+}
+
+.portrait-six {
+  background:
+    radial-gradient(circle at 27% 72%, var(--lime) 0 8%, transparent 8.5%),
+    linear-gradient(90deg, transparent 49.7%, rgba(255, 255, 255, 0.72) 50%, transparent 50.3%),
+    linear-gradient(42deg, #0b5258 0 54%, #2a9b92 54%);
 }
 
 .coach-portrait::after {
@@ -957,6 +978,12 @@ textarea:focus-visible {
   height: 28px;
   justify-content: center;
   width: 28px;
+}
+
+.honor-row .honor-index {
+  font-family: Arial, sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.04em;
 }
 
 .honor-list .demo-note {

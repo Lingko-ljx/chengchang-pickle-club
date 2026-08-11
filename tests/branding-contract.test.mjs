@@ -19,16 +19,49 @@ test("the public site uses the approved Ruiancheng identity and contact details"
   const publicSource = `${pageSource}\n${bookingFormSource}\n${layoutSource}`;
 
   assert.match(publicSource, /睿安成/);
-  assert.match(publicSource, /刘栖睿/);
-  assert.match(publicSource, /毛之谦/);
+  assert.match(pageSource, /总教头/);
+  assert.match(pageSource, /刘栖睿/);
+  assert.match(pageSource, /特约嘉宾/);
+  assert.match(pageSource, /唐语彤/);
+  assert.match(pageSource, /普通教练/);
+  for (const coach of ["曾海鑫", "毛智谦", "刘洋", "邹洪武"]) {
+    assert.match(pageSource, new RegExp(coach));
+  }
   assert.match(publicSource, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
   assert.match(publicSource, /13807917663/);
   assert.match(pageSource, /ruiancheng-court-hero\.png/);
 
-  assert.doesNotMatch(publicSource, /澄场|CHENGCHANG|陆予安|周澄|林岚/);
+  assert.doesNotMatch(publicSource, /澄场|CHENGCHANG|陆予安|周澄|林岚|毛之谦/);
   assert.doesNotMatch(pageSource, /上海市徐汇区|社交媒体|小红书|微信视频号/);
   assert.doesNotMatch(pageSource, /城市球会邀请赛|年度新锐运动空间|公开赛混合双打|优秀组织/);
   assert.doesNotMatch(pageSource, /演示资料|首版演示|不代表真实营业信息/);
+});
+
+test("the public site transcribes Liu Qirui's seven supplied honors exactly", () => {
+  const honors = [
+    ["2025", "PPA 杭州站 19+ 男子单打 3.5+ 亚军"],
+    ["2025", "CPC600 兰威杯男子单打冠军"],
+    ["2026", "WPC 海南站 4.0 男双冠军"],
+    ["2026", "WPC 海南站 3.5 混双冠军"],
+    ["2026", "CPC600 鹤壁浚县站男双冠军"],
+    ["2026", "CPC600 河北石家庄站混双冠军"],
+    ["2026", "APBA 全球总决赛男单季军"],
+  ];
+
+  let cursor = pageSource.indexOf("const honors = [");
+  for (const [year, title] of honors) {
+    const yearField = `year: "${year}",`;
+    const titleField = `title: "${title}",`;
+    const start = pageSource.indexOf(yearField, cursor);
+    const end = pageSource.indexOf(titleField, start);
+    const boundary = pageSource.indexOf("  },", start);
+    assert.ok(
+      start >= 0 && end > start && end < boundary,
+      `missing supplied honor: ${year} ${title}`,
+    );
+    cursor = boundary + 4;
+  }
+  assert.doesNotMatch(pageSource, /荣誉留待书写|honor-list-empty|暂为空|codex-clipboard|微信截图/);
 });
 
 test("the first usable release does not collect email or promise email delivery", () => {

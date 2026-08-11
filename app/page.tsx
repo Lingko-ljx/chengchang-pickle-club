@@ -42,17 +42,76 @@ const values = [
 const coaches = [
   {
     name: "刘栖睿",
-    role: "匹克球教练",
+    role: "总教头",
     badge: "LQR",
     style: "portrait-one",
     detail: "课程安排与训练计划请联系球馆确认",
   },
   {
-    name: "毛之谦",
-    role: "匹克球教练",
-    badge: "MZQ",
+    name: "唐语彤",
+    role: "特约嘉宾",
+    badge: "TYT",
     style: "portrait-two",
     detail: "课程安排与训练计划请联系球馆确认",
+  },
+  {
+    name: "曾海鑫",
+    role: "普通教练",
+    badge: "ZHX",
+    style: "portrait-three",
+    detail: "课程安排与训练计划请联系球馆确认",
+  },
+  {
+    name: "毛智谦",
+    role: "普通教练",
+    badge: "MZQ",
+    style: "portrait-four",
+    detail: "课程安排与训练计划请联系球馆确认",
+  },
+  {
+    name: "刘洋",
+    role: "普通教练",
+    badge: "LY",
+    style: "portrait-five",
+    detail: "课程安排与训练计划请联系球馆确认",
+  },
+  {
+    name: "邹洪武",
+    role: "普通教练",
+    badge: "ZHW",
+    style: "portrait-six",
+    detail: "课程安排与训练计划请联系球馆确认",
+  },
+];
+
+const honors = [
+  {
+    year: "2025",
+    title: "PPA 杭州站 19+ 男子单打 3.5+ 亚军",
+  },
+  {
+    year: "2025",
+    title: "CPC600 兰威杯男子单打冠军",
+  },
+  {
+    year: "2026",
+    title: "WPC 海南站 4.0 男双冠军",
+  },
+  {
+    year: "2026",
+    title: "WPC 海南站 3.5 混双冠军",
+  },
+  {
+    year: "2026",
+    title: "CPC600 鹤壁浚县站男双冠军",
+  },
+  {
+    year: "2026",
+    title: "CPC600 河北石家庄站混双冠军",
+  },
+  {
+    year: "2026",
+    title: "APBA 全球总决赛男单季军",
   },
 ];
 
@@ -219,7 +278,7 @@ export default function Home() {
               <div
                 className={`coach-portrait ${coach.style}`}
                 role="img"
-                aria-label={`${coach.name}示意肖像`}
+                aria-label={`${coach.name}匹克球主题图形`}
               >
                 <span className="portrait-index">0{index + 1}</span>
                 <span className="portrait-monogram">{coach.badge}</span>
@@ -246,13 +305,24 @@ export default function Home() {
           <div className="honors-title">
             <p>OUR MOMENTS</p>
             <h2>
-              保持热爱，
+              刘栖睿
               <br />
-              <span>荣誉留待书写。</span>
+              <span>个人赛事荣誉</span>
             </h2>
           </div>
-          <div className="honor-list honor-list-empty" aria-label="荣誉资料暂为空">
-            <span aria-hidden="true">—</span>
+          <div className="honor-list" aria-label="刘栖睿个人赛事荣誉">
+            {honors.map((honor, index) => (
+              <article className="honor-row" key={honor.title}>
+                <time>{honor.year}</time>
+                <div>
+                  <h3>{honor.title}</h3>
+                  <p>刘栖睿 · 个人赛事荣誉</p>
+                </div>
+                <span className="honor-index" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+              </article>
+            ))}
           </div>
         </div>
       </section>

@@ -76,11 +76,33 @@ test("server renders the real booking form and current venue contract", async ()
   assert.doesNotMatch(html, /Formspree|90 分钟|1—8|六片/);
   assert.match(html, /<script[^>]+data-booking-form-client[^>]+defer/);
   assert.match(html, /<title>睿安成 PICKLE CLUB/);
-  assert.match(html, /刘栖睿/);
-  assert.match(html, /毛之谦/);
+  for (const content of [
+    "总教头",
+    "刘栖睿",
+    "特约嘉宾",
+    "唐语彤",
+    "普通教练",
+    "曾海鑫",
+    "毛智谦",
+    "刘洋",
+    "邹洪武",
+    "PPA 杭州站 19+ 男子单打 3.5+ 亚军",
+    "CPC600 兰威杯男子单打冠军",
+    "WPC 海南站 4.0 男双冠军",
+    "WPC 海南站 3.5 混双冠军",
+    "CPC600 鹤壁浚县站男双冠军",
+    "CPC600 河北石家庄站混双冠军",
+    "APBA 全球总决赛男单季军",
+  ]) {
+    assert.ok(html.includes(content), `rendered page is missing: ${content}`);
+  }
+  assert.equal((html.match(/class="honor-row"/g) ?? []).length, 7);
+  for (const index of ["01", "02", "03", "04", "05", "06", "07"]) {
+    assert.match(html, new RegExp(`class="honor-index"[^>]*>${index}<`));
+  }
   assert.match(html, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
   assert.match(html, /13807917663/);
   assert.match(html, /ruiancheng-court-hero\.png/);
-  assert.doesNotMatch(html, /澄场|CHENGCHANG|上海市徐汇区|社交媒体|演示资料/);
+  assert.doesNotMatch(html, /澄场|CHENGCHANG|上海市徐汇区|社交媒体|演示资料|毛之谦|荣誉留待书写|暂为空/);
   assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/);
 });
