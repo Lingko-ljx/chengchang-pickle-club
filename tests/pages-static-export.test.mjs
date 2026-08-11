@@ -4,10 +4,14 @@ import test from "node:test";
 
 const rawBasePath = process.env.PAGES_BASE_PATH ?? "/chengchang-pickle-club";
 const basePath = rawBasePath === "/" ? "" : rawBasePath.replace(/\/+$/, "");
-const siteUrl = new URL(
+const parsedSiteUrl = new URL(
   process.env.NEXT_PUBLIC_SITE_URL ??
     "https://lingko-ljx.github.io/chengchang-pickle-club/",
-).toString();
+);
+if (!parsedSiteUrl.pathname.endsWith("/")) {
+  parsedSiteUrl.pathname = `${parsedSiteUrl.pathname}/`;
+}
+const siteUrl = parsedSiteUrl.toString();
 const cloudbaseEnvId =
   process.env.NEXT_PUBLIC_CLOUDBASE_ENV_ID ?? "booking-test-000000";
 const prefixed = (pathname) => `${basePath}${pathname}`;
