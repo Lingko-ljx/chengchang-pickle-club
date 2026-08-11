@@ -5,6 +5,8 @@ export type BookingFilters = {
   q?: string;
 };
 
+export type AdminBootstrapFilters = BookingFilters & { date: string };
+
 export type AdminApiClientOptions = {
   baseUrl: string;
   getAccessToken: () => string;
@@ -67,6 +69,8 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
   });
 
   return {
+    getBootstrap: (today: string, filters: AdminBootstrapFilters) =>
+      request(`/v1/admin/bootstrap${query({ today, ...filters })}`),
     getDashboard: (date: string) => request(`/v1/admin/dashboard${query({ date })}`),
     getMatrixBookings: (date: string) => request(`/v1/admin/matrix${query({ date })}`),
     listBookings: (filters: BookingFilters) =>

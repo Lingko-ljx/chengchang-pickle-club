@@ -183,6 +183,29 @@ function adminAudit(value: AuditLog): Record<string, unknown> {
   };
 }
 
+async function dashboardDto(service: AdminBookingService, date: string) {
+  const [pending, slots] = await Promise.all([
+    service.listPendingBookings(date),
+    service.listAvailability(date),
+  ]);
+  return { date, pending: pending.map(adminBooking), slots };
+}
+
+async function settingsDto(service: AdminBookingService) {
+  const [courts, sessionTemplates] = await Promise.all([
+    service.listCourts(),
+    service.listSessionTemplates(),
+  ]);
+  return {
+    courts: courts.map(({ id, enabled, version }) => ({ id, enabled, version })),
+    sessionTemplates: sessionTemplates.map(
+      ({ id, startTime, endTime, enabled, version }) => ({
+        id, startTime, endTime, enabled, version,
+      }),
+    ),
+  };
+}
+
 const csvColumns: Array<[string, (booking: BookingRecord) => unknown]> = [
   ["booking_code", (booking) => booking.code],
   ["date", (booking) => booking.date],
@@ -248,6 +271,64 @@ function listFilter(event: CloudBaseHttpEvent): AdminBookingFilter {
   return filter;
 }
 
+const bootstrapParameters = new Set(["today", "date", "status", "mode", "q"]);
+
+function strictQueryParameter(
+  event: CloudBaseHttpEvent,
+  name: string,
+  required = false,
+): string | undefined {
+  const parameters = event.queryStringParameters;
+  if (
+    !parameters ||
+    typeof parameters !== "object" ||
+    !Object.prototype.hasOwnProperty.call(parameters, name)
+  ) {
+    if (required) throw new BookingError("INVALID_INPUT");
+    return undefined;
+  }
+  const value = (parameters as Record<string, unknown>)[name];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new BookingError("INVALID_INPUT");
+  }
+  return value.trim();
+}
+
+function bootstrapInput(event: CloudBaseHttpEvent): {
+  today: string;
+  selectedDate: string;
+  filter: AdminBookingFilter;
+} {
+  const parameters = event.queryStringParameters;
+  if (!parameters || typeof parameters !== "object") {
+    throw new BookingError("INVALID_INPUT");
+  }
+  if (Object.keys(parameters).some((name) => !bootstrapParameters.has(name))) {
+    throw new BookingError("INVALID_INPUT");
+  }
+  const today = dateValue(strictQueryParameter(event, "today", true));
+  const selectedDate = dateValue(strictQueryParameter(event, "date", true));
+  const status = strictQueryParameter(event, "status") as BookingStatus | undefined;
+  const mode = strictQueryParameter(event, "mode") as BookingMode | undefined;
+  const query = strictQueryParameter(event, "q");
+  if (status && !statuses.has(status)) throw new BookingError("INVALID_INPUT");
+  if (mode && !modes.has(mode)) throw new BookingError("INVALID_INPUT");
+  if (query && (query.length > 100 || /[\u0000-\u001f\u007f]/u.test(query))) {
+    throw new BookingError("INVALID_INPUT");
+  }
+  return {
+    today,
+    selectedDate,
+    filter: {
+      date: selectedDate,
+      ...(status ? { status } : {}),
+      ...(mode ? { mode } : {}),
+      ...(query ? { query } : {}),
+      limit: 100,
+    },
+  };
+}
+
 export function createAdminApiHandler(dependencies: AdminApiDependencies) {
   async function handleAdminApi(event: CloudBaseHttpEvent): Promise<HttpResponse> {
     try {
@@ -261,13 +342,32 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       const method = requestMethod(event);
       const path = requestPath(event);
 
+      if (method === "GET" && path === "/v1/admin/bootstrap") {
+        const { today, selectedDate, filter } = bootstrapInput(event);
+        const todayDashboardPromise = dashboardDto(dependencies.service, today);
+        const selectedDashboardPromise = selectedDate === today
+          ? todayDashboardPromise
+          : dashboardDto(dependencies.service, selectedDate);
+        const [todayDashboard, selectedDashboard, bookings, matrixBookings, settings] =
+          await Promise.all([
+            todayDashboardPromise,
+            selectedDashboardPromise,
+            dependencies.service.listBookings(filter),
+            dependencies.service.listMatrixBookings(selectedDate),
+            settingsDto(dependencies.service),
+          ]);
+        return jsonResponse(200, {
+          todayDashboard,
+          selectedDashboard,
+          bookings: bookings.map(adminBooking),
+          matrixBookings: matrixBookings.map(adminBooking),
+          settings,
+        });
+      }
+
       if (method === "GET" && path === "/v1/admin/dashboard") {
         const date = dateValue(queryParameter(event, "date")?.trim());
-        const [pending, slots] = await Promise.all([
-          dependencies.service.listPendingBookings(date),
-          dependencies.service.listAvailability(date),
-        ]);
-        return jsonResponse(200, { date, pending: pending.map(adminBooking), slots });
+        return jsonResponse(200, await dashboardDto(dependencies.service, date));
       }
 
       if (method === "GET" && path === "/v1/admin/matrix") {
@@ -282,18 +382,7 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       }
 
       if (method === "GET" && path === "/v1/admin/settings") {
-        const [courts, sessionTemplates] = await Promise.all([
-          dependencies.service.listCourts(),
-          dependencies.service.listSessionTemplates(),
-        ]);
-        return jsonResponse(200, {
-          courts: courts.map(({ id, enabled, version }) => ({ id, enabled, version })),
-          sessionTemplates: sessionTemplates.map(
-            ({ id, startTime, endTime, enabled, version }) => ({
-              id, startTime, endTime, enabled, version,
-            }),
-          ),
-        });
+        return jsonResponse(200, await settingsDto(dependencies.service));
       }
 
       const auditHistory = /^\/v1\/admin\/bookings\/([^/]+)\/audit-logs$/.exec(path);

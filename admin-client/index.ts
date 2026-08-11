@@ -4,6 +4,7 @@ import {
   initializePrivateAuth,
   readAdminConfig,
 } from "./config.ts";
+import { runAdminLoginFlow } from "./login-flow.ts";
 import {
   BOOKING_ACTIONS,
   COURT_IDS,
@@ -27,6 +28,13 @@ type TemplateSetting = {
   version: number;
 };
 type Settings = { courts: CourtSetting[]; sessionTemplates: TemplateSetting[] };
+type Bootstrap = {
+  todayDashboard: Dashboard;
+  selectedDashboard: Dashboard;
+  bookings: AdminBooking[];
+  matrixBookings: AdminBooking[];
+  settings: Settings;
+};
 
 function required<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -191,14 +199,17 @@ function startAdmin() {
     q: required<HTMLInputElement>("admin-filter-query").value.trim(),
   });
   const refresh = async () => {
-    const date = selectedDate.value || shanghaiDate();
-    [todayDashboard, selectedDashboard, bookings, matrixBookings, settings] = await Promise.all([
-      api.getDashboard(shanghaiDate()) as Promise<Dashboard>,
-      api.getDashboard(date) as Promise<Dashboard>,
-      api.listBookings(filters()) as Promise<AdminBooking[]>,
-      api.getMatrixBookings(date) as Promise<AdminBooking[]>,
-      api.getSettings() as Promise<Settings>,
-    ]);
+    const today = shanghaiDate();
+    const date = selectedDate.value || today;
+    const bootstrap = await api.getBootstrap(today, {
+      ...filters(),
+      date,
+    }) as Bootstrap;
+    todayDashboard = bootstrap.todayDashboard;
+    selectedDashboard = bootstrap.selectedDashboard;
+    bookings = bootstrap.bookings;
+    matrixBookings = bootstrap.matrixBookings;
+    settings = bootstrap.settings;
     renderAll();
     if (selected) await loadSelectedAudits();
   };
@@ -248,19 +259,22 @@ function startAdmin() {
     passwordInput.value = "";
     loginMessage.textContent = "正在验证…";
     setHidden(loginMessage, false);
-    session.login(username, password)
-      .then(async () => {
+    void runAdminLoginFlow({
+      login: () => session.login(username, password),
+      onAuthenticated: () => {
         setHidden(loginForm, true);
         setHidden(dashboardElement, false);
         setHidden(signOutButton, false);
         setHidden(loginMessage, true);
-        await refresh();
-      })
-      .catch(() => {
-        void showLogin();
-        loginMessage.textContent = "登录失败，请检查账号、密码和工作人员权限。";
+      },
+      refresh,
+      onAuthFailure: async (failureMessage) => {
+        await showLogin();
+        loginMessage.textContent = failureMessage;
         setHidden(loginMessage, false);
-      });
+      },
+      onRefreshFailure: (failureMessage) => showMessage(failureMessage, true),
+    });
   });
 
   signOutButton.addEventListener("click", () => {

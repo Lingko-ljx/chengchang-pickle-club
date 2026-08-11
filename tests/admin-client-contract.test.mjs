@@ -94,6 +94,12 @@ test("every management request carries the current bearer token", async () => {
   });
 
   await client.getDashboard("2026-08-09");
+  await client.getBootstrap("2026-08-09", {
+    date: "2026-08-10",
+    status: "pending",
+    mode: "open",
+    q: "Ada",
+  });
   await client.listBookings({ date: "2026-08-09", status: "pending", mode: "open" });
   await client.mutateBooking("booking-1", "confirm", { expectedVersion: 2 });
   await client.setCourtEnabled("01", false, 3);
@@ -103,7 +109,16 @@ test("every management request carries the current bearer token", async () => {
   await client.getMatrixBookings("2026-08-09");
   await client.exportCsv("2026-08-01", "2026-08-31");
 
-  assert.equal(requests.length, 9);
+  assert.equal(requests.length, 10);
+  const bootstrapUrl = new URL(requests[1].url);
+  assert.equal(bootstrapUrl.pathname, "/v1/admin/bootstrap");
+  assert.deepEqual(Object.fromEntries(bootstrapUrl.searchParams), {
+    today: "2026-08-09",
+    date: "2026-08-10",
+    status: "pending",
+    mode: "open",
+    q: "Ada",
+  });
   for (const request of requests) {
     assert.equal(request.init.headers.Authorization, "Bearer staff-access-token");
   }
@@ -122,6 +137,93 @@ test("a 401 clears the client session before surfacing the error", async () => {
 
   await assert.rejects(() => client.getDashboard("2026-08-09"), /AUTH_REQUIRED/);
   assert.equal(unauthorizedCount, 1);
+});
+
+test("login success is not rolled back when the first dashboard refresh fails", async () => {
+  const { runAdminLoginFlow } = await import("../admin-client/login-flow.ts");
+  const reportedMessages = [];
+  for (const refreshError of [
+    new Error("network details containing A_SECRET"),
+    Object.assign(new Error("FORBIDDEN_INTERNAL_DETAIL"), { status: 403 }),
+    Object.assign(new Error("DATABASE_INTERNAL_DETAIL"), { status: 500 }),
+  ]) {
+    const events = [];
+    const result = await runAdminLoginFlow({
+      async login() { events.push("login"); },
+      onAuthenticated() { events.push("authenticated"); },
+      async refresh() {
+        events.push("refresh");
+        throw refreshError;
+      },
+      async onAuthFailure() { events.push("clear-session-and-show-login"); },
+      onRefreshFailure(message) {
+        events.push(["refresh-failure", message]);
+        reportedMessages.push(message);
+      },
+    });
+
+    assert.equal(result, "refresh_failed");
+    assert.deepEqual(events.slice(0, 3), ["login", "authenticated", "refresh"]);
+    assert.equal(events.includes("clear-session-and-show-login"), false);
+    assert.equal(events.at(-1)[0], "refresh-failure");
+    assert.doesNotMatch(events.at(-1)[1], /A_SECRET|INTERNAL_DETAIL/);
+  }
+  assert.match(reportedMessages[0], /后台数据暂时加载失败/);
+  assert.match(reportedMessages[1], /权限校验未通过（403）/);
+  assert.match(reportedMessages[2], /后台服务暂时不可用（5xx）/);
+  assert.equal(new Set(reportedMessages).size, 3);
+});
+
+test("an authentication failure still uses the single login-failure path", async () => {
+  const { LOGIN_FAILED_MESSAGE, runAdminLoginFlow } = await import("../admin-client/login-flow.ts");
+  const events = [];
+  const result = await runAdminLoginFlow({
+    async login() { throw new Error("raw identity-provider response"); },
+    onAuthenticated() { events.push("authenticated"); },
+    async refresh() { events.push("refresh"); },
+    async onAuthFailure(message) { events.push(["auth-failure", message]); },
+    onRefreshFailure(message) { events.push(["refresh-failure", message]); },
+  });
+
+  assert.equal(result, "auth_failed");
+  assert.deepEqual(events, [["auth-failure", LOGIN_FAILED_MESSAGE]]);
+});
+
+test("a 401 during initial refresh remains owned by the API unauthorized handler", async () => {
+  const { runAdminLoginFlow } = await import("../admin-client/login-flow.ts");
+  const events = [];
+  const result = await runAdminLoginFlow({
+    async login() {},
+    onAuthenticated() { events.push("authenticated"); },
+    async refresh() {
+      events.push("api-unauthorized-handler");
+      throw Object.assign(new Error("AUTH_REQUIRED raw response"), { status: 401 });
+    },
+    async onAuthFailure() { events.push("auth-failure"); },
+    onRefreshFailure() { events.push("refresh-failure"); },
+  });
+
+  assert.equal(result, "refresh_failed");
+  assert.deepEqual(events, ["authenticated", "api-unauthorized-handler"]);
+});
+
+test("the admin entrypoint delegates login and initial refresh to the phased flow", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  assert.match(source, /runAdminLoginFlow\s*\(\s*\{/);
+});
+
+test("the admin refresh performs one bootstrap API request", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  const start = source.indexOf("  const refresh = async () => {");
+  const end = source.indexOf("\n  };", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const refresh = source.slice(start, end);
+  assert.equal((refresh.match(/api\.getBootstrap\s*\(/g) ?? []).length, 1);
+  assert.doesNotMatch(
+    refresh,
+    /api\.(?:getDashboard|listBookings|getMatrixBookings|getSettings)\s*\(/,
+  );
 });
 
 test("admin config accepts only public env, API and base-path attributes", () => {
@@ -346,8 +448,7 @@ test("the installed SDK private-auth wrapper never touches browser credential st
 
 test("refresh keeps today, matrix, filters and selected audit history independent", async () => {
   const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
-  assert.match(source, /api\.getDashboard\(shanghaiDate\(\)\)/);
-  assert.match(source, /api\.getMatrixBookings\(date\)/);
+  assert.match(source, /api\.getBootstrap\(today,/);
   assert.match(source, /if \(selected\) await loadSelectedAudits\(\)/);
   assert.doesNotMatch(source, /admin-template-(?:start|version)/);
   assert.doesNotMatch(await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8"), /`提交 · \$\{booking\.createdAt\}`/);

@@ -365,6 +365,135 @@ test("dashboard, matrix and booking-list routes use their exact scheduling reads
   assert.equal(listing.body.includes("internal-idempotency-hash"), false);
 });
 
+test("bootstrap authenticates once, runs all same-day reads concurrently, and reuses the dashboard", async () => {
+  const trace = [];
+  const service = fakeService(trace);
+  const serviceMethods = [
+    "listPendingBookings",
+    "listAvailability",
+    "listBookings",
+    "listMatrixBookings",
+    "listCourts",
+    "listSessionTemplates",
+  ];
+  let started = 0;
+  for (const name of serviceMethods) {
+    const original = service[name];
+    service[name] = (...args) => {
+      const result = original(...args);
+      started += 1;
+      return Promise.resolve().then(async () => {
+        assert.equal(started, serviceMethods.length, "bootstrap reads must start together");
+        return result;
+      });
+    };
+  }
+  const handler = handlerFor(service, { trace, fetch: authFetch(undefined, trace) });
+
+  const response = await handler(event("GET", "/v1/admin/bootstrap", undefined, {
+    query: { today: DATE, date: DATE, status: "pending", mode: "private", q: "Ada" },
+  }));
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(trace.filter((entry) => entry.type === "auth").length, 1);
+  assert.deepEqual(
+    trace.filter((entry) => entry.type === "service").map((entry) => [entry.name, entry.args]),
+    [
+      ["listPendingBookings", [DATE]],
+      ["listAvailability", [DATE]],
+      ["listBookings", [{ date: DATE, status: "pending", mode: "private", query: "Ada", limit: 100 }]],
+      ["listMatrixBookings", [DATE]],
+      ["listCourts", []],
+      ["listSessionTemplates", []],
+    ],
+  );
+  const data = responseBody(response).data;
+  assert.equal(data.todayDashboard.date, DATE);
+  assert.deepEqual(data.selectedDashboard, data.todayDashboard);
+  assert.equal(data.bookings[0].code, "ADMINCODE1");
+  assert.equal(data.matrixBookings[0].proposedDate, DATE);
+  assert.deepEqual(data.settings, {
+    courts: [{ id: "01", enabled: false, version: 7 }],
+    sessionTemplates: [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }],
+  });
+  assert.equal(response.headers["Cache-Control"], "no-store, private");
+  assert.equal(response.body.includes("internal-phone-hash"), false);
+  assert.equal(response.body.includes("internal-idempotency-hash"), false);
+});
+
+test("bootstrap rejects a missing bearer token before any service read", async () => {
+  const trace = [];
+  const response = await handlerFor(fakeService(trace), {
+    trace,
+    fetch: authFetch(undefined, trace),
+  })(event("GET", "/v1/admin/bootstrap", undefined, {
+    authorization: false,
+    query: { today: DATE, date: DATE },
+  }));
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.headers["Cache-Control"], "no-store, private");
+  assert.deepEqual(trace, []);
+});
+
+test("bootstrap preserves distinct today and selected-date semantics", async () => {
+  const selectedDate = "2099-01-02";
+  const trace = [];
+  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+
+  const response = await handler(event("GET", "/v1/admin/bootstrap", undefined, {
+    query: { today: DATE, date: selectedDate },
+  }));
+
+  assert.equal(response.statusCode, 200);
+  const data = responseBody(response).data;
+  assert.equal(data.todayDashboard.date, DATE);
+  assert.equal(data.selectedDashboard.date, selectedDate);
+  assert.deepEqual(
+    trace.filter((entry) => entry.type === "service").map((entry) => [entry.name, entry.args]),
+    [
+      ["listPendingBookings", [DATE]],
+      ["listAvailability", [DATE]],
+      ["listPendingBookings", [selectedDate]],
+      ["listAvailability", [selectedDate]],
+      ["listBookings", [{ date: selectedDate, limit: 100 }]],
+      ["listMatrixBookings", [selectedDate]],
+      ["listCourts", []],
+      ["listSessionTemplates", []],
+    ],
+  );
+});
+
+test("bootstrap strictly validates today, date, status, mode and q before service reads", async () => {
+  const invalidQueries = [
+    { date: DATE },
+    { today: DATE },
+    { today: "2099-02-29", date: DATE },
+    { today: DATE, date: "2099-02-29" },
+    { today: DATE, date: DATE, status: "unknown" },
+    { today: DATE, date: DATE, status: " " },
+    { today: DATE, date: DATE, mode: "group" },
+    { today: DATE, date: DATE, q: " " },
+    { today: DATE, date: DATE, q: "A".repeat(101) },
+    { today: DATE, date: DATE, q: "Ada\u0000Lovelace" },
+    { today: DATE, date: DATE, q: 42 },
+    { today: DATE, date: DATE, extra: "unexpected" },
+  ];
+  for (const query of invalidQueries) {
+    const trace = [];
+    const response = await handlerFor(fakeService(trace), {
+      trace,
+      fetch: authFetch(undefined, trace),
+    })(event("GET", "/v1/admin/bootstrap", undefined, { query }));
+    assert.equal(response.statusCode, 400, JSON.stringify(query));
+    assert.deepEqual(responseBody(response), {
+      error: { code: "INVALID_INPUT", message: "Invalid request", retryable: false },
+    });
+    assert.equal(trace.filter((entry) => entry.type === "auth").length, 1);
+    assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
+  }
+});
+
 test("CSV export uses a strict column allowlist, neutralizes formulas, and escapes RFC-style fields", async () => {
   const trace = [];
   const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
