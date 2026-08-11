@@ -175,4 +175,13 @@ test("critical modern CSS has old-browser fallbacks with matching semantics", as
     declarationsFor(root, ".booking-success-message").get("border"),
     "1px solid var(--lime)",
   );
+
+  const adminCourtToggle = declarationsFor(root, ".admin-court-toggle input");
+  assert.equal(adminCourtToggle.get("position"), "absolute");
+  assert.equal(adminCourtToggle.get("opacity"), "0");
+  assert.equal(adminCourtToggle.has("min-height"), false);
+  assert.equal(
+    declarationsFor(root, ".booking-time-summary").get("border-left"),
+    "3px solid var(--lime-dark)",
+  );
 });

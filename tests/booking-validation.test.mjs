@@ -25,3 +25,41 @@ test("rejects every booking outside one to four players", () => {
   assert.throws(() => validateCreateBooking(validInput({ partySize: 0 })), /INVALID_PARTY_SIZE/);
   assert.throws(() => validateCreateBooking(validInput({ partySize: 5 })), /INVALID_PARTY_SIZE/);
 });
+
+test("accepts a complete v2 booking window without requiring a legacy session id", () => {
+  const base = validInput();
+  delete base.sessionId;
+  const input = {
+    ...base,
+    date: "2099-01-01",
+    startTime: "09:30",
+    endTime: "11:30",
+  };
+  assert.deepEqual(validateCreateBooking(input), input);
+});
+
+test("rejects mixed, partial, and invalid v2 booking windows", () => {
+  assert.throws(
+    () =>
+      validateCreateBooking(
+        validInput({ date: "2099-01-01", startTime: "09:30", endTime: "10:30" }),
+      ),
+    /INVALID_INPUT/,
+  );
+  const base = validInput();
+  delete base.sessionId;
+  assert.throws(
+    () => validateCreateBooking({ ...base, date: "2099-01-01", startTime: "09:30" }),
+    /INVALID_INPUT/,
+  );
+  assert.throws(
+    () =>
+      validateCreateBooking({
+        ...base,
+        date: "2099-01-01",
+        startTime: "09:30",
+        endTime: "11:00",
+      }),
+    /INVALID_INPUT/,
+  );
+});

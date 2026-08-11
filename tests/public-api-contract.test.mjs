@@ -8,8 +8,8 @@ import { createPublicApiHandler } from "../cloudbase/src/public-api.ts";
 import { createRateLimiter } from "../cloudbase/src/http/rate-limit.ts";
 
 const DATE = "2099-01-01";
-const MORNING = `${DATE}__slot-0700`;
-const LATER = `${DATE}__slot-0800`;
+const MORNING = `${DATE}__slot-0900`;
+const LATER = `${DATE}__slot-1000`;
 const NOW = new Date("2098-12-01T02:35:00.000Z");
 const ALLOWED_ORIGIN = "https://lingko-ljx.github.io";
 const NOT_FOUND = {
@@ -35,8 +35,8 @@ function serviceFixture(seed = {}) {
   const repository = new MemoryBookingRepository({
     courts: courtIds.map((id) => ({ id, enabled: true, version: 1 })),
     sessionTemplates: [
-      { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
-      { id: "slot-0800", startTime: "08:00", endTime: "09:00", enabled: true, version: 1 },
+      { id: "slot-0900", startTime: "09:00", endTime: "10:00", enabled: true, version: 1 },
+      { id: "slot-1000", startTime: "10:00", endTime: "11:00", enabled: true, version: 1 },
     ],
     ...seed,
   });
@@ -61,6 +61,7 @@ function handlerFor(service, overrides = {}) {
       overrides.allowedOrigins ?? `${ALLOWED_ORIGIN}, http://localhost:3001`,
     resultUrl: overrides.resultUrl ?? "https://example.test/booking/result",
     idempotencySalt: overrides.idempotencySalt ?? "test-idempotency-salt",
+    ...(overrides.mediaService ? { mediaService: overrides.mediaService } : {}),
   });
 }
 
@@ -155,13 +156,83 @@ test("availability rejects normalized invalid dates and accepts a real leap day"
   assert.deepEqual(requestedDates, ["2028-02-29"]);
 });
 
+test("public homepage media is served through the same exact-origin CORS policy", async () => {
+  const calls = [];
+  const mediaService = {
+    async listPublished() {
+      calls.push("listPublished");
+      return [{ id: "media-1", kind: "image", url: "https://example.test/media.jpg" }];
+    },
+  };
+  const response = await handlerFor({}, { mediaService })(
+    jsonEvent("GET", "/v1/homepage-media"),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["Access-Control-Allow-Origin"], ALLOWED_ORIGIN);
+  assert.deepEqual(responseBody(response).data, {
+    items: [{ id: "media-1", kind: "image", url: "https://example.test/media.jpg" }],
+  });
+  assert.deepEqual(calls, ["listPublished"]);
+});
+
+test("v2 availability validates the date and delegates the 30-minute window query", async () => {
+  const queries = [];
+  const windows = {
+    policy: {
+      timezone: "Asia/Shanghai",
+      openingTime: "09:00",
+      closingTime: "22:00",
+      startIntervalMinutes: 30,
+      minimumDurationMinutes: 60,
+      durationStepMinutes: 60,
+      maximumDurationMinutes: 240,
+      version: 1,
+    },
+    windows: [{
+      date: "2028-02-29",
+      startTime: "09:30",
+      endTime: "11:30",
+      durationMinutes: 120,
+      openCapacity: 44,
+      privateCourtCount: 11,
+      acceptsOpenPartySizes: [1, 2, 3, 4],
+      acceptsOpen: true,
+      acceptsPrivate: true,
+    }],
+  };
+  const handler = handlerFor({
+    async listWindowAvailability(query) {
+      queries.push(query);
+      return windows;
+    },
+  });
+
+  const response = await handler(
+    jsonEvent("GET", "/v2/availability", undefined, {
+      queryStringParameters: { date: "2028-02-29" },
+    }),
+  );
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(responseBody(response).data, windows);
+  assert.deepEqual(queries, [{ date: "2028-02-29" }]);
+
+  const invalid = await handler(
+    jsonEvent("GET", "/v2/availability", undefined, {
+      queryStringParameters: { date: "2028-02-30" },
+    }),
+  );
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(responseBody(invalid).error.code, "INVALID_INPUT");
+});
+
 test("availability advertises open party sizes that fit one court, not aggregate seats", async () => {
   const session = {
     id: MORNING,
     date: DATE,
-    templateId: "slot-0700",
-    startAt: "2098-12-31T23:00:00.000Z",
-    endAt: "2099-01-01T00:00:00.000Z",
+    templateId: "slot-0900",
+    startAt: "2099-01-01T01:00:00.000Z",
+    endAt: "2099-01-01T02:00:00.000Z",
     status: "open",
     enabledCourtIds: ["01", "02"],
     version: 1,
@@ -191,14 +262,56 @@ test("availability advertises open party sizes that fit one court, not aggregate
   assert.deepEqual(slots.find(({ sessionId }) => sessionId === MORNING), {
     sessionId: MORNING,
     date: DATE,
-    startTime: "07:00",
-    endTime: "08:00",
+    startTime: "09:00",
+    endTime: "10:00",
     openCapacity: 4,
     acceptsOpenPartySizes: [1, 2],
     privateCourtCount: 0,
     acceptsOpen: true,
     acceptsPrivate: false,
   });
+});
+
+test("legacy availability and native fallback cannot book outside 09:00–22:00", async () => {
+  let createCalls = 0;
+  const service = {
+    async listAvailability() {
+      return [
+        { sessionId: `${DATE}__slot-0700`, startTime: "07:00", endTime: "08:00" },
+        { sessionId: `${DATE}__slot-0900`, startTime: "09:00", endTime: "10:00" },
+        { sessionId: `${DATE}__slot-2100`, startTime: "21:00", endTime: "22:00" },
+        { sessionId: `${DATE}__slot-2200`, startTime: "22:00", endTime: "23:00" },
+      ];
+    },
+    async create() {
+      createCalls += 1;
+      throw new Error("create must not run for a closed legacy time");
+    },
+  };
+  const handler = handlerFor(service);
+  const availability = await handler(jsonEvent("GET", "/v1/availability", undefined, {
+    queryStringParameters: { date: DATE },
+  }));
+  assert.deepEqual(
+    responseBody(availability).data.map(({ startTime }) => startTime),
+    ["09:00", "21:00"],
+  );
+
+  const rejected = await handler(jsonEvent("POST", "/v1/bookings", {
+    ...createPayload(),
+    start_time: "07:00",
+  }));
+  assert.equal(rejected.statusCode, 409);
+  assert.equal(responseBody(rejected).error.code, "SESSION_CLOSED");
+
+  const directSessionRejected = await handler(jsonEvent("POST", "/v1/bookings", {
+    ...createPayload(),
+    session_id: `${DATE}__slot-0700`,
+    start_time: undefined,
+  }));
+  assert.equal(directSessionRejected.statusCode, 409);
+  assert.equal(responseBody(directSessionRejected).error.code, "SESSION_CLOSED");
+  assert.equal(createCalls, 0);
 });
 
 test("JSON creation returns a sanitized 201 envelope and requires client idempotency", async () => {
@@ -213,14 +326,14 @@ test("JSON creation returns a sanitized 201 envelope and requires client idempot
       code: "PUBLIC00000000000000000000000001",
       status: "pending",
       date: DATE,
-      startTime: "07:00",
-      endTime: "08:00",
+      startTime: "09:00",
+      endTime: "10:00",
       mode: "open",
       partySize: 2,
       name: "A** L*******",
       phone: "138****8000",
       actionVersion: 1,
-      canCancelUntil: "2098-12-31T23:00:00.000Z",
+      canCancelUntil: "2099-01-01T01:00:00.000Z",
       canCancel: true,
     },
   });
@@ -233,6 +346,72 @@ test("JSON creation returns a sanitized 201 envelope and requires client idempot
   );
   assert.equal(missingKey.statusCode, 400);
   assert.equal(responseBody(missingKey).error.code, "INVALID_INPUT");
+});
+
+test("v2 creation passes an explicit Beijing-time window and fingerprints the end time", async () => {
+  const captured = [];
+  const service = {
+    async create(command) {
+      captured.push(command);
+      return {
+        code: `WINDOW${captured.length}`,
+        status: "pending",
+        date: DATE,
+        startAt: "2099-01-01T01:30:00.000Z",
+        endAt: "2099-01-01T03:30:00.000Z",
+        mode: command.mode,
+        partySize: command.partySize,
+        name: command.name,
+        phone: command.phone,
+        version: 1,
+        canCancelUntil: "2099-01-01T01:30:00.000Z",
+      };
+    },
+  };
+  const handler = handlerFor(service);
+  const payload = createPayload({
+    session_id: undefined,
+    date: DATE,
+    start_time: "09:30",
+    end_time: "11:30",
+  });
+
+  const first = await handler(jsonEvent("POST", "/v1/bookings", payload));
+  const changedEnd = await handler(jsonEvent("POST", "/v1/bookings", {
+    ...payload,
+    end_time: "12:30",
+  }));
+
+  assert.equal(first.statusCode, 201);
+  assert.equal(changedEnd.statusCode, 201);
+  assert.deepEqual(
+    {
+      date: captured[0].date,
+      startTime: captured[0].startTime,
+      endTime: captured[0].endTime,
+      sessionId: captured[0].sessionId,
+    },
+    { date: DATE, startTime: "09:30", endTime: "11:30", sessionId: undefined },
+  );
+  assert.notEqual(captured[0].idempotencyKey, captured[1].idempotencyKey);
+  const expected = createHmac("sha256", "test-idempotency-salt")
+    .update(JSON.stringify([
+      "public-api-client-v2",
+      "request-001",
+      "booking-window-v2",
+      DATE,
+      "09:30",
+      "11:30",
+      "open",
+      2,
+      "Ada Lovelace",
+      "13800138000",
+      "ada@example.com",
+      "Near the net",
+      true,
+    ]))
+    .digest("hex");
+  assert.equal(captured[0].idempotencyKey, expected);
 });
 
 test("a fifth player is rejected with INVALID_PARTY_SIZE", async () => {
@@ -274,7 +453,7 @@ test("base64 native forms derive the exact canonical hourly HMAC and redirect sa
   const handler = handlerFor(service);
   const params = new URLSearchParams({
     date: DATE,
-    start_time: "07:00",
+    start_time: "09:00",
     mode: "private",
     party_size: "4",
     name: "  Grace Hopper  ",
@@ -393,7 +572,7 @@ test("URL-encoded JSON enhancement requests cannot use the native blank-key fall
   const { service } = serviceFixture();
   const params = new URLSearchParams({
     date: DATE,
-    start_time: "07:00",
+    start_time: "09:00",
     mode: "open",
     party_size: "2",
     name: "Ada Lovelace",
@@ -605,9 +784,9 @@ test("customer reschedule response authenticates ownership and preserves conflic
   assert.equal(accepted.statusCode, 200);
   assert.equal(responseBody(accepted).data.status, "confirmed");
   assert.equal(responseBody(accepted).data.date, DATE);
-  assert.equal(responseBody(accepted).data.startTime, "08:00");
+  assert.equal(responseBody(accepted).data.startTime, "10:00");
   assert.equal(responseBody(accepted).data.actionVersion, 3);
-  assert.equal(responseBody(accepted).data.canCancelUntil, "2099-01-01T00:00:00.000Z");
+  assert.equal(responseBody(accepted).data.canCancelUntil, "2099-01-01T02:00:00.000Z");
   assert.equal("version" in responseBody(accepted).data, false);
 });
 

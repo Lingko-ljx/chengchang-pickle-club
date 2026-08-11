@@ -62,7 +62,7 @@ test("exports the real booking form without a framework client runtime", async (
   assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
   assert.ok(
     html.includes(
-      `data-availability-url="${apiBaseUrl}/v1/availability"`,
+      `data-availability-url="${apiBaseUrl}/v2/availability"`,
     ),
   );
   assert.match(
@@ -74,9 +74,15 @@ test("exports the real booking form without a framework client runtime", async (
     new RegExp(`data-booking-status-path="${prefixed("/booking/status/")}"`),
   );
   assert.match(html, /name="session_id"/);
+  assert.match(html, /name="end_time"/);
+  assert.match(html, /北京时间/);
+  assert.match(html, /09:00 — 22:00/);
   assert.match(html, /name="idempotency_key"/);
-  assert.doesNotMatch(html, /Formspree|90 分钟|1—8|六片/);
+  assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.ok(html.includes(`src="${prefixed("/booking-form.js")}"`));
+  assert.ok(html.includes(`src="${prefixed("/homepage-media.js")}"`));
+  assert.match(html, /data-homepage-media(?:="")?/);
+  assert.match(html, /data-homepage-media-list(?:="")?/);
   assert.doesNotMatch(html, /_next\/static\/chunks\/[^"]+\.js/);
   assert.doesNotMatch(html, /self\.__next|__next_f|modulepreload/);
   assert.ok(html.includes(`<link rel="canonical" href="${siteUrl}"`));
@@ -91,8 +97,9 @@ test("exports the real booking form without a framework client runtime", async (
   assert.match(html, /<meta property="og:image:alt" content="[^"]+"/);
 
   const scriptTags = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
-  assert.equal(scriptTags.length, 1);
-  assert.match(scriptTags[0], /data-booking-form-client/);
+  assert.equal(scriptTags.length, 2);
+  assert.ok(scriptTags.some((script) => /data-booking-form-client/.test(script)));
+  assert.ok(scriptTags.some((script) => /data-homepage-media-client/.test(script)));
 });
 
 test("exports result and status pages with only their ES5 clients", async () => {

@@ -17,6 +17,7 @@ test("runbook identifies automated database ACLs and console identity hard gates
     "rate_limits",
     "idempotency",
     "system_state",
+    "court_day_allocations",
   ]) {
     assert.match(readme, new RegExp(`\\b${collection}\\b`), collection);
   }
@@ -40,6 +41,70 @@ test("runbook identifies automated database ACLs and console identity hard gates
   assert.match(readme, /exact[\s\S]{0,80}BOOKING_ADMIN_USER_IDS[\s\S]{0,80}second authorization/i);
   assert.doesNotMatch(readme, /booking_staff[\s\S]{0,160}(?:paid|upgrade)/i);
   assert.doesNotMatch(readme, /Create a custom role/i);
+});
+
+test("runbook fixes the Beijing booking-v2 window and compact settings ownership", () => {
+  const section = readme.match(
+    /## Booking v2 operating rules[\s\S]*?(?=## Daily homepage promotion)/,
+  )?.[0] ?? "";
+
+  assert.match(section, /Asia\/Shanghai/);
+  assert.match(section, /09:00 through 22:00/);
+  assert.match(section, /half-hour/);
+  assert.match(section, /`:00` or `:30`/);
+  assert.match(section, /1, 2, 3, or 4 whole hours/);
+  assert.match(section, /09:30–11:30.*valid/);
+  assert.match(section, /09:30–11:00/);
+  assert.match(section, /21:30–22:30/);
+  assert.match(section, /explicit date, start time, and end time/);
+  assert.match(section, /free-experience tier fixes function timeout at \*\*3\s+seconds\*\*/);
+  assert.match(section, /deployment verifier checks[\s\S]*`Timeout: 3`/);
+  assert.match(section, /营业设置/);
+  assert.match(section, /system_state\/booking-policy-v2[\s\S]{0,100}authoritative/i);
+  assert.match(section, /session_templates[\s\S]{0,100}compatibility/i);
+});
+
+test("runbook gives staff a complete daily homepage-media workflow and recovery path", () => {
+  const section = readme.match(
+    /## Daily homepage promotion[\s\S]*?(?=## Staging-only CloudBase workflow)/,
+  )?.[0] ?? "";
+
+  for (const mimeType of ["image/jpeg", "image/png", "image/webp", "video/mp4"]) {
+    assert.ok(section.includes(mimeType), mimeType);
+  }
+  assert.match(section, /8 MB/);
+  assert.match(section, /50 MB/);
+  for (const action of ["上传并发布", "发布", "下架", "置顶", "取消置顶", "删除"]) {
+    assert.ok(section.includes(action), action);
+  }
+  assert.match(section, /directly to CloudBase Storage/);
+  assert.match(section, /server-signed `PUT`/);
+  assert.match(section, /refresh the admin page/);
+  assert.match(section, /等待上传完成/);
+  assert.match(section, /Delete[\s\S]{0,100}等待上传完成/i);
+  assert.match(section, /Do not reuse the expired signed URL/i);
+});
+
+test("runbook makes the migration-ready gate precede static v2 publication", () => {
+  const section = readme.match(
+    /## Staging-only CloudBase workflow[\s\S]*?(?=## What the scripts do)/,
+  )?.[0] ?? "";
+  const storageCorsIndex = section.indexOf("Storage upload-CORS postcondition");
+  const deployIndex = section.indexOf("Deploy the backward-compatible functions first");
+  const migrateIndex = section.indexOf("migrate-booking-inventory-v2.mjs --apply");
+  const publishIndex = section.indexOf("publish the static");
+
+  assert.ok(storageCorsIndex >= 0);
+  assert.ok(deployIndex > storageCorsIndex);
+  assert.ok(migrateIndex > deployIndex);
+  assert.ok(publishIndex > migrateIndex);
+  assert.match(section, /readiness marker[\s\S]{0,180}availability path stays closed/i);
+  assert.match(section, /legacy v1 path[\s\S]{0,100}dual-writes/i);
+  assert.match(section, /system_state\/booking-inventory-v2-migration/);
+  assert.match(section, /status="ready"/);
+  assert.match(section, /schemaVersion=2/);
+  assert.match(section, /Never set this marker manually/i);
+  assert.match(section, /failed migration[\s\S]{0,160}safe gated state/i);
 });
 
 test("runbook assigns route, CORS, OPTIONS, and exact runtime configuration ownership", () => {
@@ -87,6 +152,38 @@ test("runbook assigns route, CORS, OPTIONS, and exact runtime configuration owne
     /booking-admin-api[\s\S]{0,400}must not read or receive[\s\S]{0,80}PHONE_HASH_SALT/i,
   );
   assert.match(readme, /booking-mailer[\s\S]{0,100}(?:receives|requires) exactly seven/i);
+});
+
+test("runbook records the real manager-generated Storage CORS contract", () => {
+  const section = readme.match(
+    /#### CloudBase Storage CORS[\s\S]*?(?=### 5\.)/,
+  )?.[0] ?? "";
+
+  assert.match(section, /ensure-cloudbase-storage-cors\.mjs/);
+  assert.match(section, /CLOUDBASE_SITE_URL/);
+  assert.match(section, /https:\/\/lingko-ljx\.github\.io/);
+  assert.match(section, /@cloudbase\/manager-node@5\.6\.6/);
+  assert.match(section, /modifyCosCorsDomain\(\)/);
+  assert.match(section, /Storage ACL[\s\S]{0,160}`ADMINONLY`/i);
+  assert.match(section, /final ACL is exactly `ADMINONLY`/i);
+  assert.match(section, /CORS success alone[\s\S]{0,100}authorization proof/i);
+  assert.match(section, /both `http:\/\/` and[\s\S]{0,40}`https:\/\/`/);
+  assert.match(section, /GET, POST, PUT, DELETE, HEAD/);
+  assert.match(section, /AllowedHeader: \["\*"\]/);
+  for (const header of [
+    "Authorization",
+    "Content-Type",
+    "Signature",
+    "key",
+    "x-cos-security-token",
+    "x-cos-meta-fileid",
+  ]) {
+    assert.ok(section.includes(header), header);
+  }
+  assert.match(section, /does\s+not authorize an unsigned operation/i);
+  assert.match(section, /No routine console CORS edit is\s+required/i);
+  assert.match(section, /all twelve database[\s\S]{0,180}ADMINONLY/i);
+  assert.match(section, /homepage-media-v1/);
 });
 
 test("runbook documents the free static-hosting admin URL without overclaiming paid controls", () => {

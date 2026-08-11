@@ -13,6 +13,7 @@ const collectionNames = [
   "rate_limits",
   "idempotency",
   "system_state",
+  "court_day_allocations",
 ];
 
 const indexDefinitions = [
@@ -28,6 +29,11 @@ const indexDefinitions = [
   ],
   ["audit_logs", "audit_logs_bookingId_at_id", ["bookingId", "at", "id"]],
   ["sessions", "sessions_date_startAt", ["date", "startAt"]],
+  [
+    "court_day_allocations",
+    "court_day_allocations_date_courtId",
+    ["date", "courtId"],
+  ],
   [
     "notification_outbox",
     "notification_outbox_status_nextAttemptAt_id",
@@ -53,7 +59,25 @@ const templateSeeds = Array.from({ length: 16 }, (_, index) => {
   };
 });
 
-const seedDefinitions = [...courtSeeds, ...templateSeeds];
+const policySeeds = [
+  {
+    collection: "system_state",
+    id: "booking-policy-v2",
+    value: {
+      id: "booking-policy-v2",
+      timezone: "Asia/Shanghai",
+      openingTime: "09:00",
+      closingTime: "22:00",
+      startIntervalMinutes: 30,
+      minimumDurationMinutes: 60,
+      durationStepMinutes: 60,
+      maximumDurationMinutes: 240,
+      version: 1,
+    },
+  },
+];
+
+const seedDefinitions = [...courtSeeds, ...templateSeeds, ...policySeeds];
 const databaseAclTags = new Set([
   "READONLY",
   "PRIVATE",
@@ -221,7 +245,11 @@ function hasValidOperationalFields(value) {
 }
 
 function isExactSeed(existing, expected) {
-  if (!hasValidOperationalFields(existing) || existing.id !== expected.id) return false;
+  if (!existing || existing.id !== expected.id) return false;
+  if (!("enabled" in expected)) {
+    return Object.entries(expected).every(([key, value]) => existing[key] === value);
+  }
+  if (!hasValidOperationalFields(existing)) return false;
   if ("startTime" in expected) {
     return (
       existing.startTime === expected.startTime &&

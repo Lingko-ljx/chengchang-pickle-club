@@ -23,6 +23,7 @@ const COLLECTIONS = [
   "rate_limits",
   "idempotency",
   "system_state",
+  "court_day_allocations",
 ];
 
 const INDEXES = [
@@ -38,6 +39,11 @@ const INDEXES = [
   ],
   ["audit_logs", "audit_logs_bookingId_at_id", ["bookingId", "at", "id"]],
   ["sessions", "sessions_date_startAt", ["date", "startAt"]],
+  [
+    "court_day_allocations",
+    "court_day_allocations_date_courtId",
+    ["date", "courtId"],
+  ],
   [
     "notification_outbox",
     "notification_outbox_status_nextAttemptAt_id",
@@ -287,7 +293,7 @@ function expectedAclDescribe(collectionName) {
   };
 }
 
-test("creates eleven collections, nine ordered indexes, eleven courts, and sixteen hourly templates", async () => {
+test("creates booking v2 storage, policy, eleven courts, and preserves sixteen legacy templates", async () => {
   const managerDatabase = new FakeManagerDatabase();
   const database = new FakeDocumentDatabase();
 
@@ -327,13 +333,27 @@ test("creates eleven collections, nine ordered indexes, eleven courts, and sixte
         `session_templates/${id}`,
         { id, startTime, endTime, enabled: true, version: 1 },
       ]),
+      [
+        "system_state/booking-policy-v2",
+        {
+          id: "booking-policy-v2",
+          timezone: "Asia/Shanghai",
+          openingTime: "09:00",
+          closingTime: "22:00",
+          startIntervalMinutes: 30,
+          minimumDurationMinutes: 60,
+          durationStepMinutes: 60,
+          maximumDurationMinutes: 240,
+          version: 1,
+        },
+      ],
     ],
   );
   assert.deepEqual(result, {
-    createdCollections: 11,
-    updatedCollectionAcls: 11,
-    createdIndexes: 9,
-    createdSeeds: 27,
+    createdCollections: 12,
+    updatedCollectionAcls: 12,
+    createdIndexes: 10,
+    createdSeeds: 28,
   });
 });
 
@@ -411,10 +431,10 @@ test("an interrupted ACL hardening run resumes without rewriting completed colle
     COLLECTIONS.slice(5).map(expectedAclModify),
   );
   assert.deepEqual(result, {
-    createdCollections: 5,
-    updatedCollectionAcls: 6,
-    createdIndexes: 9,
-    createdSeeds: 27,
+    createdCollections: 6,
+    updatedCollectionAcls: 7,
+    createdIndexes: 10,
+    createdSeeds: 28,
   });
 });
 
@@ -694,10 +714,10 @@ test("retries bounded post-condition reads until created resources are actually 
 
   assert.equal(waits, 1);
   assert.deepEqual(result, {
-    createdCollections: 11,
-    updatedCollectionAcls: 11,
-    createdIndexes: 9,
-    createdSeeds: 27,
+    createdCollections: 12,
+    updatedCollectionAcls: 12,
+    createdIndexes: 10,
+    createdSeeds: 28,
   });
 });
 
@@ -722,10 +742,10 @@ test("retries bounded ACL post-condition reads until ADMINONLY is visible", asyn
 
   assert.equal(waits, 1);
   assert.deepEqual(result, {
-    createdCollections: 11,
-    updatedCollectionAcls: 11,
-    createdIndexes: 9,
-    createdSeeds: 27,
+    createdCollections: 12,
+    updatedCollectionAcls: 12,
+    createdIndexes: 10,
+    createdSeeds: 28,
   });
   assert.deepEqual(
     COLLECTIONS.map((name) => managerDatabase.managerApi.aclTags.get(name)),

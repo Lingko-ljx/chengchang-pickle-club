@@ -4,6 +4,7 @@ import type {
   AvailabilitySlot,
   BookingRecord,
   CourtAllocation,
+  CourtDayInventory,
   CourtRecord,
   NotificationEvent,
   SessionRecord,
@@ -11,6 +12,7 @@ import type {
 } from "./types.ts";
 
 export interface BookingTransaction {
+  isBookingInventoryV2Ready(): Promise<boolean>;
   getBooking(id: string): Promise<BookingRecord | null>;
   getBookingIdByCodeHash(codeHash: string): Promise<string | null>;
   getSession(id: string): Promise<SessionRecord | null>;
@@ -18,8 +20,13 @@ export interface BookingTransaction {
   getCourts(courtIds: readonly string[]): Promise<CourtRecord[]>;
   getIdempotency(keyHash: string): Promise<string | null>;
   getAllocations(sessionId: string, courtIds: readonly string[]): Promise<CourtAllocation[]>;
+  getCourtDayInventories(
+    date: string,
+    courtIds: readonly string[],
+  ): Promise<CourtDayInventory[]>;
   putSession(value: SessionRecord): Promise<void>;
   putAllocation(value: CourtAllocation): Promise<void>;
+  putCourtDayInventory(value: CourtDayInventory): Promise<void>;
   putBooking(value: BookingRecord): Promise<void>;
   putBookingCode(codeHash: string, bookingId: string): Promise<void>;
   putIdempotency(keyHash: string, bookingId: string): Promise<void>;
@@ -29,9 +36,11 @@ export interface BookingTransaction {
 
 export interface BookingRepository {
   runTransaction<T>(work: (transaction: BookingTransaction) => Promise<T>): Promise<T>;
+  isBookingInventoryV2Ready(): Promise<boolean>;
   getBookingById(bookingId: string): Promise<BookingRecord | null>;
   listAvailability(date: string): Promise<AvailabilitySlot[]>;
   listSessions(date: string): Promise<SessionRecord[]>;
+  listCourtDayInventories(date: string): Promise<CourtDayInventory[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
   listPendingBookings(date: string): Promise<BookingRecord[]>;
   listMatrixBookings(date: string): Promise<BookingRecord[]>;

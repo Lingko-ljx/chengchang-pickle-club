@@ -179,6 +179,23 @@ export default function Home() {
         </div>
       </section>
 
+      <section
+        className="daily-media section-shell"
+        data-api-base={bookingApiBaseUrl}
+        data-homepage-media
+        hidden
+        id="daily-moments"
+      >
+        <div className="daily-media-heading">
+          <div>
+            <p>DAILY MOMENTS</p>
+            <h2>今日球场</h2>
+          </div>
+          <p>每天更新球场里的好回合、好照片和新鲜动态。</p>
+        </div>
+        <div className="daily-media-grid" data-homepage-media-list />
+      </section>
+
       <section className="intro section-shell" id="about">
         <div className="section-kicker">
           <span>01</span>
@@ -241,13 +258,13 @@ export default function Home() {
               </div>
               <div>
                 <span>场次</span>
-                <strong>60 MIN</strong>
-                <p>每个场次固定 60 分钟</p>
+                <strong>30 MIN</strong>
+                <p>整点或半点均可开始</p>
               </div>
               <div>
                 <span>开放</span>
-                <strong>07 — 23</strong>
-                <p>每日预约制开放</p>
+                <strong>09 — 22</strong>
+                <p>每日 09:00 — 22:00 开放</p>
               </div>
               <div>
                 <span>方式</span>
@@ -377,7 +394,7 @@ export default function Home() {
             </div>
             <div>
               <span>营业时间 OPENING</span>
-              <p>周一至周日 07:00 — 23:00</p>
+              <p>周一至周日 09:00 — 22:00</p>
               <small>法定节假日以公告为准</small>
             </div>
           </div>
@@ -397,6 +414,7 @@ export default function Home() {
         <p>© 2026 睿安成 PICKLE CLUB</p>
         <p>江西 · 南昌</p>
       </footer>
+      <script data-homepage-media-client defer src={`${basePath}/homepage-media.js`} />
     </main>
   );
 }

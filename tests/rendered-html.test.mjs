@@ -35,7 +35,7 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /<form[^>]+id="booking-form"[^>]+method="post"/i);
   assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
   assert.ok(
-    html.includes(`data-availability-url="${apiBaseUrl}/v1/availability"`),
+    html.includes(`data-availability-url="${apiBaseUrl}/v2/availability"`),
   );
   assert.ok(
     html.includes(`data-booking-result-path="${basePath}/booking/result/"`),
@@ -47,6 +47,7 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /name="mode"[^>]+value="private"/);
   assert.match(html, /name="date"/);
   assert.match(html, /<select(?=[^>]*name="start_time")(?![^>]*disabled)/i);
+  assert.match(html, /<select(?=[^>]*name="end_time")(?![^>]*disabled)/i);
   assert.match(
     html,
     /<input(?=[^>]*name="session_id")(?=[^>]*type="hidden")[^>]*>/i,
@@ -68,13 +69,19 @@ test("server renders the real booking form and current venue contract", async ()
     /<input(?=[^>]*name="idempotency_key")(?=[^>]*type="hidden")[^>]*>/i,
   );
   assert.match(html, /name="website"/);
-  assert.match(html, />07:00<\/option>/);
-  assert.match(html, />22:00<\/option>/);
-  assert.match(html, /60 分钟/);
+  assert.match(html, />09:00<\/option>/);
+  assert.match(html, />09:30<\/option>/);
+  assert.match(html, /北京时间/);
+  assert.match(html, /整小时计费/);
+  assert.match(html, /09:00 — 22:00/);
   assert.match(html, /11 片/);
   assert.match(html, /提交后等待工作人员确认/);
-  assert.doesNotMatch(html, /Formspree|90 分钟|1—8|六片/);
+  assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.match(html, /<script[^>]+data-booking-form-client[^>]+defer/);
+  assert.match(html, /data-homepage-media(?:="")?/);
+  assert.match(html, /data-homepage-media-list(?:="")?/);
+  assert.match(html, /<script[^>]+data-homepage-media-client[^>]+defer/);
+  assert.match(html, /DAILY MOMENTS/);
   assert.match(html, /<title>睿安成 PICKLE CLUB/);
   for (const content of [
     "总教头",

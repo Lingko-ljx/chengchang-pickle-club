@@ -88,6 +88,7 @@ function validDetail(detail, name, revision) {
     detail.Status !== "Active" ||
     detail.Description !== `deployment-revision:${revision}` ||
     detail.Runtime !== "Nodejs20.19" ||
+    detail.Timeout !== 3 ||
     detail.Handler !== "index.main" ||
     detail.InstallDependency !== "TRUE" ||
     !Array.isArray(detail.Triggers) ||

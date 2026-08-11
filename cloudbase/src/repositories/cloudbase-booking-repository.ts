@@ -1,4 +1,5 @@
 import { allocationId, bookingCodeId } from "../../../lib/booking/booking-service.ts";
+import { courtDayInventoryId } from "../../../lib/booking/booking-window.ts";
 import { BookingError } from "../../../lib/booking/errors.ts";
 import type { BookingRepository, BookingTransaction, Clock } from "../../../lib/booking/ports.ts";
 import type {
@@ -7,6 +8,7 @@ import type {
   AvailabilitySlot,
   BookingRecord,
   CourtAllocation,
+  CourtDayInventory,
   CourtRecord,
   NotificationEvent,
   SessionRecord,
@@ -71,7 +73,7 @@ function rows<T>(response: DocumentResponse): T[] {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return value as T;
     }
-    const document = { ...value };
+    const document: Record<string, unknown> = { ...value };
     delete document._id;
     return document as T;
   });
@@ -152,12 +154,41 @@ class CloudBaseBookingTransaction implements BookingTransaction {
     return allocations;
   }
 
+  async isBookingInventoryV2Ready(): Promise<boolean> {
+    const state = await getDocument<{ status?: unknown; schemaVersion?: unknown }>(
+      this.transaction
+        .collection("system_state")
+        .doc("booking-inventory-v2-migration"),
+    );
+    return state?.status === "ready" && state.schemaVersion === 2;
+  }
+
+  async getCourtDayInventories(
+    date: string,
+    courtIds: readonly string[],
+  ): Promise<CourtDayInventory[]> {
+    const inventories: CourtDayInventory[] = [];
+    for (const courtId of courtIds) {
+      const inventory = await getDocument<CourtDayInventory>(
+        this.transaction
+          .collection("court_day_allocations")
+          .doc(courtDayInventoryId(date, courtId)),
+      );
+      if (inventory) inventories.push(inventory);
+    }
+    return inventories;
+  }
+
   async putSession(value: SessionRecord): Promise<void> {
     await this.set("sessions", value.id, value);
   }
 
   async putAllocation(value: CourtAllocation): Promise<void> {
     await this.set("court_allocations", value.id, value);
+  }
+
+  async putCourtDayInventory(value: CourtDayInventory): Promise<void> {
+    await this.set("court_day_allocations", value.id, value);
   }
 
   async putBooking(value: BookingRecord): Promise<void> {
@@ -212,6 +243,13 @@ export class CloudBaseBookingRepository implements BookingRepository {
     return getDocument(this.db.collection("bookings").doc(bookingId));
   }
 
+  async isBookingInventoryV2Ready(): Promise<boolean> {
+    const state = await getDocument<{ status?: unknown; schemaVersion?: unknown }>(
+      this.db.collection("system_state").doc("booking-inventory-v2-migration"),
+    );
+    return state?.status === "ready" && state.schemaVersion === 2;
+  }
+
   async listAvailability(date: string): Promise<AvailabilitySlot[]> {
     const sessions = await this.query<SessionRecord>(
       "sessions",
@@ -264,6 +302,10 @@ export class CloudBaseBookingRepository implements BookingRepository {
 
   listSessions(date: string): Promise<SessionRecord[]> {
     return this.query<SessionRecord>("sessions", { date }, 100, [["startAt", "asc"]]);
+  }
+
+  listCourtDayInventories(date: string): Promise<CourtDayInventory[]> {
+    return this.query<CourtDayInventory>("court_day_allocations", { date }, 100);
   }
 
   async listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {

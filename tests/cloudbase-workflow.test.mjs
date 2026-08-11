@@ -77,7 +77,7 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
   const commands = steps
     .filter((step) => typeof step.run === "string")
     .map((step) => [step.name, step.run]);
-  assert.deepEqual(commands.slice(1, 10), [
+  assert.deepEqual(commands.slice(1, 12), [
     ["Install locked dependencies", "npm ci"],
     ["Run configured unit suite", "npm test"],
     ["Lint source before deployment", "npm run lint"],
@@ -87,8 +87,16 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
     ["Render secret-free CloudBase config", "npm run render:cloudbase"],
     ["Provision additive database resources", "npm run provision:cloudbase"],
     [
+      "Ensure CloudBase storage upload CORS",
+      "node scripts/ensure-cloudbase-storage-cors.mjs",
+    ],
+    [
       "Deploy all CloudBase functions",
       'node scripts/run-cloudbase-cli.mjs -- -e "$CLOUDBASE_ENV_ID" --yes fn deploy --all',
+    ],
+    [
+      "Backfill and verify booking v2 daily inventory",
+      "set -euo pipefail\nnode scripts/migrate-booking-inventory-v2.mjs --apply\nnode scripts/verify-booking-inventory-v2.mjs\n",
     ],
   ]);
 
@@ -112,12 +120,21 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
   assert.deepEqual(rootVerify.env, expectedStaticEnvironment);
 
   const provision = namedStep(steps, "Provision additive database resources");
+  const storageCors = namedStep(steps, "Ensure CloudBase storage upload CORS");
+  const migrate = namedStep(steps, "Backfill and verify booking v2 daily inventory");
   const deploy = namedStep(steps, "Deploy all CloudBase functions");
   const deployStatic = namedStep(steps, "Deploy root CloudBase static site");
   const smokeApi = namedStep(steps, "Verify deployed public booking API");
   const smokeStatic = namedStep(steps, "Verify deployed root static site");
   const verify = namedStep(steps, "Verify deployed function configuration and mailer timer");
-  for (const step of [provision, deploy, deployStatic, verify]) {
+  for (const step of [
+    provision,
+    storageCors,
+    migrate,
+    deploy,
+    deployStatic,
+    verify,
+  ]) {
     assert.deepEqual(step.env, {
       TENCENTCLOUD_SECRETID: "${{ secrets.TENCENTCLOUD_SECRET_ID }}",
       TENCENTCLOUD_SECRETKEY: "${{ secrets.TENCENTCLOUD_SECRET_KEY }}",
@@ -136,6 +153,14 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
     "node scripts/verify-cloudbase-hosting.mjs --smoke",
   );
   assert.ok(steps.indexOf(deploy) < steps.indexOf(verify));
+  assert.ok(steps.indexOf(provision) < steps.indexOf(storageCors));
+  assert.ok(steps.indexOf(storageCors) < steps.indexOf(deploy));
+  assert.ok(steps.indexOf(storageCors) < steps.indexOf(deployStatic));
+  assert.equal(storageCors.run, "node scripts/ensure-cloudbase-storage-cors.mjs");
+  assert.ok(steps.indexOf(deploy) < steps.indexOf(migrate));
+  assert.ok(steps.indexOf(migrate) < steps.indexOf(verify));
+  assert.match(migrate.run, /migrate-booking-inventory-v2\.mjs --apply/);
+  assert.match(migrate.run, /verify-booking-inventory-v2\.mjs/);
   assert.ok(steps.indexOf(verify) < steps.indexOf(smokeApi));
   assert.ok(steps.indexOf(smokeApi) < steps.indexOf(deployStatic));
   assert.ok(steps.indexOf(deployStatic) < steps.indexOf(smokeStatic));
@@ -167,6 +192,8 @@ test("workflow tests and lints before rendering, provisioning, or deployment", a
   for (const externalWrite of [
     "Render secret-free CloudBase config",
     "Provision additive database resources",
+    "Ensure CloudBase storage upload CORS",
+    "Backfill and verify booking v2 daily inventory",
     "Deploy all CloudBase functions",
   ]) {
     assert.ok(steps.indexOf(unit) < steps.indexOf(namedStep(steps, externalWrite)));
@@ -245,7 +272,7 @@ function detail(name, triggers = [], keys = environmentKeys[name]) {
     Handler: "index.main",
     MemorySize: 256,
     Runtime: "Nodejs20.19",
-    Timeout: 10,
+    Timeout: 3,
     VpcConfig: {},
     Triggers: triggers,
     ModTime: "2026-08-09 12:00:00",
@@ -304,6 +331,22 @@ test("deployment verifier accepts exact function details without printing Enviro
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "CloudBase deployment configuration verified\n");
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /SECRET_CANARY|never-print/);
+});
+
+test("deployment verifier enforces the free-tier three-second timeout", async (t) => {
+  const directory = await detailsFixture({
+    "booking-public-api": {
+      ...detail("booking-public-api"),
+      Timeout: 10,
+    },
+  });
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const result = runVerifier(directory);
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "CloudBase deployment verification failed\n");
 });
 
 test("deployment verifier keeps compatibility with the planned plain cron trigger description", async (t) => {

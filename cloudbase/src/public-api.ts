@@ -15,6 +15,11 @@ import {
 } from "./http/request.ts";
 import { createRateLimiter, type RateLimiter } from "./http/rate-limit.ts";
 import { errorResponse, jsonResponse, type HttpResponse } from "./http/response.ts";
+import {
+  createDefaultHomepageMediaService,
+  handlePublicHomepageMedia,
+  type HomepageMediaApiService,
+} from "./homepage-media.ts";
 import { readPublicRuntimeConfiguration } from "./runtime-config.ts";
 
 const TEN_MINUTES = 10 * 60 * 1000;
@@ -34,6 +39,7 @@ interface PublicBookingService {
     actorType: "customer";
   }): Promise<BookingRecord>;
   listAvailability(date: string): Promise<unknown[]>;
+  listWindowAvailability(query: { date: string }): Promise<unknown>;
 }
 
 export interface PublicApiDependencies {
@@ -43,6 +49,7 @@ export interface PublicApiDependencies {
   allowedOrigins: string;
   resultUrl: string;
   idempotencySalt: string;
+  mediaService?: HomepageMediaApiService;
 }
 
 function field(body: Record<string, unknown>, snake: string, camel = snake): unknown {
@@ -85,15 +92,48 @@ function normalizeCode(value: string): string {
   return value.trim().toUpperCase();
 }
 
+function legacySlotWithinCurrentPolicy(value: string): boolean {
+  const match = /^\d{4}-\d{2}-\d{2}__slot-(\d{2})(\d{2})$/.exec(value);
+  if (!match) return true;
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  return Number(match[2]) < 60 && start >= 9 * 60 && start + 60 <= 22 * 60;
+}
+
+function publicLegacyAvailabilitySlot(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const slot = value as { startTime?: unknown; endTime?: unknown };
+  if (typeof slot.startTime !== "string" || typeof slot.endTime !== "string") return false;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(slot.startTime);
+  const end = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(slot.endTime);
+  if (!match || !end) return false;
+  const startMinutes = Number(match[1]) * 60 + Number(match[2]);
+  const endMinutes = Number(end[1]) * 60 + Number(end[2]);
+  return startMinutes >= 9 * 60 && endMinutes <= 22 * 60 && endMinutes - startMinutes === 60;
+}
+
 function canonicalSessionId(body: Record<string, unknown>): string {
   const supplied = stringField(body, "session_id", "sessionId");
-  if (supplied) return supplied;
+  if (supplied) {
+    if (!legacySlotWithinCurrentPolicy(supplied)) {
+      throw new BookingError("SESSION_CLOSED");
+    }
+    const submittedStart = stringField(body, "start_time", "startTime");
+    if (
+      submittedStart &&
+      !legacySlotWithinCurrentPolicy(`${supplied.slice(0, 10)}__slot-${submittedStart.replace(":", "")}`)
+    ) {
+      throw new BookingError("SESSION_CLOSED");
+    }
+    return supplied;
+  }
   const date = stringField(body, "date");
   const startTime = stringField(body, "start_time", "startTime");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
     throw new BookingError("INVALID_INPUT");
   }
-  return `${date}__slot-${startTime.replace(":", "")}`;
+  const sessionId = `${date}__slot-${startTime.replace(":", "")}`;
+  if (!legacySlotWithinCurrentPolicy(sessionId)) throw new BookingError("SESSION_CLOSED");
+  return sessionId;
 }
 
 function shanghaiHour(date: Date): string {
@@ -110,8 +150,11 @@ function shanghaiHour(date: Date): string {
 }
 
 function canonicalBookingFields(command: Record<string, unknown>): unknown[] {
+  const timing = typeof command.sessionId === "string"
+    ? [command.sessionId]
+    : ["booking-window-v2", command.date, command.startTime, command.endTime];
   return [
-    command.sessionId,
+    ...timing,
     command.mode,
     command.partySize,
     command.name,
@@ -137,7 +180,9 @@ function fingerprintClientIdempotencyKey(
   command: Record<string, unknown>,
 ): string {
   const canonical = JSON.stringify([
-    "public-api-client-v1",
+    typeof command.sessionId === "string"
+      ? "public-api-client-v1"
+      : "public-api-client-v2",
     clientKey.trim(),
     ...canonicalBookingFields(command),
   ]);
@@ -224,8 +269,25 @@ function createCommand(
 ): Record<string, unknown> {
   const partySize = integerField(body, "party_size", "partySize");
   const privacyConsent = booleanField(body, "privacy_consent", "privacyConsent");
+  const endTime = stringField(body, "end_time", "endTime");
+  const timing: Record<string, unknown> = {};
+  if (endTime) {
+    const date = requireCalendarDate(stringField(body, "date"));
+    const startTime = stringField(body, "start_time", "startTime");
+    if (
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) ||
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)
+    ) {
+      throw new BookingError("INVALID_INPUT");
+    }
+    timing.date = date;
+    timing.startTime = startTime;
+    timing.endTime = endTime;
+  } else {
+    timing.sessionId = canonicalSessionId(body);
+  }
   const command: Record<string, unknown> = {
-    sessionId: canonicalSessionId(body),
+    ...timing,
     mode: stringField(body, "mode"),
     partySize,
     name: stringField(body, "name"),
@@ -291,10 +353,30 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
         return { statusCode: 204, headers, body: "" };
       }
 
+      if (dependencies.mediaService) {
+        const mediaResponse = await handlePublicHomepageMedia(
+          method,
+          path,
+          dependencies.mediaService,
+        );
+        if (mediaResponse) {
+          return {
+            ...mediaResponse,
+            headers: { ...mediaResponse.headers, ...headers },
+          };
+        }
+      }
+
       if (method === "GET" && path === "/v1/availability") {
         const date = requireCalendarDate(queryParameter(event, "date")?.trim() ?? "");
         const slots = await dependencies.service.listAvailability(date);
-        return jsonResponse(200, slots, headers);
+        return jsonResponse(200, slots.filter(publicLegacyAvailabilitySlot), headers);
+      }
+
+      if (method === "GET" && path === "/v2/availability") {
+        const date = requireCalendarDate(queryParameter(event, "date")?.trim() ?? "");
+        const windows = await dependencies.service.listWindowAvailability({ date });
+        return jsonResponse(200, windows, headers);
       }
 
       if (method === "POST" && path === "/v1/bookings") {
@@ -401,6 +483,7 @@ export async function main(event: CloudBaseHttpEvent): Promise<HttpResponse> {
       allowedOrigins: configuration.allowedOrigins,
       resultUrl: configuration.resultUrl,
       idempotencySalt: configuration.idempotencySalt,
+      mediaService: createDefaultHomepageMediaService(),
     });
     return await productionHandler(event);
   } catch (error) {

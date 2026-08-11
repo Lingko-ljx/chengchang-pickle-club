@@ -5,16 +5,20 @@ import {
   readAdminConfig,
 } from "./config.ts";
 import { runAdminLoginFlow } from "./login-flow.ts";
+import { uploadHomepageMedia } from "./media-upload.ts";
 import {
   bookingActionsFor,
   confirmationMessage,
   renderBookingDetail,
   renderBookingList,
   renderCourtMatrix,
+  renderHomepageMediaAdmin,
   renderPendingQueue,
   retainSelectedBooking,
   type AdminAuditLog,
   type AdminBooking,
+  type AdminHomepageMediaItem,
+  type AdminHomepageMediaManifest,
   type AvailabilitySlot,
 } from "./render.ts";
 
@@ -27,7 +31,20 @@ type TemplateSetting = {
   enabled: boolean;
   version: number;
 };
-type Settings = { courts: CourtSetting[]; sessionTemplates: TemplateSetting[] };
+type BookingPolicy = {
+  openingTime: string;
+  closingTime: string;
+  startIntervalMinutes: number;
+  minimumDurationMinutes: number;
+  durationStepMinutes: number;
+  maximumDurationMinutes: number;
+  timezone: string;
+};
+type Settings = {
+  courts: CourtSetting[];
+  sessionTemplates: TemplateSetting[];
+  bookingPolicy?: BookingPolicy;
+};
 type Bootstrap = {
   todayDashboard: Dashboard;
   selectedDashboard: Dashboard;
@@ -86,6 +103,10 @@ function startAdmin() {
   let bookings: AdminBooking[] = [];
   let matrixBookings: AdminBooking[] = [];
   let settings: Settings = { courts: [], sessionTemplates: [] };
+  let courtDraft: Record<string, boolean> = {};
+  let savingCourts = false;
+  let mediaManifest: AdminHomepageMediaManifest = { version: 0, items: [] };
+  let mediaBusy = false;
   const selectedDate = required<HTMLInputElement>("admin-filter-date");
   selectedDate.value = selectedDashboard.date;
 
@@ -108,6 +129,106 @@ function startAdmin() {
     onUnauthorized: showLogin,
   });
 
+  const mediaStatus = required<HTMLElement>("admin-media-form-status");
+  const mediaUploadButton = required<HTMLButtonElement>("admin-media-upload");
+  const showMediaStatus = (value: string, error = false) => {
+    mediaStatus.textContent = value;
+    mediaStatus.classList.toggle("is-error", error);
+    setHidden(mediaStatus, !value);
+  };
+  const mediaErrorMessage = (error: unknown) => {
+    const code = error instanceof Error ? error.message : "";
+    if (/MEDIA_CONFLICT/.test(code)) return "内容列表刚刚有更新，请刷新后重试。";
+    if (/MEDIA_LIMIT_REACHED/.test(code)) return "宣传内容数量已达上限，请先下架或删除旧内容。";
+    if (/INVALID_MEDIA_INPUT|INVALID_FILE/.test(code)) return "文件或文字信息不符合要求，请检查格式和大小后重试。";
+    if (/MEDIA_UPLOAD|UPLOAD_FAILED|INVALID_UPLOAD_INTENT/.test(code)) return "文件上传尚未完成，请检查网络后重新上传。";
+    return "宣传内容操作未完成，请检查网络后重试。";
+  };
+  const renderMedia = () => {
+    required("admin-media-count").textContent = `${mediaManifest.items.length} 条`;
+    renderHomepageMediaAdmin(
+      required("admin-media-list"),
+      mediaManifest,
+      (action, item) => {
+        runMediaAction(action, item).catch((error) => {
+          showMediaStatus(mediaErrorMessage(error), true);
+        });
+      },
+    );
+  };
+  const refreshMedia = async () => {
+    try {
+      mediaManifest = await api.getHomepageMedia() as AdminHomepageMediaManifest;
+      renderMedia();
+    } catch (error) {
+      renderHomepageMediaAdmin(required("admin-media-list"), { version: 0, items: [] }, () => undefined);
+      showMediaStatus(mediaErrorMessage(error), true);
+    }
+  };
+
+  async function runMediaAction(
+    action: "publish" | "unpublish" | "pin" | "unpin" | "delete",
+    item: AdminHomepageMediaItem,
+  ) {
+    if (mediaBusy) return;
+    const labels = {
+      publish: "发布",
+      unpublish: "下架",
+      pin: "置顶",
+      unpin: "取消置顶",
+      delete: "永久删除",
+    };
+    if (!window.confirm(`${labels[action]}“${item.title}”？`)) return;
+    mediaBusy = true;
+    showMediaStatus(`${labels[action]}处理中…`);
+    try {
+      if (action === "publish" || action === "unpublish") {
+        await api.setHomepageMediaPublished(item.id, action === "publish", mediaManifest.version);
+      } else if (action === "pin" || action === "unpin") {
+        await api.setHomepageMediaPinned(item.id, action === "pin", mediaManifest.version);
+      } else {
+        await api.deleteHomepageMedia(item.id, mediaManifest.version);
+      }
+      await refreshMedia();
+      showMediaStatus(`${labels[action]}成功。`);
+    } finally {
+      mediaBusy = false;
+    }
+  }
+
+  async function submitMediaUpload() {
+    if (mediaBusy) return;
+    const fileInput = required<HTMLInputElement>("admin-media-file");
+    const file = fileInput.files?.[0];
+    const title = required<HTMLInputElement>("admin-media-title").value.trim();
+    const caption = required<HTMLTextAreaElement>("admin-media-caption").value.trim();
+    const altText = required<HTMLInputElement>("admin-media-alt").value.trim() || title;
+    if (!file || !title) throw new Error("INVALID_MEDIA_INPUT");
+    mediaBusy = true;
+    mediaUploadButton.disabled = true;
+    showMediaStatus("正在安全上传并发布，请不要关闭页面…");
+    try {
+      await uploadHomepageMedia({
+        api,
+        file,
+        title,
+        ...(caption ? { caption } : {}),
+        altText,
+        expectedManifestVersion: mediaManifest.version,
+        publish: true,
+      });
+      required<HTMLFormElement>("admin-media-upload-form").reset();
+      await refreshMedia();
+      showMediaStatus("上传成功，内容已经显示在首页。");
+    } catch (error) {
+      await refreshMedia().catch(() => undefined);
+      throw error;
+    } finally {
+      mediaBusy = false;
+      mediaUploadButton.disabled = false;
+    }
+  }
+
   const loadSelectedAudits = async () => {
     const bookingId = selected?.id;
     if (!bookingId) return;
@@ -128,54 +249,94 @@ function startAdmin() {
   };
 
   const renderSettings = () => {
+    const policy = settings.bookingPolicy ?? {
+      openingTime: "09:00",
+      closingTime: "22:00",
+      startIntervalMinutes: 30,
+      minimumDurationMinutes: 60,
+      durationStepMinutes: 60,
+      maximumDurationMinutes: 240,
+      timezone: "Asia/Shanghai",
+    };
+    required("admin-policy-opening").textContent = `${policy.openingTime}–${policy.closingTime}`;
+    required("admin-policy-interval").textContent = `${policy.startIntervalMinutes} 分钟`;
+    required("admin-policy-minimum").textContent = `${policy.minimumDurationMinutes / 60} 小时`;
+    required("admin-policy-billing").textContent = policy.durationStepMinutes === 60
+      ? "整小时"
+      : `${policy.durationStepMinutes} 分钟`;
+    required("admin-policy-maximum").textContent = `${policy.maximumDurationMinutes / 60} 小时`;
+
     const courtControls = required("admin-court-controls");
     courtControls.replaceChildren();
     for (const court of settings.courts) {
       const label = document.createElement("label");
       const input = document.createElement("input");
+      const visual = document.createElement("span");
+      const name = document.createElement("strong");
+      const state = document.createElement("small");
+      label.className = "admin-court-toggle";
       input.type = "checkbox";
-      input.checked = court.enabled;
+      input.checked = courtDraft[court.id] ?? court.enabled;
+      input.setAttribute("aria-label", `场地 ${court.id}`);
+      visual.className = "admin-court-toggle-visual";
+      name.textContent = `场地 ${court.id}`;
+      state.textContent = input.checked ? "开放" : "关闭";
+      visual.append(name, state);
       input.addEventListener("change", () => {
-        const action = `${input.checked ? "启用" : "停用"}场地 ${court.id}`;
-        if (!window.confirm(confirmationMessage({ code: "系统设置", date: shanghaiDate() }, action))) {
-          input.checked = court.enabled;
-          return;
-        }
-        api.setCourtEnabled(court.id, input.checked, court.version)
-          .then(refresh)
-          .then(() => showMessage(`${action}已保存。`))
-          .catch((error) => {
-            showMessage(String(error), true);
-            refresh().catch((refreshError) => showMessage(String(refreshError), true));
-          });
+        courtDraft[court.id] = input.checked;
+        state.textContent = input.checked ? "开放" : "关闭";
+        updateCourtDraftSummary();
       });
-      label.append(input, document.createTextNode(` 场地 ${court.id}`));
+      label.append(input, visual);
       courtControls.append(label);
     }
+    updateCourtDraftSummary();
+  };
 
-    const templateControls = required("admin-template-controls");
-    templateControls.replaceChildren();
-    for (const template of settings.sessionTemplates) {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = template.enabled;
-      input.addEventListener("change", () => {
-        const action = `${input.checked ? "开放" : "关闭"} 60 分钟场次 ${template.startTime}`;
-        if (!window.confirm(confirmationMessage({ code: template.id, date: shanghaiDate() }, action))) {
-          input.checked = template.enabled;
-          return;
-        }
-        api.setSessionTemplateEnabled(template.id, input.checked, template.version)
-          .then(refresh)
-          .then(() => showMessage(`${action}已保存。`))
-          .catch((error) => {
-            showMessage(String(error), true);
-            refresh().catch((refreshError) => showMessage(String(refreshError), true));
-          });
-      });
-      label.append(input, document.createTextNode(` ${template.startTime}–${template.endTime}`));
-      templateControls.append(label);
+  const updateCourtDraftSummary = () => {
+    const changed = settings.courts.filter(
+      (court) => (courtDraft[court.id] ?? court.enabled) !== court.enabled,
+    );
+    const enabled = settings.courts.filter(
+      (court) => courtDraft[court.id] ?? court.enabled,
+    ).length;
+    required("admin-enabled-court-count").textContent = `${enabled} / ${settings.courts.length || 11} 开放`;
+    required("admin-court-draft-status").textContent = changed.length
+      ? `${changed.length} 项修改尚未保存`
+      : "当前没有未保存修改";
+    required<HTMLButtonElement>("admin-save-courts").disabled = !changed.length || savingCourts;
+  };
+
+  const setAllCourtDraft = (enabled: boolean) => {
+    for (const court of settings.courts) courtDraft[court.id] = enabled;
+    renderSettings();
+  };
+
+  const saveCourtSettings = async () => {
+    const changed = settings.courts.filter(
+      (court) => (courtDraft[court.id] ?? court.enabled) !== court.enabled,
+    );
+    if (!changed.length || savingCourts) return;
+    if (!window.confirm(`保存 ${changed.length} 项场地开关修改？`)) return;
+    savingCourts = true;
+    updateCourtDraftSummary();
+    try {
+      for (const court of changed) {
+        await api.setCourtEnabled(
+          court.id,
+          courtDraft[court.id] ?? court.enabled,
+          court.version,
+        );
+      }
+      courtDraft = {};
+      await refresh();
+      showMessage("场地设置已保存。");
+    } catch (error) {
+      showMessage(String(error), true);
+      await refresh().catch((refreshError) => showMessage(String(refreshError), true));
+    } finally {
+      savingCourts = false;
+      updateCourtDraftSummary();
     }
   };
 
@@ -183,7 +344,7 @@ function startAdmin() {
     required("admin-pending-count").textContent = String(todayDashboard.pending.length);
     renderPendingQueue(required("admin-pending-list"), todayDashboard.pending, onSelect);
     renderBookingList(required("admin-booking-list"), bookings, onSelect);
-    renderCourtMatrix(required("admin-court-matrix"), selectedDashboard.slots, matrixBookings, onSelect);
+    renderCourtMatrix(required("admin-court-matrix"), selectedDashboard.date, matrixBookings, onSelect);
     if (selected) {
       selected = retainSelectedBooking(
         selected,
@@ -213,7 +374,9 @@ function startAdmin() {
     bookings = bootstrap.bookings;
     matrixBookings = bootstrap.matrixBookings;
     settings = bootstrap.settings;
+    courtDraft = {};
     renderAll();
+    await refreshMedia();
     if (selected) await loadSelectedAudits();
   };
 
@@ -319,6 +482,23 @@ function startAdmin() {
         URL.revokeObjectURL(url);
       })
       .catch((error) => showMessage(String(error), true));
+  });
+  required<HTMLFormElement>("admin-media-upload-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitMediaUpload().catch((error) => {
+      mediaBusy = false;
+      mediaUploadButton.disabled = false;
+      showMediaStatus(mediaErrorMessage(error), true);
+    });
+  });
+  required<HTMLButtonElement>("admin-enable-all-courts").addEventListener("click", () => {
+    setAllCourtDraft(true);
+  });
+  required<HTMLButtonElement>("admin-disable-all-courts").addEventListener("click", () => {
+    setAllCourtDraft(false);
+  });
+  required<HTMLButtonElement>("admin-save-courts").addEventListener("click", () => {
+    saveCourtSettings().catch((error) => showMessage(String(error), true));
   });
 }
 

@@ -62,7 +62,7 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
     return encoded ? `?${encoded}` : "";
   };
 
-  const json = (method: string, body: Record<string, unknown>): RequestInit => ({
+  const json = (method: string, body: object): RequestInit => ({
     method,
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
@@ -101,5 +101,37 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
     ),
     exportCsv: (from: string, to: string) =>
       request(`/v1/admin/export.csv${query({ from, to })}`),
+    getHomepageMedia: () => request("/v1/admin/homepage-media"),
+    createMediaUploadIntent: (body: Record<string, unknown>) =>
+      request("/v1/admin/homepage-media/upload-intents", json("POST", body)),
+    finalizeMediaUpload: (
+      itemId: string,
+      expectedManifestVersion: number,
+      publish: boolean,
+    ) => request(
+      `/v1/admin/homepage-media/${encodeURIComponent(itemId)}/finalize`,
+      json("POST", { expectedManifestVersion, publish }),
+    ),
+    setHomepageMediaPublished: (
+      itemId: string,
+      published: boolean,
+      expectedManifestVersion: number,
+    ) => request(
+      `/v1/admin/homepage-media/${encodeURIComponent(itemId)}/publication`,
+      json("PUT", { published, expectedManifestVersion }),
+    ),
+    setHomepageMediaPinned: (
+      itemId: string,
+      pinned: boolean,
+      expectedManifestVersion: number,
+    ) => request(
+      `/v1/admin/homepage-media/${encodeURIComponent(itemId)}/pin`,
+      json("PUT", { pinned, expectedManifestVersion }),
+    ),
+    deleteHomepageMedia: (itemId: string, expectedManifestVersion: number) =>
+      request(
+        `/v1/admin/homepage-media/${encodeURIComponent(itemId)}/delete`,
+        json("POST", { expectedManifestVersion }),
+      ),
   };
 }

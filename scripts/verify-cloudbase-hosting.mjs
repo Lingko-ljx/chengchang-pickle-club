@@ -106,9 +106,10 @@ function verifyRootHtml(body, configuration) {
   if (
     !body.includes(`action="${configuration.apiBaseUrl}/v1/bookings"`) ||
     !body.includes(
-      `data-availability-url="${configuration.apiBaseUrl}/v1/availability"`,
+      `data-availability-url="${configuration.apiBaseUrl}/v2/availability"`,
     ) ||
     !/\bdata-booking-form-client(?:\s|=|>)/i.test(body) ||
+    !/\bdata-homepage-media-client(?:\s|=|>)/i.test(body) ||
     forbiddenStaticContent.test(body)
   ) {
     throw new Error("INVALID_ROOT_HTML");
@@ -218,8 +219,8 @@ export async function verifyCloudBaseApi(configuration, options = {}) {
           requestTimeoutMs,
         });
       }
-      const response = await fetchImpl(
-        `${configuration.apiBaseUrl}/v1/availability?date=${smokeDate}`,
+      const availabilityResponse = await fetchImpl(
+        `${configuration.apiBaseUrl}/v2/availability?date=${smokeDate}`,
         {
           headers: { Accept: "application/json", Origin: siteOrigin },
           redirect: "error",
@@ -227,14 +228,51 @@ export async function verifyCloudBaseApi(configuration, options = {}) {
         },
       );
       if (
-        !response.ok ||
-        !/^application\/json\b/i.test(response.headers.get("content-type") ?? "") ||
-        response.headers.get("access-control-allow-origin") !== siteOrigin
+        !availabilityResponse.ok ||
+        !/^application\/json\b/i.test(availabilityResponse.headers.get("content-type") ?? "") ||
+        availabilityResponse.headers.get("access-control-allow-origin") !== siteOrigin
       ) {
         throw new Error("INVALID_API_RESPONSE");
       }
-      const body = await response.json();
-      if (!body || typeof body !== "object" || !Array.isArray(body.data) || body.data.length === 0) {
+      const availabilityBody = await availabilityResponse.json();
+      const availability = availabilityBody?.data;
+      if (
+        !availability ||
+        typeof availability !== "object" ||
+        Array.isArray(availability) ||
+        !availability.policy ||
+        availability.policy.openingTime !== "09:00" ||
+        availability.policy.closingTime !== "22:00" ||
+        availability.policy.startIntervalMinutes !== 30 ||
+        availability.policy.durationStepMinutes !== 60 ||
+        !Array.isArray(availability.windows) ||
+        availability.windows.length === 0
+      ) {
+        throw new Error("INVALID_API_RESPONSE");
+      }
+      const mediaResponse = await fetchImpl(
+        `${configuration.apiBaseUrl}/v1/homepage-media`,
+        {
+          headers: { Accept: "application/json", Origin: siteOrigin },
+          redirect: "error",
+          signal: requestSignal(requestTimeoutMs),
+        },
+      );
+      if (
+        !mediaResponse.ok ||
+        !/^application\/json\b/i.test(mediaResponse.headers.get("content-type") ?? "") ||
+        mediaResponse.headers.get("access-control-allow-origin") !== siteOrigin
+      ) {
+        throw new Error("INVALID_API_RESPONSE");
+      }
+      const mediaBody = await mediaResponse.json();
+      if (
+        !mediaBody ||
+        typeof mediaBody !== "object" ||
+        !mediaBody.data ||
+        typeof mediaBody.data !== "object" ||
+        !Array.isArray(mediaBody.data.items)
+      ) {
         throw new Error("INVALID_API_RESPONSE");
       }
     },

@@ -84,10 +84,10 @@ function createStorage(options = {}) {
 
 function loadEnhancement(source, options = {}) {
   const fallbackOptions = [
-    option("", "请选择时段"),
-    option("07:00", "07:00"),
-    option("08:00", "08:00"),
+    option("", "请选择开始时间"),
     option("09:00", "09:00"),
+    option("09:30", "09:30"),
+    option("10:00", "10:00"),
   ];
   const modeOpen = eventTarget({
     checked: options.mode !== "private",
@@ -109,7 +109,14 @@ function loadEnhancement(source, options = {}) {
     type: "date",
     value: options.date ?? "",
   });
-  const startTime = selectControl("start_time", options.startTime ?? "07:00", fallbackOptions);
+  const startTime = selectControl("start_time", options.startTime ?? "09:00", fallbackOptions);
+  const endTime = selectControl("end_time", options.endTime ?? "10:00", [
+    option("", "请选择结束时间"),
+    option("10:00", "10:00 · 1 小时"),
+    option("11:00", "11:00 · 2 小时"),
+    option("12:00", "12:00 · 3 小时"),
+    option("13:00", "13:00 · 4 小时"),
+  ]);
   const sessionId = eventTarget({
     disabled: false,
     name: "session_id",
@@ -145,6 +152,7 @@ function loadEnhancement(source, options = {}) {
     modePrivate,
     date,
     startTime,
+    endTime,
     sessionId,
     partySize,
     name,
@@ -158,6 +166,8 @@ function loadEnhancement(source, options = {}) {
   const requests = [];
   const submitButton = { disabled: false };
   const errorBox = { hidden: true, textContent: "" };
+  const availabilityStatus = { hidden: false, textContent: "" };
+  const timeSummary = { hidden: false, textContent: "" };
   let preventedCount = 0;
   let resetCount = 0;
 
@@ -169,7 +179,7 @@ function loadEnhancement(source, options = {}) {
     },
     getAttribute(name) {
       const attributes = {
-        "data-availability-url": "https://booking-api.example.invalid/v1/availability",
+        "data-availability-url": "https://booking-api.example.invalid/v2/availability",
         "data-booking-result-path": "/chengchang-pickle-club/booking/result/",
         "data-booking-status-path": "/chengchang-pickle-club/booking/status/",
       };
@@ -229,12 +239,15 @@ function loadEnhancement(source, options = {}) {
       getElementById(id) {
         const elements = {
           "booking-date": date,
+          "booking-end-time": endTime,
           "booking-error": errorBox,
+          "booking-availability-status": availabilityStatus,
           "booking-form": form,
           "booking-idempotency-key": idempotencyKey,
           "booking-party-size": partySize,
           "booking-session-id": sessionId,
           "booking-start-time": startTime,
+          "booking-time-summary": timeSummary,
         };
         return elements[id] ?? null;
       },
@@ -252,6 +265,7 @@ function loadEnhancement(source, options = {}) {
     controls: {
       consent,
       date,
+      endTime,
       email,
       honeypot,
       idempotencyKey,
@@ -265,6 +279,7 @@ function loadEnhancement(source, options = {}) {
       startTime,
     },
     errorBox,
+    availabilityStatus,
     form,
     location,
     preventedCount: () => preventedCount,
@@ -280,6 +295,7 @@ function loadEnhancement(source, options = {}) {
       });
     },
     submitButton,
+    timeSummary,
   };
 }
 
@@ -288,10 +304,10 @@ test("booking enhancement parses as ES5", async () => {
   assert.doesNotThrow(() => parse(source, { ecmaVersion: 5 }));
 });
 
-test("valid dates fetch availability and filter each session by mode and whole party size", async () => {
+test("valid dates fetch v2 windows and filter start/end choices by mode and whole party size", async () => {
   const source = await readEnhancement();
   const page = loadEnhancement(source);
-  const { date, modeOpen, modePrivate, partySize, sessionId, startTime } = page.controls;
+  const { date, endTime, modeOpen, modePrivate, partySize, sessionId, startTime } = page.controls;
 
   date.value = "2026-02-31";
   date.fire("change");
@@ -304,7 +320,7 @@ test("valid dates fetch availability and filter each session by mode and whole p
   assert.equal(request.method, "GET");
   assert.equal(
     request.url,
-    "https://booking-api.example.invalid/v1/availability?date=2026-08-10",
+    "https://booking-api.example.invalid/v2/availability?date=2026-08-10",
   );
   assert.equal(request.headers.Accept, "application/json");
   assert.equal(startTime.disabled, true);
@@ -312,37 +328,59 @@ test("valid dates fetch availability and filter each session by mode and whole p
   request.respond(
     200,
     JSON.stringify({
-      data: [
-        {
-          sessionId: "2026-08-10__slot-0700",
-          startTime: "07:00",
-          acceptsOpenPartySizes: [1, 3],
-          privateCourtCount: 0,
+      data: {
+        policy: {
+          openingTime: "09:00",
+          closingTime: "22:00",
+          startIntervalMinutes: 30,
+          minimumDurationMinutes: 60,
+          durationStepMinutes: 60,
+          maximumDurationMinutes: 240,
+          timezone: "Asia/Shanghai",
         },
-        {
-          sessionId: "2026-08-10__slot-0800",
-          startTime: "08:00",
-          acceptsOpenPartySizes: [],
-          privateCourtCount: 1,
-        },
-        {
-          sessionId: "2026-08-10__slot-0900",
-          startTime: "09:00",
-          acceptsOpenPartySizes: [1, 2],
-          privateCourtCount: 2,
-        },
-      ],
+        windows: [
+          {
+            sessionId: "2026-08-10__window-0900-1000",
+            startTime: "09:00",
+            endTime: "10:00",
+            durationMinutes: 60,
+            acceptsOpenPartySizes: [1, 3],
+            privateCourtCount: 0,
+          },
+          {
+            sessionId: "2026-08-10__window-0930-1130",
+            startTime: "09:30",
+            endTime: "11:30",
+            durationMinutes: 120,
+            acceptsOpenPartySizes: [],
+            privateCourtCount: 1,
+          },
+          {
+            sessionId: "2026-08-10__window-1000-1200",
+            startTime: "10:00",
+            endTime: "12:00",
+            durationMinutes: 120,
+            acceptsOpenPartySizes: [1, 2],
+            privateCourtCount: 2,
+          },
+        ],
+      },
     }),
   );
 
   assert.equal(startTime.disabled, false);
   assert.deepEqual(
     startTime.options.slice(1).map((entry) => entry.value),
-    ["07:00"],
+    ["09:00"],
   );
-  startTime.value = "07:00";
+  startTime.value = "09:00";
   startTime.fire("change");
-  assert.equal(sessionId.value, "2026-08-10__slot-0700");
+  assert.deepEqual(endTime.options.slice(1).map((entry) => entry.value), ["10:00"]);
+  endTime.value = "10:00";
+  endTime.fire("change");
+  assert.equal(sessionId.value, "");
+  assert.match(page.timeSummary.textContent, /北京时间 09:00–10:00/);
+  assert.match(page.timeSummary.textContent, /共 1 小时/);
 
   modeOpen.checked = false;
   modePrivate.checked = true;
@@ -350,12 +388,14 @@ test("valid dates fetch availability and filter each session by mode and whole p
   assert.equal(startTime.disabled, false);
   assert.deepEqual(
     startTime.options.slice(1).map((entry) => entry.value),
-    ["08:00", "09:00"],
+    ["09:30", "10:00"],
   );
   assert.equal(sessionId.value, "");
-  startTime.value = "08:00";
+  startTime.value = "09:30";
   startTime.fire("change");
-  assert.equal(sessionId.value, "2026-08-10__slot-0800");
+  endTime.value = "11:30";
+  endTime.fire("change");
+  assert.equal(sessionId.value, "");
 
   modeOpen.checked = true;
   modePrivate.checked = false;
@@ -363,14 +403,15 @@ test("valid dates fetch availability and filter each session by mode and whole p
   partySize.value = "4";
   partySize.fire("change");
   assert.deepEqual(startTime.options.slice(1), []);
+  assert.deepEqual(endTime.options.slice(1), []);
   assert.equal(startTime.disabled, false);
   assert.equal(page.requests.length, 1);
 });
 
 test("availability failures restore the enabled server-rendered time fallback", async () => {
   const source = await readEnhancement();
-  const page = loadEnhancement(source, { date: "2026-08-10", startTime: "08:00" });
-  const { date, startTime } = page.controls;
+  const page = loadEnhancement(source, { date: "2026-08-10", startTime: "09:30" });
+  const { date, endTime, startTime } = page.controls;
   const original = startTime.options.map((entry) => entry.value);
 
   date.fire("change");
@@ -378,24 +419,47 @@ test("availability failures restore the enabled server-rendered time fallback", 
   page.request().fail();
 
   assert.equal(startTime.disabled, false);
-  assert.equal(startTime.value, "08:00");
+  assert.equal(startTime.value, "09:30");
+  assert.equal(endTime.disabled, false);
   assert.deepEqual(startTime.options.map((entry) => entry.value), original);
+});
+
+test("offline fallback keeps only whole-hour durations from half-hour starts", async () => {
+  const source = await readEnhancement();
+  const page = loadEnhancement(source, { date: "2026-08-10", startTime: "09:30" });
+  const { date, endTime, startTime } = page.controls;
+
+  date.fire("change");
+  page.request().fail();
+  startTime.value = "09:30";
+  startTime.fire("change");
+  assert.deepEqual(endTime.options.slice(1).map((entry) => entry.value), [
+    "10:30", "11:30", "12:30", "13:30",
+  ]);
+
+  endTime.value = "10:00";
+  page.submit();
+  assert.equal(page.requests.length, 1);
+  assert.equal(page.preventedCount(), 1);
+  assert.match(page.errorBox.textContent, /1–4 小时/);
 });
 
 test("stale availability success cannot replace newer date sessions", async () => {
   const source = await readEnhancement();
   const page = loadEnhancement(source, { partySize: 3 });
   const { date, sessionId, startTime } = page.controls;
-  const response = (dateValue, time) =>
+  const response = (dateValue, time, endTime) =>
     JSON.stringify({
-      data: [
-        {
-          sessionId: `${dateValue}__slot-${time.replace(":", "")}`,
+      data: {
+        windows: [{
+          sessionId: `${dateValue}__window-${time.replace(":", "")}-${endTime.replace(":", "")}`,
           startTime: time,
+          endTime,
+          durationMinutes: 60,
           acceptsOpenPartySizes: [3],
           privateCourtCount: 0,
-        },
-      ],
+        }],
+      },
     });
 
   date.value = "2026-08-10";
@@ -403,18 +467,20 @@ test("stale availability success cannot replace newer date sessions", async () =
   date.value = "2026-08-11";
   date.fire("change");
 
-  page.request(1).respond(200, response("2026-08-11", "08:00"));
-  startTime.value = "08:00";
+  page.request(1).respond(200, response("2026-08-11", "09:30", "10:30"));
+  startTime.value = "09:30";
   startTime.fire("change");
+  page.controls.endTime.value = "10:30";
+  page.controls.endTime.fire("change");
 
-  page.request(0).respond(200, response("2026-08-10", "07:00"));
+  page.request(0).respond(200, response("2026-08-10", "09:00", "10:00"));
 
   assert.deepEqual(
     startTime.options.slice(1).map((entry) => entry.value),
-    ["08:00"],
+    ["09:30"],
   );
-  assert.equal(startTime.value, "08:00");
-  assert.equal(sessionId.value, "2026-08-11__slot-0800");
+  assert.equal(startTime.value, "09:30");
+  assert.equal(sessionId.value, "");
 });
 
 test("invalid dates ignore stale availability success and failure", async () => {
@@ -424,7 +490,7 @@ test("invalid dates ignore stale availability success and failure", async () => 
     const page = loadEnhancement(source, {
       date: "2026-08-10",
       partySize: 3,
-      startTime: "08:00",
+      startTime: "09:30",
     });
     const { date, sessionId, startTime } = page.controls;
     const fallbackValues = startTime.options.map((entry) => entry.value);
@@ -439,14 +505,14 @@ test("invalid dates ignore stale availability success and failure", async () => 
       stale.respond(
         200,
         JSON.stringify({
-          data: [
-            {
-              sessionId: "2026-08-10__slot-0700",
-              startTime: "07:00",
-              acceptsOpenPartySizes: [3],
-              privateCourtCount: 0,
-            },
-          ],
+          data: { windows: [{
+            sessionId: "2026-08-10__window-0900-1000",
+            startTime: "09:00",
+            endTime: "10:00",
+            durationMinutes: 60,
+            acceptsOpenPartySizes: [3],
+            privateCourtCount: 0,
+          }] },
         }),
       );
     } else {
@@ -459,7 +525,7 @@ test("invalid dates ignore stale availability success and failure", async () => 
       fallbackValues,
       completion,
     );
-    assert.equal(startTime.value, "08:00", completion);
+    assert.equal(startTime.value, "09:30", completion);
     assert.equal(sessionId.value, "", completion);
     assert.equal(page.errorBox.hidden, true, completion);
     assert.equal(page.errorBox.textContent, "", completion);
@@ -487,7 +553,9 @@ test("one persisted idempotency key survives failed submissions and clears only 
   );
   assert.match(first.body, /(?:^|&)mode=open(?:&|$)/);
   assert.match(first.body, /(?:^|&)date=2026-08-10(?:&|$)/);
-  assert.match(first.body, /(?:^|&)start_time=07%3A00(?:&|$)/);
+  assert.match(first.body, /(?:^|&)start_time=09%3A00(?:&|$)/);
+  assert.match(first.body, /(?:^|&)end_time=10%3A00(?:&|$)/);
+  assert.doesNotMatch(first.body, /(?:^|&)session_id=/);
   assert.match(first.body, /(?:^|&)party_size=3(?:&|$)/);
   assert.match(first.body, /(?:^|&)name=%E6%9E%97%E6%BE%84(?:&|$)/);
   assert.match(first.body, /(?:^|&)privacy_consent=yes(?:&|$)/);

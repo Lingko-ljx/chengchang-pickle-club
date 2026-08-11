@@ -1,4 +1,5 @@
 import { BookingError, type BookingErrorCode } from "../../../lib/booking/errors.ts";
+import { MediaError, type MediaErrorCode } from "../../../lib/media/errors.ts";
 
 export interface HttpResponse {
   statusCode: number;
@@ -71,6 +72,33 @@ const errors: Record<BookingErrorCode, { status: number; error: PublicError }> =
   },
 };
 
+const mediaErrors: Record<MediaErrorCode, { status: number; error: PublicError }> = {
+  INVALID_MEDIA_INPUT: {
+    status: 400,
+    error: { code: "INVALID_MEDIA_INPUT", message: "Invalid media request", retryable: false },
+  },
+  MEDIA_NOT_FOUND: {
+    status: 404,
+    error: { code: "MEDIA_NOT_FOUND", message: "Media item not found", retryable: false },
+  },
+  MEDIA_CONFLICT: {
+    status: 409,
+    error: { code: "MEDIA_CONFLICT", message: "Media state changed", retryable: true },
+  },
+  MEDIA_UPLOAD_INCOMPLETE: {
+    status: 409,
+    error: { code: "MEDIA_UPLOAD_INCOMPLETE", message: "Upload is not complete", retryable: true },
+  },
+  MEDIA_UPLOAD_MISMATCH: {
+    status: 409,
+    error: { code: "MEDIA_UPLOAD_MISMATCH", message: "Uploaded file does not match", retryable: false },
+  },
+  MEDIA_LIMIT_REACHED: {
+    status: 409,
+    error: { code: "MEDIA_LIMIT_REACHED", message: "Media limit reached", retryable: false },
+  },
+};
+
 export function jsonResponse(
   statusCode: number,
   data: unknown,
@@ -87,7 +115,11 @@ export function errorResponse(
   error: unknown,
   headers: Record<string, string> = {},
 ): HttpResponse {
-  const mapped = error instanceof BookingError ? errors[error.code] : undefined;
+  const mapped = error instanceof BookingError
+    ? errors[error.code]
+    : error instanceof MediaError
+      ? mediaErrors[error.code]
+      : undefined;
   const status = mapped?.status ?? 500;
   const body = mapped?.error ?? {
     code: "INTERNAL_ERROR",

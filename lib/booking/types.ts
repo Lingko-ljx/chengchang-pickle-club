@@ -18,9 +18,39 @@ export interface CourtAllocation {
   version: number;
 }
 
+export interface BookingPolicy {
+  timezone: "Asia/Shanghai";
+  openingTime: string;
+  closingTime: string;
+  startIntervalMinutes: number;
+  minimumDurationMinutes: number;
+  durationStepMinutes: number;
+  maximumDurationMinutes: number;
+  version: number;
+}
+
+export interface CourtDayCell {
+  mode: BookingMode;
+  occupiedPlayers: number;
+  bookingIds: string[];
+}
+
+export interface CourtDayInventory {
+  id: string;
+  date: string;
+  courtId: string;
+  cells: Record<string, CourtDayCell>;
+  version: number;
+}
+
 export interface CreateBookingCommand {
   idempotencyKey: string;
-  sessionId: string;
+  /** Legacy one-hour template path. Mutually exclusive with the v2 window fields. */
+  sessionId?: string;
+  /** Beijing calendar date for a v2 booking window. */
+  date?: string;
+  startTime?: string;
+  endTime?: string;
   mode: BookingMode;
   partySize: number;
   name: string;
@@ -138,6 +168,15 @@ export interface AvailabilitySlot {
   privateCourtCount: number;
   acceptsOpen: boolean;
   acceptsPrivate: boolean;
+}
+
+export interface BookingWindowAvailability extends AvailabilitySlot {
+  durationMinutes: number;
+}
+
+export interface BookingWindowAvailabilityResult {
+  policy: BookingPolicy;
+  windows: BookingWindowAvailability[];
 }
 
 export interface AdminBookingFilter {

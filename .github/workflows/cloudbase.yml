@@ -89,11 +89,25 @@ jobs:
           TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         run: npm run provision:cloudbase
+      - name: Ensure CloudBase storage upload CORS
+        env:
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: node scripts/ensure-cloudbase-storage-cors.mjs
       - name: Deploy all CloudBase functions
         env:
           TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         run: node scripts/run-cloudbase-cli.mjs -- -e "$CLOUDBASE_ENV_ID" --yes fn deploy --all
+      - name: Backfill and verify booking v2 daily inventory
+        env:
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/migrate-booking-inventory-v2.mjs --apply
+          node scripts/verify-booking-inventory-v2.mjs
       - name: Verify deployed function configuration and mailer timer
         env:
           TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}

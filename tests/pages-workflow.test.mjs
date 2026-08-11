@@ -12,6 +12,25 @@ async function readPagesWorkflow() {
   return { source: workflowSource, workflow: parse(workflowSource) };
 }
 
+test("Pages publishes only after the matching main CloudBase deployment succeeds", async () => {
+  const { workflow } = await readPagesWorkflow();
+  assert.deepEqual(workflow.on, {
+    workflow_run: {
+      workflows: ["Deploy CloudBase staging"],
+      types: ["completed"],
+    },
+  });
+  assert.match(workflow.jobs.build.if, /workflow_run\.conclusion == 'success'/);
+  assert.match(workflow.jobs.build.if, /workflow_run\.head_branch == 'main'/);
+  assert.match(workflow.jobs.build.if, /head_repository\.full_name == github\.repository/);
+  const checkout = workflow.jobs.build.steps.find(
+    (step) => step.uses === "actions/checkout@v4",
+  );
+  assert.deepEqual(checkout?.with, {
+    ref: "${{ github.event.workflow_run.head_sha }}",
+  });
+});
+
 test("Pages build receives the public booking API and CloudBase env identifiers", async () => {
   const { source, workflow } = await readPagesWorkflow();
   const configureStep = workflow.jobs.build.steps.find(

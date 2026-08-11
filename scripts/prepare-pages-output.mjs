@@ -3,7 +3,7 @@ import path from "node:path";
 
 const outputDirectory = path.resolve("out");
 const allowedClientScript =
-  /\b(?:data-booking-form-client|data-booking-result-client|data-booking-status-client|data-admin-client)(?:\s|=|$)/i;
+  /\b(?:data-booking-form-client|data-booking-result-client|data-booking-status-client|data-admin-client|data-homepage-media-client)(?:\s|=|$)/i;
 
 async function collectHtmlFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });

@@ -103,6 +103,7 @@ function handlerFor(service, options = {}) {
     service,
     resolveTrustedUid: options.resolveTrustedUid ?? runtimeUid(uid, options.trace),
     allowedUserIds: options.allowedUserIds ?? [TRUSTED_UID],
+    ...(options.mediaService ? { mediaService: options.mediaService } : {}),
   });
 }
 
@@ -125,6 +126,31 @@ test("missing and malformed trusted runtime UIDs return sanitized 401 responses 
   assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
 });
 
+test("homepage media admin routes require the trusted UID and keep private response headers", async () => {
+  const calls = [];
+  const mediaService = {
+    async listAdmin() {
+      calls.push("listAdmin");
+      return { version: 3, items: [] };
+    },
+  };
+  const allowed = await handlerFor(fakeService(), { mediaService })(
+    event("GET", "/v1/admin/homepage-media"),
+  );
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.headers["Cache-Control"], "no-store, private");
+  assert.deepEqual(responseBody(allowed).data, { version: 3, items: [] });
+  assert.deepEqual(calls, ["listAdmin"]);
+
+  const forbidden = await handlerFor(fakeService(), {
+    mediaService,
+    uid: "2086466604197666818",
+    allowedUserIds: [TRUSTED_UID],
+  })(event("GET", "/v1/admin/homepage-media"));
+  assert.equal(forbidden.statusCode, 403);
+  assert.deepEqual(calls, ["listAdmin"]);
+});
+
 test("protected settings and booking audit routes expose versioned, non-PII DTOs", async () => {
   const trace = [];
   const handler = handlerFor(fakeService(trace), { trace });
@@ -136,6 +162,16 @@ test("protected settings and booking audit routes expose versioned, non-PII DTOs
   assert.deepEqual(responseBody(settings).data, {
     courts: [{ id: "01", enabled: false, version: 7 }],
     sessionTemplates: [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }],
+    bookingPolicy: {
+      timezone: "Asia/Shanghai",
+      openingTime: "09:00",
+      closingTime: "22:00",
+      startIntervalMinutes: 30,
+      minimumDurationMinutes: 60,
+      durationStepMinutes: 60,
+      maximumDurationMinutes: 240,
+      version: 1,
+    },
   });
   assert.deepEqual(responseBody(audits).data, [{
     id: "audit-1",
@@ -402,6 +438,16 @@ test("bootstrap authenticates once, runs all same-day reads concurrently, and re
   assert.deepEqual(data.settings, {
     courts: [{ id: "01", enabled: false, version: 7 }],
     sessionTemplates: [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }],
+    bookingPolicy: {
+      timezone: "Asia/Shanghai",
+      openingTime: "09:00",
+      closingTime: "22:00",
+      startIntervalMinutes: 30,
+      minimumDurationMinutes: 60,
+      durationStepMinutes: 60,
+      maximumDurationMinutes: 240,
+      version: 1,
+    },
   });
   assert.equal(response.headers["Cache-Control"], "no-store, private");
   assert.equal(response.body.includes("internal-phone-hash"), false);

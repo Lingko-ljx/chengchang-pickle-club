@@ -51,6 +51,19 @@
     return "预约模式待确认";
   }
 
+  function durationHours(startTime, endTime) {
+    var startMatch = /^(\d{2}):(\d{2})$/.exec(startTime || "");
+    var endMatch = /^(\d{2}):(\d{2})$/.exec(endTime || "");
+    var minutes;
+    if (!startMatch || !endMatch) return 0;
+    minutes =
+      Number(endMatch[1]) * 60 +
+      Number(endMatch[2]) -
+      Number(startMatch[1]) * 60 -
+      Number(startMatch[2]);
+    return minutes > 0 && minutes % 60 === 0 ? minutes / 60 : 0;
+  }
+
   function renderTimeline(status) {
     var entries = ["预约已提交"];
     var index;
@@ -80,6 +93,7 @@
     var cancellable = false;
     var contact = [];
     var proposed;
+    var hours;
     if (!data || typeof data !== "object") return false;
     if (typeof data.code !== "string" || typeof data.status !== "string") return false;
     if (typeof data.actionVersion !== "number") return false;
@@ -88,13 +102,14 @@
     actionVersion = data.actionVersion;
     if (statusValue) statusValue.textContent = statusLabel(data.status);
     if (sessionValue) {
+      hours = durationHours(data.startTime, data.endTime);
       sessionValue.textContent =
         (data.date || "日期待确认") +
         " · " +
         (data.startTime || "--:--") +
         "–" +
         (data.endTime || "--:--") +
-        "（60 分钟）";
+        (hours ? "（" + hours + " 小时，北京时间）" : "（北京时间）");
     }
     if (modeValue) modeValue.textContent = modeLabel(data.mode);
     if (partySizeValue) partySizeValue.textContent = String(data.partySize || "-") + " 人";
@@ -106,13 +121,15 @@
     proposed = data.proposed;
     if (proposedValue) {
       if (data.status === "reschedule_proposed" && proposed) {
+        hours = durationHours(proposed.startTime, proposed.endTime);
         proposedValue.textContent =
           "建议改至 " +
           (proposed.date || "日期待确认") +
           " · " +
           (proposed.startTime || "--:--") +
           "–" +
-          (proposed.endTime || "--:--");
+          (proposed.endTime || "--:--") +
+          (hours ? " · " + hours + " 小时（北京时间）" : "（北京时间）");
         proposedValue.hidden = false;
       } else {
         proposedValue.textContent = "";

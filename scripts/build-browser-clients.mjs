@@ -1,8 +1,11 @@
 import { build } from "esbuild";
 
 await build({
-  entryPoints: ["admin-client/index.ts"],
-  outfile: "public/admin-app.js",
+  entryPoints: {
+    "admin-app": "admin-client/index.ts",
+    "homepage-media": "homepage-media-client/index.ts",
+  },
+  outdir: "public",
   bundle: true,
   format: "iife",
   platform: "browser",

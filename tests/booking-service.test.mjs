@@ -12,8 +12,8 @@ import { MemoryBookingRepository } from "../lib/booking/testing/memory-repositor
 const FUTURE_DATE = "2099-01-01";
 const NEXT_DATE = "2099-01-02";
 const MORNING = `${FUTURE_DATE}__slot-0700`;
-const LATER = `${FUTURE_DATE}__slot-0800`;
-const NEXT_LATER = `${NEXT_DATE}__slot-0800`;
+const LATER = `${FUTURE_DATE}__slot-0900`;
+const NEXT_LATER = `${NEXT_DATE}__slot-0900`;
 
 function command(overrides = {}) {
   return {
@@ -117,7 +117,7 @@ function setup(options = {}) {
       options.sessionTemplates ??
       [
         { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
-        { id: "slot-0800", startTime: "08:00", endTime: "09:00", enabled: true, version: 1 },
+        { id: "slot-0900", startTime: "09:00", endTime: "10:00", enabled: true, version: 1 },
       ],
     idempotency: options.idempotency,
     fault: options.fault,
@@ -326,7 +326,7 @@ test("staff reads versioned configuration and booking-scoped audit history", asy
   assert.equal(courts.length, 11);
   assert.deepEqual(templates.map(({ id, startTime, enabled, version }) => ({ id, startTime, enabled, version })), [
     { id: "slot-0700", startTime: "07:00", enabled: true, version: 1 },
-    { id: "slot-0800", startTime: "08:00", enabled: true, version: 1 },
+    { id: "slot-0900", startTime: "09:00", enabled: true, version: 1 },
   ]);
   assert.deepEqual(audits.map((audit) => audit.bookingId), [created.id]);
 });

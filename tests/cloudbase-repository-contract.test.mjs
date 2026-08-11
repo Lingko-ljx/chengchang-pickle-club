@@ -141,6 +141,14 @@ class FakeCollection {
   }
 
   async get() {
+    if (!this.transactional) {
+      this.sdk.nonTransactionQueryInFlight += 1;
+      this.sdk.maxNonTransactionQueryInFlight = Math.max(
+        this.sdk.maxNonTransactionQueryInFlight,
+        this.sdk.nonTransactionQueryInFlight,
+      );
+      await Promise.resolve();
+    }
     this.sdk.queries.push({
       collection: this.name,
       condition: clone(this.condition),
@@ -160,7 +168,9 @@ class FakeCollection {
         }
         return 0;
       });
-    return { data: values.slice(this.offset, this.offset + this.pageSize).map(clone) };
+    const response = { data: values.slice(this.offset, this.offset + this.pageSize).map(clone) };
+    if (!this.transactional) this.sdk.nonTransactionQueryInFlight -= 1;
+    return response;
   }
 }
 
@@ -178,8 +188,12 @@ class FakeCloudBaseDatabase {
     this.whereCalls = 0;
     this.retryAttempts = [];
     this.transactionInFlight = 0;
+    this.transactionOperationCount = 0;
+    this.nonTransactionQueryInFlight = 0;
+    this.maxNonTransactionQueryInFlight = 0;
     this.maxTransactionInFlight = 0;
     this.transactionBusyErrors = 0;
+    this.beforeNextTransaction = undefined;
     this.command = { removeValue: { removeField: true }, remove: () => this.command.removeValue };
   }
 
@@ -193,6 +207,7 @@ class FakeCloudBaseDatabase {
       throw new Error("ResourceUnavailable.TransactionBusy");
     }
     this.transactionInFlight += 1;
+    this.transactionOperationCount += 1;
     this.maxTransactionInFlight = Math.max(
       this.maxTransactionInFlight,
       this.transactionInFlight,
@@ -207,6 +222,9 @@ class FakeCloudBaseDatabase {
 
   async runTransaction(work, retries) {
     this.retryAttempts.push(retries);
+    const beforeTransaction = this.beforeNextTransaction;
+    this.beforeNextTransaction = undefined;
+    if (beforeTransaction) beforeTransaction(this.state);
     const transactionState = new Map(
       Array.from(this.state, ([collection, values]) => [
         collection,
@@ -421,6 +439,410 @@ test("CloudBase booking create keeps one SDK operation in flight per transaction
   assert.equal(database.transactionBusyErrors, 0);
 });
 
+test("v2 create stays within a stable twelve-operation transaction budget", async () => {
+  const database = new FakeCloudBaseDatabase({
+    courts: Object.fromEntries(
+      courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
+    ),
+    system_state: {
+      "booking-inventory-v2-migration": {
+        id: "booking-inventory-v2-migration",
+        status: "ready",
+        schemaVersion: 2,
+      },
+    },
+  });
+  const service = serviceFor(database);
+  const booking = await service.create(bookingCommand({
+    sessionId: undefined,
+    date: "2026-08-10",
+    startTime: "09:30",
+    endTime: "11:30",
+  }));
+
+  assert.equal(booking.sessionId, "2026-08-10__window-v2-0930-1130");
+  assert.equal(booking.courtId, "01");
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+  assert.equal(database.transactionOperationCount, 12);
+  assert.equal(database.whereCalls, 0);
+  assert.deepEqual(
+    database.readIds.filter((id) => /^2026-08-10__court-\d{2}$/.test(id)),
+    ["2026-08-10__court-01"],
+  );
+  assert.deepEqual(
+    database.queries.find(({ collection }) => collection === "court_day_allocations"),
+    {
+      collection: "court_day_allocations",
+      condition: { date: "2026-08-10" },
+      orders: [],
+      offset: 0,
+      pageSize: 100,
+    },
+  );
+  assert.deepEqual(database.value("court_day_allocations", "2026-08-10__court-01"), {
+    id: "2026-08-10__court-01",
+    date: "2026-08-10",
+    courtId: "01",
+    cells: {
+      "0930": { mode: "open", occupiedPlayers: 2, bookingIds: ["booking-001"] },
+      "1000": { mode: "open", occupiedPlayers: 2, bookingIds: ["booking-001"] },
+      "1030": { mode: "open", occupiedPlayers: 2, bookingIds: ["booking-001"] },
+      "1100": { mode: "open", occupiedPlayers: 2, bookingIds: ["booking-001"] },
+    },
+    version: 1,
+  });
+
+  database.transactionOperationCount = 0;
+  const cancelled = await service.cancel({
+    bookingId: booking.id,
+    expectedVersion: booking.version,
+    actorType: "customer",
+  });
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(database.transactionOperationCount, 6);
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+  assert.deepEqual(
+    database.value("court_day_allocations", "2026-08-10__court-01").cells,
+    {},
+  );
+});
+
+test("v2 create rechecks a stale preflight candidate inside the transaction", async () => {
+  const database = new FakeCloudBaseDatabase({
+    courts: Object.fromEntries(
+      courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
+    ),
+    system_state: {
+      "booking-inventory-v2-migration": {
+        id: "booking-inventory-v2-migration",
+        status: "ready",
+        schemaVersion: 2,
+      },
+    },
+  });
+  database.beforeNextTransaction = (state) => {
+    state.set("court_day_allocations", new Map([
+      ["2026-08-10__court-01", {
+        id: "2026-08-10__court-01",
+        date: "2026-08-10",
+        courtId: "01",
+        cells: {
+          "0930": {
+            mode: "private",
+            occupiedPlayers: 4,
+            bookingIds: ["booking-racing"],
+          },
+        },
+        version: 1,
+      }],
+    ]));
+  };
+
+  const booking = await serviceFor(database).create(bookingCommand({
+    sessionId: undefined,
+    date: "2026-08-10",
+    startTime: "09:30",
+    endTime: "10:30",
+  }));
+
+  assert.equal(booking.courtId, "02");
+  assert.deepEqual(
+    database.value("court_day_allocations", "2026-08-10__court-01").cells["0930"],
+    {
+      mode: "private",
+      occupiedPlayers: 4,
+      bookingIds: ["booking-racing"],
+    },
+  );
+  assert.equal(database.transactionOperationCount, 13);
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+});
+
+test("v2 availability uses one non-transaction inventory query", async () => {
+  const database = new FakeCloudBaseDatabase({
+    courts: Object.fromEntries(
+      courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
+    ),
+    system_state: {
+      "booking-inventory-v2-migration": {
+        id: "booking-inventory-v2-migration",
+        status: "ready",
+        schemaVersion: 2,
+      },
+    },
+  });
+
+  const availability = await serviceFor(database).listWindowAvailability("2026-08-10");
+
+  assert.equal(availability.windows.length > 0, true);
+  assert.equal(database.transactionOperationCount, 0);
+  assert.equal(database.maxNonTransactionQueryInFlight, 2);
+  assert.deepEqual(database.retryAttempts, []);
+  assert.deepEqual(
+    database.queries.filter(({ collection }) => collection === "court_day_allocations"),
+    [{
+      collection: "court_day_allocations",
+      condition: { date: "2026-08-10" },
+      orders: [],
+      offset: 0,
+      pageSize: 100,
+    }],
+  );
+});
+
+test("v2 reschedule proposal stays within a stable eight-operation transaction budget", async () => {
+  const database = new FakeCloudBaseDatabase({
+    courts: Object.fromEntries(
+      courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
+    ),
+    system_state: {
+      "booking-inventory-v2-migration": {
+        id: "booking-inventory-v2-migration",
+        status: "ready",
+        schemaVersion: 2,
+      },
+    },
+  });
+  const service = serviceFor(database);
+  const created = await service.create(bookingCommand({
+    sessionId: undefined,
+    date: "2026-08-10",
+    startTime: "09:30",
+    endTime: "10:30",
+  }));
+  database.transactionOperationCount = 0;
+
+  const proposed = await service.proposeReschedule({
+    bookingId: created.id,
+    expectedVersion: created.version,
+    actorId: "profile-staff-7",
+    date: "2026-08-10",
+    startTime: "11:00",
+    endTime: "12:00",
+  });
+
+  assert.equal(proposed.status, "reschedule_proposed");
+  assert.equal(proposed.proposedCourtId, "01");
+  assert.equal(database.transactionOperationCount, 8);
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+});
+
+test("v2 reschedule proposal rechecks a stale preflight candidate", async () => {
+  const database = new FakeCloudBaseDatabase({
+    courts: Object.fromEntries(
+      courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
+    ),
+    system_state: {
+      "booking-inventory-v2-migration": {
+        id: "booking-inventory-v2-migration",
+        status: "ready",
+        schemaVersion: 2,
+      },
+    },
+  });
+  const service = serviceFor(database);
+  const created = await service.create(bookingCommand({
+    sessionId: undefined,
+    date: "2026-08-10",
+    startTime: "09:30",
+    endTime: "10:30",
+  }));
+  database.transactionOperationCount = 0;
+  database.beforeNextTransaction = (state) => {
+    const inventories = state.get("court_day_allocations");
+    const inventory = inventories.get("2026-08-10__court-01");
+    inventories.set("2026-08-10__court-01", {
+      ...inventory,
+      cells: {
+        ...inventory.cells,
+        "1200": {
+          mode: "private",
+          occupiedPlayers: 4,
+          bookingIds: ["booking-racing"],
+        },
+        "1230": {
+          mode: "private",
+          occupiedPlayers: 4,
+          bookingIds: ["booking-racing"],
+        },
+      },
+      version: inventory.version + 1,
+    });
+  };
+
+  const proposed = await service.proposeReschedule({
+    bookingId: created.id,
+    expectedVersion: created.version,
+    actorId: "profile-staff-7",
+    date: "2026-08-10",
+    startTime: "12:00",
+    endTime: "13:00",
+  });
+
+  assert.equal(proposed.proposedCourtId, "02");
+  assert.equal(database.transactionOperationCount, 9);
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+  assert.deepEqual(
+    database.value("court_day_allocations", "2026-08-10__court-01").cells["1200"],
+    {
+      mode: "private",
+      occupiedPlayers: 4,
+      bookingIds: ["booking-racing"],
+    },
+  );
+});
+
+test("v2 reschedule fails before inventory work for every unverified migration state", async () => {
+  for (const marker of [
+    undefined,
+    { status: "running", schemaVersion: 2 },
+    { status: "failed", schemaVersion: 2 },
+  ]) {
+    const database = new FakeCloudBaseDatabase({
+      courts: Object.fromEntries(
+        courtIds.map((id) => [id, { id, enabled: true, version: 1 }]),
+      ),
+      system_state: {
+        "booking-inventory-v2-migration": {
+          id: "booking-inventory-v2-migration",
+          status: "ready",
+          schemaVersion: 2,
+        },
+      },
+    });
+    const service = serviceFor(database);
+    const created = await service.create(bookingCommand({
+      sessionId: undefined,
+      date: "2026-08-10",
+      startTime: "09:30",
+      endTime: "10:30",
+    }));
+    if (marker) {
+      database.state.get("system_state").set("booking-inventory-v2-migration", {
+        id: "booking-inventory-v2-migration",
+        ...marker,
+      });
+    } else {
+      database.state.get("system_state").delete("booking-inventory-v2-migration");
+    }
+    database.operations.length = 0;
+    database.transactionOperationCount = 0;
+
+    await assert.rejects(
+      () => service.proposeReschedule({
+        bookingId: created.id,
+        expectedVersion: created.version,
+        actorId: "profile-staff-7",
+        date: "2026-08-10",
+        startTime: "11:00",
+        endTime: "12:00",
+      }),
+      /SESSION_CLOSED/,
+    );
+
+    assert.equal(database.transactionOperationCount, 1);
+    assert.deepEqual(
+      database.operations.filter(({ type }) => type === "set"),
+      [],
+    );
+    assert.equal(database.maxTransactionInFlight, 1);
+    assert.equal(database.transactionBusyErrors, 0);
+  }
+});
+
+test("legacy staff reschedule rejects targets outside 09:00-22:00 before writes", async () => {
+  for (const [startTime, startAt, endAt] of [
+    ["07:00", "2026-08-09T23:00:00.000Z", "2026-08-10T00:00:00.000Z"],
+    ["08:00", "2026-08-10T00:00:00.000Z", "2026-08-10T01:00:00.000Z"],
+    ["22:00", "2026-08-10T14:00:00.000Z", "2026-08-10T15:00:00.000Z"],
+  ]) {
+    const database = seededDatabase();
+    const targetSessionId = `2026-08-10__slot-${startTime.replace(":", "")}`;
+    database.state.get("sessions").set(targetSessionId, {
+      id: targetSessionId,
+      date: "2026-08-10",
+      templateId: `slot-${startTime.replace(":", "")}`,
+      startAt,
+      endAt,
+      status: "open",
+      enabledCourtIds: courtIds,
+      version: 1,
+    });
+    const service = serviceFor(database);
+    const created = await service.create(bookingCommand());
+    database.operations.length = 0;
+
+    await assert.rejects(
+      () => service.proposeReschedule({
+        bookingId: created.id,
+        expectedVersion: created.version,
+        actorId: "profile-staff-7",
+        sessionId: targetSessionId,
+      }),
+      /SESSION_CLOSED/,
+    );
+
+    assert.deepEqual(
+      database.operations.filter(({ type }) => type === "set"),
+      [],
+      startTime,
+    );
+  }
+});
+
+test("legacy staff reschedule keeps legal 09:00 and 21:00 targets", async () => {
+  for (const [startTime, startAt, endAt] of [
+    ["09:00", "2026-08-10T01:00:00.000Z", "2026-08-10T02:00:00.000Z"],
+    ["21:00", "2026-08-10T13:00:00.000Z", "2026-08-10T14:00:00.000Z"],
+  ]) {
+    const database = seededDatabase();
+    const targetSessionId = `2026-08-10__slot-${startTime.replace(":", "")}`;
+    database.state.get("sessions").set(targetSessionId, {
+      id: targetSessionId,
+      date: "2026-08-10",
+      templateId: `slot-${startTime.replace(":", "")}`,
+      startAt,
+      endAt,
+      status: "open",
+      enabledCourtIds: courtIds,
+      version: 1,
+    });
+    const service = serviceFor(database);
+    const created = await service.create(bookingCommand());
+
+    const proposed = await service.proposeReschedule({
+      bookingId: created.id,
+      expectedVersion: created.version,
+      actorId: "profile-staff-7",
+      sessionId: targetSessionId,
+    });
+
+    assert.equal(proposed.proposedSessionId, targetSessionId);
+    assert.equal(proposed.status, "reschedule_proposed");
+  }
+});
+
+test("CloudBase v2 readiness requires the exact verified migration marker", async () => {
+  for (const [marker, expected] of [
+    [undefined, false],
+    [{ id: "booking-inventory-v2-migration", status: "running", schemaVersion: 2 }, false],
+    [{ id: "booking-inventory-v2-migration", status: "ready", schemaVersion: 1 }, false],
+    [{ id: "booking-inventory-v2-migration", status: "ready", schemaVersion: 2 }, true],
+  ]) {
+    const database = new FakeCloudBaseDatabase({
+      ...(marker ? { system_state: { "booking-inventory-v2-migration": marker } } : {}),
+    });
+    const repository = new CloudBaseBookingRepository(database);
+    assert.equal(await repository.isBookingInventoryV2Ready(), expected);
+    assert.equal(database.whereCalls, 0);
+  }
+});
+
 test("create reads every deterministic allocation document without a transaction query", async () => {
   // Catches replacing the deterministic eleven doc reads with a transaction where() query.
   const database = seededDatabase();
@@ -428,7 +850,7 @@ test("create reads every deterministic allocation document without a transaction
 
   assert.equal(booking.id, "booking-001");
   assert.deepEqual(
-    database.readIds.filter((id) => id.includes("__court-")),
+    database.readIds.filter((id) => /__slot-\d{4}__court-/.test(id)),
     Array.from(
       { length: 11 },
       (_, index) => `2026-08-10__slot-1900__court-${String(index + 1).padStart(2, "0")}`,

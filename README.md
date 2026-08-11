@@ -32,6 +32,44 @@ outputs, so both a GitHub project URL and a custom-domain root URL are supported
 In GitHub **Settings → Pages**, set **Source** to **GitHub Actions** before the
 first release; the legacy branch publisher must not remain active.
 
+## Booking v2 operating rules
+
+All customer and staff booking times are Beijing time (`Asia/Shanghai`). The
+venue is open daily from **09:00 through 22:00**. A booking may start on each
+half-hour (`:00` or `:30`), must last **1, 2, 3, or 4 whole hours**, and must end
+no later than 22:00. For example, `09:30–11:30` is valid; `09:30–11:00`,
+`08:30–09:30`, and `21:30–22:30` are invalid. The public form always submits an
+explicit date, start time, and end time, and the staff calendar displays that
+same interval rather than inferring an end time from a legacy session ID.
+
+The current CloudBase free-experience tier fixes function timeout at **3
+seconds** and does not allow it to be increased. The deployment verifier checks
+that all three functions still report `Timeout: 3`; performance work must reduce
+database round trips rather than trying to override the plan limit.
+
+The compact **营业设置** panel is for enabling or disabling courts. Do not try
+to recreate the booking window by checking dozens of individual hourly
+templates: `system_state/booking-policy-v2` is the authoritative v2 policy. The
+old `session_templates` documents remain only for compatibility with bookings
+created by the previous interface.
+
+## Daily homepage promotion
+
+Staff can use **后台 → 首页宣传** to upload a daily court photo or video. Images
+must be `image/jpeg` (JPG), `image/png`, or `image/webp` and no larger than 8 MB.
+Videos must be `video/mp4` and no larger than 50 MB. Add a short title, optional
+caption, and useful visual description, then choose **上传并发布**. The library
+supports **发布**, **下架**, **置顶 / 取消置顶**, and **删除**; only one published
+item is pinned at a time, and the homepage shows at most the configured public
+selection rather than every historical upload.
+
+The browser sends file bytes directly to CloudBase Storage with a short-lived,
+server-signed `PUT`; file bytes never pass through the booking function. If an
+upload fails or the page is closed during transfer, refresh the admin page and
+inspect the media library. Delete any **等待上传完成** entry, then start a new
+upload. Do not reuse the expired signed URL or assume that an interrupted item
+was published.
+
 ## Staging-only CloudBase workflow
 
 `.github/workflows/cloudbase.yml` is manual-only and targets the protected
@@ -66,9 +104,30 @@ The workflow runs `npm ci`, then runs `npm test` with `GITHUB_PAGES=false` and
 the staging public API/environment identifiers, and lints the source. It also
 builds and verifies a root-directory static export with `PAGES_BASE_PATH=/`, but
 does not publish that export yet. Only after the local gates pass does it build
-all functions, atomically render the ignored root `cloudbaserc.json`, provision
-additive database resources, deploy, and read each function detail independently.
-Every function must be Active
+all functions, atomically render the ignored root `cloudbaserc.json`, and
+provision additive database resources.
+
+Immediately after provisioning and before any function deployment, the workflow
+enforces the CloudBase Storage upload-CORS postcondition documented below. A
+configuration or verification failure stops the release before function or
+static-site publication.
+
+Booking v2 then uses a mandatory two-phase cutover:
+
+1. Deploy the backward-compatible functions first. While the readiness marker
+   is absent, the new availability path stays closed and v2 creates are denied;
+   the legacy v1 path remains usable and dual-writes the new daily inventory.
+2. Run `scripts/migrate-booking-inventory-v2.mjs --apply`, then
+   `scripts/verify-booking-inventory-v2.mjs`. Verification must reject missing,
+   conflicting, or stale cell ownership before it writes or accepts the exact
+   `system_state/booking-inventory-v2-migration` marker with `status="ready"`
+   and `schemaVersion=2`. Never set this marker manually. Only after that ready
+   gate passes may the workflow verify the functions/API and publish the static
+   v2 interface.
+
+This ordering means a failed migration leaves the already deployed compatible
+functions in their safe gated state and prevents the new static booking form
+from going live. Every function must then be Active
 with Node.js 20.19, `index.main`, dependency installation enabled, and the
 current commit revision in its description. The mailer must also expose exactly
 the `booking-mailer-every-minute` timer with `0 * * * * * *`.
@@ -101,7 +160,7 @@ uses the TCB `DescribeDatabaseACL` and `ModifyDatabaseACL` APIs to move every
 managed collection only toward the `ADMINONLY` client ACL. It will never lower
 that ACL. It will never delete or rebuild a collection, index, or document.
 
-Provisioning covers these eleven collections:
+Provisioning covers these twelve collections:
 
 ```text
 courts
@@ -115,23 +174,28 @@ notification_outbox
 rate_limits
 idempotency
 system_state
+court_day_allocations
 ```
 
-It creates the nine planned compound indexes, courts `01` through `11`, and the
-sixteen 60-minute templates `slot-0700` through `slot-2200`.
+It creates the ten planned compound indexes, courts `01` through `11`, the
+sixteen legacy 60-minute templates `slot-0700` through `slot-2200`, and the
+authoritative `booking-policy-v2` seed (`09:00–22:00`, 30-minute starts,
+60-minute duration steps, 60-minute minimum, and 240-minute maximum).
 
-The scripts configure only the eleven collection ACLs described above. They
-cannot configure Auth, RBAC, gateway routes, CORS, function runtime environment
-values, SES approval, snapshots, or rollback. Those remain manual hard gates
-below. A green workflow is not production approval.
+The provisioning script configures only the twelve collection ACLs described
+above. It cannot configure Auth, RBAC, gateway routes/API CORS, function runtime
+environment values, SES approval, snapshots, or rollback. The separate Storage
+security step enforces the `ADMINONLY` Storage ACL and the signed-upload CORS
+rule documented below; the other items remain manual hard gates. A green
+workflow is not production approval.
 
 ## Manual hard gates before staging is ready
 
 Record the operator, time, environment ID, and evidence for every item. Complete
 the snapshot and change-control gate below before the first workflow run. That
-run additively provisions the database, enforces `ADMINONLY` on its eleven
+run additively provisions the database, enforces `ADMINONLY` on its twelve
 collections, and creates or updates the functions, but it does not configure
-Auth/RBAC, gateway/CORS, runtime environment values, or SES. The bootstrap run
+Auth/RBAC, gateway routes/API CORS, runtime environment values, or SES. The bootstrap run
 is therefore expected to fail its final function-detail
 verification after provisioning and deployment because the exact runtime key
 sets are not present yet. The workflow stops before public API validation or
@@ -154,7 +218,7 @@ allowing traffic.
 Provisioning reads each collection's current basic ACL and changes only drifted
 collections to `ADMINONLY`, which the CloudBase console presents as no direct
 client access. A partial run can be rerun safely: collections already at
-`ADMINONLY` receive no write. The workflow also reads all eleven ACLs again with
+`ADMINONLY` receive no write. The workflow also reads all twelve ACLs again with
 bounded retries and fails unless every result is exactly `ADMINONLY`.
 
 As the release hard gate, verify both an anonymous Web SDK client and an
@@ -215,6 +279,61 @@ promise that the free-tier workflow provisions new safety domains.
 Validate admin `OPTIONS` at the deployed gateway before login testing: it must
 return the intended allow-origin/method/header policy without invoking business
 logic. Also verify an unlisted origin receives no permissive CORS response.
+
+#### CloudBase Storage CORS for signed homepage-media uploads
+
+API CORS does not authorize the browser's direct Storage upload. Before function
+deployment, the workflow runs `scripts/ensure-cloudbase-storage-cors.mjs`. It
+strictly derives the HTTPS hostname from `CLOUDBASE_SITE_URL` and ensures the
+CloudBase/COS compatibility rule. The only hostnames the script automatically
+manages are:
+
+```text
+<exact origin extracted from CLOUDBASE_SITE_URL>
+https://lingko-ljx.github.io
+```
+
+The same step reads the CloudBase Storage ACL, changes it only toward
+`ADMINONLY` when drifted, and reads it back with bounded retries. The workflow
+stops unless the final ACL is exactly `ADMINONLY`; CORS success alone is never
+treated as authorization proof.
+
+For each hostname, pinned `@cloudbase/manager-node@5.6.6`
+`modifyCosCorsDomain()` writes its fixed compatibility shape: both `http://` and
+`https://`, methods `GET, POST, PUT, DELETE, HEAD`, and
+`AllowedHeader: ["*"]`. The required postcondition is that the rule includes the
+HTTPS origin and `PUT`; the provider header wildcard covers the signed direct
+upload's generated request headers:
+
+```text
+Authorization
+Content-Type
+Signature
+key
+x-cos-security-token
+x-cos-meta-fileid
+```
+
+Do not describe the manager-generated rule as an HTTPS-only or PUT-only rule,
+and do not copy its wildcard/method set into API-gateway CORS. Storage CORS does
+not authorize an unsigned operation: object upload still requires the
+short-lived signature. The script preserves unrelated existing CORS rules,
+performs no write when the required postcondition already exists, and fails the
+workflow if that postcondition is not visible. No routine console CORS edit is
+required. CloudBase/COS handles the preflight `OPTIONS`; this application uses
+the signed `PUT` operation.
+
+After the workflow passes, perform one small JPG canary upload from the
+CloudBase-hosted admin page and one from the GitHub Pages admin page. Publish,
+view, unpublish, and delete the canary before accepting the release. If either
+browser preflight fails, stop; do not loosen the rule to make the test pass.
+
+Storage CORS never changes database authorization. All twelve database
+collections, including `system_state` (which contains the
+`homepage-media-v1` manifest and both booking policy/migration markers), remain
+`ADMINONLY`. Storage must not allow anonymous public writes or broad public
+listing/reading: the admin function issues a short-lived signed upload, and the
+public function returns short-lived download URLs only for published items.
 
 ### 5. Set exact function runtime configuration
 

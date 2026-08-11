@@ -7,6 +7,7 @@ import type {
   AvailabilitySlot,
   BookingRecord,
   CourtAllocation,
+  CourtDayInventory,
   CourtRecord,
   NotificationEvent,
   SessionRecord,
@@ -14,6 +15,7 @@ import type {
 } from "../types.ts";
 
 interface MemoryState {
+  bookingInventoryV2Ready: boolean;
   bookings: Map<string, BookingRecord>;
   bookingCodes: Map<string, string>;
   sessions: Map<string, SessionRecord>;
@@ -21,11 +23,13 @@ interface MemoryState {
   courts: Map<string, CourtRecord>;
   idempotency: Map<string, string>;
   allocations: Map<string, CourtAllocation>;
+  courtDayInventories: Map<string, CourtDayInventory>;
   auditLogs: Map<string, AuditLog>;
   notifications: Map<string, NotificationEvent>;
 }
 
 export interface MemoryBookingSeed {
+  bookingInventoryV2Ready?: boolean;
   bookings?: BookingRecord[];
   bookingCodes?: Array<{ codeHash: string; bookingId: string }>;
   sessions?: SessionRecord[];
@@ -33,6 +37,7 @@ export interface MemoryBookingSeed {
   courts?: CourtRecord[];
   idempotency?: Array<{ keyHash: string; bookingId: string }>;
   allocations?: CourtAllocation[];
+  courtDayInventories?: CourtDayInventory[];
   auditLogs?: AuditLog[];
   notifications?: NotificationEvent[];
   fault?: {
@@ -51,6 +56,7 @@ function cloneMap<T>(values: Map<string, T>): Map<string, T> {
 
 function cloneState(state: MemoryState): MemoryState {
   return {
+    bookingInventoryV2Ready: state.bookingInventoryV2Ready,
     bookings: cloneMap(state.bookings),
     bookingCodes: new Map(state.bookingCodes),
     sessions: cloneMap(state.sessions),
@@ -58,6 +64,7 @@ function cloneState(state: MemoryState): MemoryState {
     courts: cloneMap(state.courts),
     idempotency: new Map(state.idempotency),
     allocations: cloneMap(state.allocations),
+    courtDayInventories: cloneMap(state.courtDayInventories),
     auditLogs: cloneMap(state.auditLogs),
     notifications: cloneMap(state.notifications),
   };
@@ -121,12 +128,31 @@ class MemoryBookingTransaction implements BookingTransaction {
       .map(cloneValue);
   }
 
+  async isBookingInventoryV2Ready(): Promise<boolean> {
+    return this.state.bookingInventoryV2Ready;
+  }
+
+  async getCourtDayInventories(
+    date: string,
+    courtIds: readonly string[],
+  ): Promise<CourtDayInventory[]> {
+    const wanted = new Set(courtIds);
+    return Array.from(this.state.courtDayInventories.values())
+      .filter((item) => item.date === date && wanted.has(item.courtId))
+      .sort((a, b) => courtIds.indexOf(a.courtId) - courtIds.indexOf(b.courtId))
+      .map(cloneValue);
+  }
+
   async putSession(value: SessionRecord): Promise<void> {
     this.state.sessions.set(value.id, cloneValue(value));
   }
 
   async putAllocation(value: CourtAllocation): Promise<void> {
     this.state.allocations.set(value.id, cloneValue(value));
+  }
+
+  async putCourtDayInventory(value: CourtDayInventory): Promise<void> {
+    this.state.courtDayInventories.set(value.id, cloneValue(value));
   }
 
   async putBooking(value: BookingRecord): Promise<void> {
@@ -168,6 +194,7 @@ export class MemoryBookingRepository implements BookingRepository {
     this.faultOperation = seed.fault?.operation;
     this.remainingFaults = seed.fault?.times ?? (seed.fault ? 1 : 0);
     this.state = {
+      bookingInventoryV2Ready: seed.bookingInventoryV2Ready ?? false,
       bookings: new Map((seed.bookings ?? []).map((value) => [value.id, cloneValue(value)])),
       bookingCodes: new Map(bookingCodes.map((value) => [value.codeHash, value.bookingId])),
       sessions: new Map((seed.sessions ?? []).map((value) => [value.id, cloneValue(value)])),
@@ -177,6 +204,9 @@ export class MemoryBookingRepository implements BookingRepository {
       courts: new Map((seed.courts ?? []).map((value) => [value.id, cloneValue(value)])),
       idempotency: new Map((seed.idempotency ?? []).map((value) => [value.keyHash, value.bookingId])),
       allocations: new Map((seed.allocations ?? []).map((value) => [value.id, cloneValue(value)])),
+      courtDayInventories: new Map(
+        (seed.courtDayInventories ?? []).map((value) => [value.id, cloneValue(value)]),
+      ),
       auditLogs: new Map((seed.auditLogs ?? []).map((value) => [value.id, cloneValue(value)])),
       notifications: new Map(
         (seed.notifications ?? []).map((value) => [value.id, cloneValue(value)]),
@@ -193,6 +223,11 @@ export class MemoryBookingRepository implements BookingRepository {
       this.state = next;
       return cloneValue(result);
     });
+  }
+
+  async isBookingInventoryV2Ready(): Promise<boolean> {
+    await this.queue;
+    return this.state.bookingInventoryV2Ready;
   }
 
   async getBookingById(bookingId: string): Promise<BookingRecord | null> {
@@ -252,6 +287,14 @@ export class MemoryBookingRepository implements BookingRepository {
         (left, right) =>
           left.startAt.localeCompare(right.startAt) || left.id.localeCompare(right.id),
       )
+      .map(cloneValue);
+  }
+
+  async listCourtDayInventories(date: string): Promise<CourtDayInventory[]> {
+    await this.queue;
+    return Array.from(this.state.courtDayInventories.values())
+      .filter((inventory) => inventory.date === date)
+      .sort((left, right) => left.courtId.localeCompare(right.courtId))
       .map(cloneValue);
   }
 

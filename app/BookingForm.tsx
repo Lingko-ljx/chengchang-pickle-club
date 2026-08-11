@@ -7,22 +7,31 @@ type BookingFormProps = {
 };
 
 const fallbackStartTimes = [
-  "07:00",
-  "08:00",
   "09:00",
+  "09:30",
   "10:00",
+  "10:30",
   "11:00",
+  "11:30",
   "12:00",
+  "12:30",
   "13:00",
+  "13:30",
   "14:00",
+  "14:30",
   "15:00",
+  "15:30",
   "16:00",
+  "16:30",
   "17:00",
+  "17:30",
   "18:00",
+  "18:30",
   "19:00",
+  "19:30",
   "20:00",
+  "20:30",
   "21:00",
-  "22:00",
 ];
 const partySizes = [1, 2, 3, 4];
 
@@ -45,17 +54,17 @@ export function BookingForm({
           <span>来打一场刚刚好的球。</span>
         </h2>
         <p>
-          每个场次固定 60 分钟，可选择散客拼场或 1–4 人包场。
-          页面展示实时可用场次，最终分配以提交结果为准。
+          每天 09:00–22:00 开放预约，开始时间可选整点或半点。
+          每次至少 1 小时，之后按整小时增加，可选择散客拼场或包场。
         </p>
         <div className="booking-facts">
           <div>
-            <span>60</span>
-            <p>分钟固定场次</p>
+            <span>30</span>
+            <p>分钟可选开始间隔</p>
           </div>
           <div>
-            <span>1—4</span>
-            <p>位参与者可提交预约</p>
+            <span>1—4H</span>
+            <p>按实际整小时计费</p>
           </div>
         </div>
       </div>
@@ -67,7 +76,7 @@ export function BookingForm({
               acceptCharset="UTF-8"
               action={formEndpoint}
               className="booking-form"
-              data-availability-url={`${apiBaseUrl.replace(/\/+$/, "")}/v1/availability`}
+              data-availability-url={`${apiBaseUrl.replace(/\/+$/, "")}/v2/availability`}
               data-booking-result-path={resultPath}
               data-booking-status-path={statusPath}
               id="booking-form"
@@ -115,7 +124,7 @@ export function BookingForm({
                     name="start_time"
                     required
                   >
-                    <option value="">请选择时段</option>
+                    <option value="">请选择开始时间</option>
                     {fallbackStartTimes.map((time) => (
                       <option key={time} value={time}>
                         {time}
@@ -123,6 +132,29 @@ export function BookingForm({
                     ))}
                   </select>
                 </label>
+                <label htmlFor="booking-end-time">
+                  <span>结束时间</span>
+                  <select id="booking-end-time" name="end_time" required>
+                    <option value="">请选择结束时间</option>
+                  </select>
+                </label>
+                <div
+                  aria-live="polite"
+                  className="booking-time-summary"
+                  id="booking-time-summary"
+                  role="status"
+                >
+                  <strong>北京时间</strong>
+                  <span>请选择开始与结束时间</span>
+                </div>
+                <p
+                  aria-live="polite"
+                  className="booking-availability-status"
+                  id="booking-availability-status"
+                  role="status"
+                >
+                  营业时间 09:00–22:00 · 最少 1 小时 · 整小时计费
+                </p>
               </div>
 
               <div className="form-group input-grid">
@@ -178,7 +210,7 @@ export function BookingForm({
               </label>
 
               <p className="booking-disclaimer">
-                提交后等待工作人员确认；提交成功不等于场次已确认。
+                所有时间均为北京时间。提交后等待工作人员确认；提交成功不等于场次已确认。
               </p>
               <p id="booking-error" className="field-error" hidden role="alert" />
               <button className="primary-button" type="submit">

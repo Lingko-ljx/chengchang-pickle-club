@@ -464,6 +464,95 @@ textarea:focus-visible {
   }
 }
 
+.daily-media {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 82px;
+  padding-top: 82px;
+}
+
+.daily-media-heading {
+  align-items: end;
+  display: flex;
+  gap: 36px;
+  justify-content: space-between;
+  margin-bottom: 30px;
+}
+
+.daily-media-heading > div > p {
+  color: var(--sage);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  margin: 0 0 10px;
+}
+
+.daily-media-heading h2 {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 42px;
+  font-size: clamp(34px, 4vw, 56px);
+  font-weight: 400;
+  margin: 0;
+}
+
+.daily-media-heading > p {
+  color: var(--muted);
+  line-height: 1.8;
+  margin: 0;
+  max-width: 420px;
+}
+
+.daily-media-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.daily-media-card {
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.daily-media-card.is-pinned {
+  grid-column: span 2;
+}
+
+.daily-media-frame {
+  background: #dfe5d6;
+  height: 280px;
+  overflow: hidden;
+}
+
+.daily-media-card.is-pinned .daily-media-frame {
+  height: 360px;
+}
+
+.daily-media-frame img,
+.daily-media-frame video {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.daily-media-copy {
+  padding: 18px 20px 22px;
+}
+
+.daily-media-copy h3 {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 21px;
+  font-weight: 400;
+  margin: 0;
+}
+
+.daily-media-copy p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 10px 0 0;
+}
+
 .intro,
 .team,
 .honors,
@@ -1226,6 +1315,43 @@ textarea:focus-visible {
   grid-template-columns: repeat(2, 1fr);
 }
 
+.booking-time-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.booking-time-summary {
+  align-content: center;
+  background: rgba(169, 207, 69, 0.14);
+  border-left: 3px solid var(--lime-dark);
+  color: var(--muted);
+  display: grid;
+  font-size: 11px;
+  gap: 5px;
+  grid-column: 1 / -1;
+  min-height: 66px;
+  padding: 12px 16px;
+}
+
+.booking-time-summary strong {
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.booking-time-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.booking-availability-status {
+  color: var(--muted);
+  font-size: 11px;
+  grid-column: 1 / -1;
+  line-height: 1.6;
+  margin: 0;
+}
+
 .input-grid label:last-child {
   grid-column: 1 / -1;
 }
@@ -1590,6 +1716,14 @@ textarea:focus-visible {
   .booking-form {
     padding: 32px 28px;
   }
+
+  .booking-time-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .booking-time-grid > label:first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 860px) {
@@ -1875,6 +2009,11 @@ textarea:focus-visible {
 
   .input-grid {
     grid-template-columns: 1fr;
+  }
+
+  .booking-time-grid > label:first-child,
+  .booking-time-grid > * {
+    grid-column: auto;
   }
 
   .input-grid label:last-child {
@@ -2343,7 +2482,6 @@ textarea:focus-visible {
 
 .admin-login label,
 .admin-filters label,
-.admin-settings label,
 .admin-export label {
   display: grid;
   gap: 8px;
@@ -2351,7 +2489,6 @@ textarea:focus-visible {
 
 .admin-login label span,
 .admin-filters label span,
-.admin-settings label span,
 .admin-export label span {
   color: var(--muted);
   font-size: 11px;
@@ -2360,7 +2497,6 @@ textarea:focus-visible {
 .admin-login input,
 .admin-filters input,
 .admin-filters select,
-.admin-settings input,
 .admin-export input {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -2483,21 +2619,66 @@ textarea:focus-visible {
   background: var(--ink);
   color: var(--paper-light);
   font-size: 11px;
+}
+
+.admin-court-table thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
 }
 
 .admin-court-table th:first-child {
   left: 0;
   min-width: 105px;
+}
+
+.admin-court-table thead th:first-child {
   position: sticky;
-  z-index: 2;
+  z-index: 3;
+}
+
+.admin-court-table tbody th {
+  left: 0;
+  position: sticky;
+  top: auto;
+  z-index: 1;
 }
 
 .admin-court-empty {
   color: var(--muted);
   font-size: 11px;
+}
+
+.admin-booking-proposal {
+  background: var(--paper-light);
+  border-color: var(--lime-dark);
+}
+
+.admin-booking-kind {
+  color: var(--sage);
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.admin-matrix-continuation {
+  background: var(--paper-light);
+  border: 0;
+  border-left: 3px solid var(--sage);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.admin-matrix-continuation:hover,
+.admin-matrix-continuation:focus-visible {
+  background: var(--paper-deep);
 }
 
 .admin-workspace {
@@ -2507,6 +2688,140 @@ textarea:focus-visible {
 
 .admin-workspace > .admin-booking-list {
   flex: 1 1 360px;
+}
+
+.admin-media-layout {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1.28fr);
+}
+
+.admin-media-form,
+.admin-media-library {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  padding: 22px;
+}
+
+.admin-media-form {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+}
+
+.admin-media-form h3,
+.admin-media-form p,
+.admin-media-library h3 {
+  margin: 0;
+}
+
+.admin-media-form > div > p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin-top: 8px;
+}
+
+.admin-media-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-media-form label > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-media-form input,
+.admin-media-form textarea {
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: var(--ink);
+  min-height: 46px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.admin-media-form textarea {
+  resize: vertical;
+}
+
+.admin-media-form-status {
+  background: rgba(169, 207, 69, 0.18);
+  border-left: 3px solid var(--lime-dark);
+  font-size: 11px;
+  line-height: 1.7;
+  padding: 10px 12px;
+}
+
+.admin-media-form-status.is-error {
+  background: rgba(179, 76, 63, 0.14);
+  border-left-color: #b34c3f;
+}
+
+.admin-media-library-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.admin-media-library-heading span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-media-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-media-item {
+  align-items: center;
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.admin-media-kind {
+  background: var(--ink);
+  border-radius: 999px;
+  color: var(--lime);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  padding: 7px 8px;
+}
+
+.admin-media-item-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.admin-media-item-copy span,
+.admin-media-item-copy p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.admin-media-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.admin-media-actions button {
+  min-height: 34px;
+  padding: 6px 9px;
 }
 
 .admin-detail {
@@ -2551,8 +2866,140 @@ textarea:focus-visible {
 
 .admin-court-controls {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   grid-template-columns: repeat(3, 1fr);
+}
+
+.admin-policy-card,
+.admin-court-settings-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  padding: 22px;
+}
+
+.admin-setting-eyebrow {
+  color: var(--sage);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.admin-policy-card h3,
+.admin-court-settings-card h3 {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 24px;
+  font-weight: 400;
+  margin: 0;
+}
+
+.admin-policy-summary {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(2, 1fr);
+  margin: 22px 0 0;
+}
+
+.admin-policy-summary > div {
+  background: var(--paper-light);
+  padding: 14px;
+}
+
+.admin-policy-summary dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.admin-policy-summary dd {
+  font-size: 15px;
+  margin: 8px 0 0;
+}
+
+.admin-policy-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 18px 0 0;
+}
+
+.admin-court-settings-heading,
+.admin-court-save-row,
+.admin-court-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.admin-court-settings-heading strong {
+  color: var(--sage);
+  font-size: 13px;
+}
+
+.admin-court-toolbar {
+  justify-content: flex-start;
+  margin: 18px 0 12px;
+}
+
+.admin-court-toolbar button,
+.admin-court-save-row button {
+  min-height: 38px;
+  padding: 7px 12px;
+}
+
+.admin-court-toggle {
+  cursor: pointer;
+  position: relative;
+}
+
+.admin-court-toggle input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.admin-court-toggle-visual {
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  display: grid;
+  gap: 5px;
+  min-height: 68px;
+  padding: 12px;
+}
+
+.admin-court-toggle-visual small {
+  color: var(--muted);
+}
+
+.admin-court-toggle input:checked + .admin-court-toggle-visual {
+  background: rgba(169, 207, 69, 0.2);
+  border-color: var(--lime-dark);
+}
+
+.admin-court-toggle input:checked + .admin-court-toggle-visual small {
+  color: var(--sage);
+}
+
+.admin-court-toggle input:focus-visible + .admin-court-toggle-visual {
+  outline: 3px solid var(--lime);
+  outline-offset: 2px;
+}
+
+.admin-court-save-row {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.admin-court-save-row button:disabled {
+  cursor: default;
+  opacity: 0.48;
 }
 
 .admin-settings form,
@@ -2621,5 +3068,59 @@ textarea:focus-visible {
 
   .admin-court-controls {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-court-settings-heading,
+  .admin-court-save-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-court-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .admin-court-save-row button {
+    width: 100%;
+  }
+
+  .admin-media-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-media-item {
+    align-items: flex-start;
+    grid-template-columns: auto 1fr;
+  }
+
+  .admin-media-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .daily-media-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .daily-media-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 620px) {
+  .daily-media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-media-card.is-pinned {
+    grid-column: auto;
+  }
+
+  .daily-media-frame,
+  .daily-media-card.is-pinned .daily-media-frame {
+    height: 260px;
   }
 }

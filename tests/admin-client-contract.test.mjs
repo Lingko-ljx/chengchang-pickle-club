@@ -17,14 +17,16 @@ import {
   BOOKING_ACTIONS,
   COURT_IDS,
   bookingActionsFor,
+  bookingDurationHours,
   bookingDisplayName,
   confirmationMessage,
   formatShanghaiBookingSchedule,
   formatShanghaiDateTime,
   formatShanghaiDateTimeRange,
+  homepageMediaActionsFor,
+  matrixAssignmentsForCell,
   matrixBookingsForCell,
   retainSelectedBooking,
-  sessionTemplateDuration,
 } from "../admin-client/render.ts";
 
 function jsonResponse(data, status = 200) {
@@ -115,8 +117,22 @@ test("every management request carries the current bearer token", async () => {
   await client.getAuditLogs("booking-1");
   await client.getMatrixBookings("2026-08-09");
   await client.exportCsv("2026-08-01", "2026-08-31");
+  await client.getHomepageMedia();
+  await client.createMediaUploadIntent({
+    kind: "image",
+    mimeType: "image/webp",
+    sizeBytes: 1024,
+    originalName: "today.webp",
+    title: "今日球场",
+    altText: "匹克球场",
+    expectedManifestVersion: 0,
+  });
+  await client.finalizeMediaUpload("media-1", 1, true);
+  await client.setHomepageMediaPublished("media-1", false, 2);
+  await client.setHomepageMediaPinned("media-1", true, 3);
+  await client.deleteHomepageMedia("media-1", 4);
 
-  assert.equal(requests.length, 10);
+  assert.equal(requests.length, 16);
   const bootstrapUrl = new URL(requests[1].url);
   assert.equal(bootstrapUrl.pathname, "/v1/admin/bootstrap");
   assert.deepEqual(Object.fromEntries(bootstrapUrl.searchParams), {
@@ -129,6 +145,12 @@ test("every management request carries the current bearer token", async () => {
   for (const request of requests) {
     assert.equal(request.init.headers.Authorization, "Bearer staff-access-token");
   }
+  assert.equal(new URL(requests[10].url).pathname, "/v1/admin/homepage-media");
+  assert.equal(new URL(requests[11].url).pathname, "/v1/admin/homepage-media/upload-intents");
+  assert.equal(requests[11].init.method, "POST");
+  assert.equal(requests[13].init.method, "PUT");
+  assert.equal(new URL(requests[15].url).pathname, "/v1/admin/homepage-media/media-1/delete");
+  assert.equal(requests[15].init.method, "POST");
 });
 
 test("a 401 clears the client session before surfacing the error", async () => {
@@ -262,20 +284,90 @@ test("the court matrix always exposes the eleven planned court columns", () => {
   ]);
 });
 
-test("the matrix excludes terminal bookings and includes proposed reservations", () => {
-  const current = { id: "current", sessionId: "slot-a", courtId: "01", status: "confirmed" };
+test("the half-hour matrix uses interval overlap and excludes terminal bookings", () => {
+  const current = {
+    id: "current",
+    date: "2026-08-12",
+    sessionId: "window-a",
+    startAt: "2026-08-12T01:30:00.000Z",
+    endAt: "2026-08-12T03:30:00.000Z",
+    courtId: "01",
+    status: "confirmed",
+  };
   const proposed = {
     id: "proposed",
+    date: "2026-08-12",
     sessionId: "slot-old",
+    startAt: "2026-08-12T00:00:00.000Z",
+    endAt: "2026-08-12T01:00:00.000Z",
     courtId: "02",
-    proposedSessionId: "slot-a",
+    proposedStartAt: "2026-08-12T02:00:00.000Z",
+    proposedEndAt: "2026-08-12T03:00:00.000Z",
     proposedCourtId: "01",
     status: "reschedule_proposed",
   };
-  const cancelled = { id: "cancelled", sessionId: "slot-a", courtId: "01", status: "cancelled" };
+  const cancelled = { ...current, id: "cancelled", status: "cancelled" };
   assert.deepEqual(
-    matrixBookingsForCell([current, proposed, cancelled], "slot-a", "01").map((item) => item.id),
+    matrixBookingsForCell(
+      [current, proposed, cancelled],
+      "2026-08-12",
+      "10:00",
+      "10:30",
+      "01",
+    ).map((item) => item.id),
     ["current", "proposed"],
+  );
+  assert.deepEqual(
+    matrixBookingsForCell([current], "2026-08-12", "11:30", "12:00", "01"),
+    [],
+  );
+
+  const currentStart = matrixAssignmentsForCell(
+    [current, proposed],
+    "2026-08-12",
+    "09:30",
+    "10:00",
+    "01",
+  );
+  assert.deepEqual(
+    currentStart.map(({ booking, kind, startsHere }) => ({ id: booking.id, kind, startsHere })),
+    [{ id: "current", kind: "current", startsHere: true }],
+  );
+
+  const proposalStart = matrixAssignmentsForCell(
+    [current, proposed],
+    "2026-08-12",
+    "10:00",
+    "10:30",
+    "01",
+  );
+  assert.deepEqual(
+    proposalStart.map(({ booking, kind, startsHere, startAt, endAt, courtId }) => ({
+      id: booking.id,
+      kind,
+      startsHere,
+      startAt,
+      endAt,
+      courtId,
+    })),
+    [
+      {
+        id: "current",
+        kind: "current",
+        startsHere: false,
+        startAt: current.startAt,
+        endAt: current.endAt,
+        courtId: "01",
+      },
+      {
+        id: "proposed",
+        kind: "proposed",
+        startsHere: true,
+        startAt: proposed.proposedStartAt,
+        endAt: proposed.proposedEndAt,
+        courtId: "01",
+      },
+    ],
   );
 });
 
@@ -316,8 +408,18 @@ test("admin booking and audit instants render in Asia/Shanghai instead of raw UT
   }), "时间数据异常");
 });
 
-test("session templates are fixed to exactly sixty minutes", () => {
-  assert.equal(sessionTemplateDuration, 60);
+test("booking cards calculate whole billable hours from the real interval", () => {
+  assert.equal(bookingDurationHours({
+    startAt: "2026-08-12T01:30:00.000Z",
+    endAt: "2026-08-12T03:30:00.000Z",
+  }), 2);
+});
+
+test("homepage media that failed while deleting still exposes a retry action", () => {
+  assert.deepEqual(
+    homepageMediaActionsFor({ status: "deleting" }).map(([action]) => action),
+    ["delete"],
+  );
 });
 
 test("booking cards lead with the customer name and use a redacted fallback", async () => {
@@ -328,7 +430,12 @@ test("booking cards lead with the customer name and use a redacted fallback", as
 
   const source = await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8");
   assert.match(source, /text\("strong", bookingDisplayName\(booking\)\)/);
-  assert.match(source, /`预约号 \$\{booking\.code\}`/);
+  const cardSource = source.slice(
+    source.indexOf("function bookingButton"),
+    source.indexOf("export function renderPendingQueue"),
+  );
+  assert.doesNotMatch(cardSource, /预约号/);
+  assert.match(cardSource, /北京时间/);
   const detailName = source.indexOf('text("h3", bookingDisplayName(booking))');
   const detailCode = source.indexOf(
     'text("p", `预约号 ${booking.code}`, "admin-detail-code")',
@@ -565,6 +672,17 @@ test("the server-rendered admin page contains login and a hidden dashboard", asy
   assert.match(html, /data-site-base-path="\/chengchang-pickle-club"/);
   assert.match(html, /data-admin-client="true"/);
   assert.match(html, /src="\/chengchang-pickle-club\/admin-app\.js"/);
+  assert.match(html, /09:00–22:00/);
+  assert.match(html, /30 分钟/);
+  assert.match(html, /id="admin-save-courts"/);
+  assert.doesNotMatch(html, /admin-template-controls|60 分钟场次模板/);
+  assert.match(html, /id="admin-media-upload-form"/);
+  assert.match(html, /id="admin-media-file"/);
+  assert.match(html, /id="admin-media-list"/);
+  assert.match(html, /首页宣传/);
+  const altInput = html.match(/<input(?=[^>]*id="admin-media-alt")[^>]*>/)?.[0] ?? "";
+  assert.ok(altInput);
+  assert.doesNotMatch(altInput, /\brequired\b/);
 });
 
 test("the server rejects unsafe and dot-segment Pages base paths before emitting a script URL", async () => {

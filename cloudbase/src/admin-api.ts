@@ -1,4 +1,5 @@
 import { BookingService } from "../../lib/booking/booking-service.ts";
+import { defaultBookingPolicy } from "../../lib/booking/booking-window.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
 import type {
   AdminBookingFilter,
@@ -22,6 +23,11 @@ import {
   type CloudBaseHttpEvent,
 } from "./http/request.ts";
 import { errorResponse, jsonResponse, type HttpResponse } from "./http/response.ts";
+import {
+  createDefaultHomepageMediaService,
+  handleAdminHomepageMedia,
+  type HomepageMediaApiService,
+} from "./homepage-media.ts";
 import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-repository.ts";
 import { readAdminRuntimeConfiguration } from "./runtime-config.ts";
 
@@ -77,6 +83,7 @@ export interface AdminApiDependencies {
   service: AdminBookingService;
   resolveTrustedUid(context: unknown): Promise<unknown>;
   allowedUserIds: readonly string[];
+  mediaService?: HomepageMediaApiService;
 }
 
 function privateAdminResponse(response: HttpResponse): HttpResponse {
@@ -205,6 +212,7 @@ async function settingsDto(service: AdminBookingService) {
         id, startTime, endTime, enabled, version,
       }),
     ),
+    bookingPolicy: { ...defaultBookingPolicy },
   };
 }
 
@@ -343,6 +351,17 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       );
       const method = requestMethod(event);
       const path = requestPath(event);
+
+      if (dependencies.mediaService && path.startsWith("/v1/admin/homepage-media")) {
+        const mediaResponse = await handleAdminHomepageMedia({
+          method,
+          path,
+          body: method === "GET" ? {} : parseRequestBody(event).values,
+          actorId,
+          service: dependencies.mediaService,
+        });
+        if (mediaResponse) return mediaResponse;
+      }
 
       if (method === "GET" && path === "/v1/admin/bootstrap") {
         const { today, selectedDate, filter } = bootstrapInput(event);
@@ -483,6 +502,7 @@ export async function main(
     const runtimeAuth = cloudbaseApp.auth();
     productionHandler ??= createAdminApiHandler({
       service: new BookingService(new CloudBaseBookingRepository()),
+      mediaService: createDefaultHomepageMediaService(),
       resolveTrustedUid: (runtimeContext) =>
         resolveTrustedRuntimeUid(
           {

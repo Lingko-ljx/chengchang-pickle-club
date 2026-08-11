@@ -260,7 +260,7 @@ test("status lookup sends code and full phone then renders only masked public da
   assert.equal(page.elements["booking-status-phone"].value, "");
   assert.equal(page.elements["booking-status-result"].hidden, false);
   assert.equal(page.elements["booking-status-value"].textContent, "等待确认改期");
-  assert.match(page.elements["booking-status-session"].textContent, /60 分钟/);
+  assert.match(page.elements["booking-status-session"].textContent, /1 小时，北京时间/);
   assert.match(page.elements["booking-status-session"].textContent, /09:00/);
   assert.equal(page.elements["booking-status-mode"].textContent, "散客拼场");
   assert.equal(page.elements["booking-status-party-size"].textContent, "3 人");
