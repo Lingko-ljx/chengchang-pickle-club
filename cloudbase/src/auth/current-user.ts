@@ -1,63 +1,43 @@
 import { BookingError } from "../../../lib/booking/errors.ts";
 
-export interface CurrentUserProfile {
-  user_id: string;
-  groups: Array<{ id: string }>;
+export interface TrustedRuntimeAuth {
+  getAuthContext(context: unknown): Promise<unknown>;
 }
 
-interface AuthResponse {
-  ok: boolean;
-  json(): Promise<unknown>;
+const canonicalUid = /^[1-9][0-9]{0,31}$/;
+
+function runtimeUid(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BookingError("AUTH_REQUIRED");
+  }
+  const uid = (value as Record<string, unknown>).uid;
+  if (typeof uid !== "string" || !canonicalUid.test(uid)) {
+    throw new BookingError("AUTH_REQUIRED");
+  }
+  return uid;
 }
 
-export type AuthFetch = (
-  input: string,
-  init: { headers: { Authorization: string } },
-) => Promise<AuthResponse>;
-
-function profileFrom(value: unknown): CurrentUserProfile | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.user_id !== "string" || !candidate.user_id.trim()) return null;
-  if (!Array.isArray(candidate.groups)) return null;
-  const groups = candidate.groups.flatMap((group) => {
-    if (!group || typeof group !== "object" || Array.isArray(group)) return [];
-    const id = (group as Record<string, unknown>).id;
-    return typeof id === "string" ? [{ id }] : [];
-  });
-  return { user_id: candidate.user_id, groups };
-}
-
-export async function currentUser(
-  authorization: string | undefined,
-  envId: string,
-  fetchImpl: AuthFetch = fetch as AuthFetch,
-): Promise<CurrentUserProfile> {
-  if (!authorization || !/^Bearer\s+\S+$/i.test(authorization.trim())) {
+export async function resolveTrustedRuntimeUid(
+  auth: TrustedRuntimeAuth,
+  context: unknown,
+): Promise<string> {
+  if (!context || typeof context !== "object" || Array.isArray(context)) {
     throw new BookingError("AUTH_REQUIRED");
   }
   try {
-    const response = await fetchImpl(
-      `https://${envId}.api.tcloudbasegateway.com/auth/v1/user/me`,
-      { headers: { Authorization: authorization } },
-    );
-    if (!response.ok) throw new BookingError("AUTH_REQUIRED");
-    const profile = profileFrom(await response.json());
-    if (!profile) throw new BookingError("AUTH_REQUIRED");
-    return profile;
+    return runtimeUid(await auth.getAuthContext(context));
   } catch {
     throw new BookingError("AUTH_REQUIRED");
   }
 }
 
-export function requireBookingStaff(
-  profile: CurrentUserProfile,
+export function requireAllowedAdminUid(
+  value: unknown,
   allowedUserIds: readonly string[],
-): void {
-  const hasStaffRole = profile.groups.some(
-    (group) => group.id === "booking_staff",
-  );
-  if (!hasStaffRole && !allowedUserIds.includes(profile.user_id)) {
+): string {
+  const uid = runtimeUid({ uid: value });
+  if (!allowedUserIds.includes(uid)) {
     throw new BookingError("FORBIDDEN");
   }
+  return uid;
 }

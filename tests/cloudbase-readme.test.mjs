@@ -24,7 +24,7 @@ test("runbook identifies automated database ACLs and console identity hard gates
   assert.match(readme, /ModifyDatabaseACL/);
   assert.match(readme, /ADMINONLY/);
   assert.match(readme, /anonymous Web SDK client/i);
-  assert.match(readme, /booking_staff[^\n]*Web SDK client/i);
+  assert.match(readme, /ordinary staff Web SDK client/i);
   assert.match(readme, /Auth v2/i);
   assert.match(readme, /username\/password/i);
   assert.match(readme, /self-registration[^\n]*disabled/i);
@@ -36,13 +36,16 @@ test("runbook identifies automated database ACLs and console identity hard gates
     readme,
     /2086466604197666817[\s\S]{0,120}built-in administrator[\s\S]{0,120}must not/i,
   );
-  assert.match(readme, /booking_staff[\s\S]{0,160}(?:paid|upgrade)/i);
+  assert.match(readme, /trusted per-invocation[\s\S]{0,100}function context UID/i);
+  assert.match(readme, /exact[\s\S]{0,80}BOOKING_ADMIN_USER_IDS[\s\S]{0,80}second authorization/i);
+  assert.doesNotMatch(readme, /booking_staff[\s\S]{0,160}(?:paid|upgrade)/i);
   assert.doesNotMatch(readme, /Create a custom role/i);
 });
 
 test("runbook assigns route, CORS, OPTIONS, and exact runtime configuration ownership", () => {
   assert.match(readme, /Pages[^\n]*Source[^\n]*GitHub Actions/i);
   assert.match(readme, /same API origin/i);
+  assert.match(readme, /\/v1\/admin[^\n]*enableAuth=true/i);
   assert.match(readme, /admin[^\n]*OPTIONS/i);
   assert.match(readme, /gateway[^\n]*CORS/i);
   assert.match(readme, /Web\s+security sources/i);

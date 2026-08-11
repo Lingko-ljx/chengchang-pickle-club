@@ -158,10 +158,9 @@ client access. A partial run can be rerun safely: collections already at
 bounded retries and fails unless every result is exactly `ADMINONLY`.
 
 As the release hard gate, verify both an anonymous Web SDK client and an
-authenticated `booking_staff` Web SDK client are denied direct reads and writes
-for every collection. `booking_staff` is an application role, not a CloudBase
-database administrator. All booking data access must traverse the public or
-admin HTTP function; CloudBase login alone must not grant database access.
+authenticated ordinary staff Web SDK client are denied direct reads and writes
+for every collection. All booking data access must traverse the public or admin
+HTTP function; CloudBase login alone must not grant database access.
 
 ### 3. Configure Auth v2 and least-privilege staff access
 
@@ -170,19 +169,22 @@ admin HTTP function; CloudBase login alone must not grant database access.
 - For the free experience, create the initial staff account as a normal CloudBase
   Auth organization member. Do not use the built-in super administrator, a CAM
   sub-user, or an automatically privileged account.
-- After login, call `/auth/v1/user/me`, record the exact `user_id`, and set the
-  admin function runtime value to the strict JSON array
+- As a one-time operator setup step after login, call `/auth/v1/user/me`, record
+  the exact `user_id`, and set the admin function runtime value to the strict JSON array
   `BOOKING_ADMIN_USER_IDS=["<verified decimal user_id>"]`; similar IDs do not
   match. The previously observed value `["2086466604197666817"]` belongs to the
   built-in administrator and must not appear in the formal allowlist. If it is
   present during setup, stop deployment, create the ordinary member, and replace
   it before rerunning the workflow.
-- The handler also retains the exact `booking_staff` group path for a paid
-  upgrade. Migrating to that role later is optional and requires a separate
-  verified console change; this free-tier procedure does not claim to create a
-  custom role.
-- Keep the public route anonymous and require identity authentication on the
-  admin route.
+- The admin function does not forward browser authorization headers to `/me`.
+  With gateway authentication enabled it resolves the trusted per-invocation
+  CloudBase function context UID, then requires an exact
+  `BOOKING_ADMIN_USER_IDS` match as a second authorization check. Missing,
+  malformed, or merely similar UIDs fail closed.
+- Keep the public route anonymous and keep `/v1/admin` `enableAuth=true` at the
+  gateway. A future role-based path requires a trusted
+  server-side role lookup and must not trust body, header, or gateway-event
+  group assertions.
 
 ### 4. Configure one gateway origin and CORS ownership
 
@@ -233,8 +235,7 @@ variables, `cloudbaserc.json`, source files, screenshots, or logs.
   function must not read or receive
   `PHONE_HASH_SALT`; hashing is performed only by the public API paths.
   The value `[]` is valid for the first safe configuration or emergency
-  revocation: it denies every exact-ID user while preserving the independently
-  verified `booking_staff` role path.
+  revocation: it denies every admin user.
 - `booking-mailer` receives exactly seven variables:
   `BOOKING_SES_SECRET_ID`, `BOOKING_SES_SECRET_KEY`, `SES_REGION`,
   `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, `SES_REPLY_TO`, and

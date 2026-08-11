@@ -9,14 +9,14 @@ import { createAdminApiHandler } from "../cloudbase/src/admin-api.ts";
 const DATE = "2099-01-01";
 const MORNING = `${DATE}__slot-0700`;
 const LATER = `${DATE}__slot-0800`;
-const TOKEN = "Bearer admin-contract-secret-token";
+const TRUSTED_UID = "2086466604197666817";
 
 function event(method, path, body, overrides = {}) {
   return {
     httpMethod: method,
     path,
     headers: {
-      ...(overrides.authorization === false ? {} : { Authorization: TOKEN }),
+      ...(overrides.authorization === false ? {} : { Authorization: "Bearer forged-contract-canary" }),
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -29,19 +29,10 @@ function responseBody(response) {
   return JSON.parse(response.body);
 }
 
-function authFetch(
-  groups = [{ id: "booking_staff" }],
-  trace = [],
-  userId = "profile-staff-7",
-) {
-  return async (url, init) => {
-    trace.push({ type: "auth", url, authorization: init?.headers?.Authorization });
-    return {
-      ok: true,
-      async json() {
-        return { user_id: userId, groups, name: "Complete profile fixture" };
-      },
-    };
+function runtimeUid(uid, trace = []) {
+  return async (context) => {
+    trace.push({ type: "auth", context });
+    return uid;
   };
 }
 
@@ -107,39 +98,36 @@ function fakeService(trace = []) {
 }
 
 function handlerFor(service, options = {}) {
+  const uid = Object.hasOwn(options, "uid") ? options.uid : TRUSTED_UID;
   return createAdminApiHandler({
     service,
-    fetch: options.fetch ?? authFetch(undefined, options.trace),
-    envId: "booking-test-env",
-    allowedUserIds: options.allowedUserIds ?? ["999999999999999999"],
+    resolveTrustedUid: options.resolveTrustedUid ?? runtimeUid(uid, options.trace),
+    allowedUserIds: options.allowedUserIds ?? [TRUSTED_UID],
   });
 }
 
-test("missing and rejected bearer tokens return sanitized 401 responses before service work", async () => {
+test("missing and malformed trusted runtime UIDs return sanitized 401 responses before service work", async () => {
   const trace = [];
   const service = fakeService(trace);
-  const handler = handlerFor(service, {
-    trace,
-    fetch: async () => {
-      throw new Error(`upstream exposed ${TOKEN}`);
-    },
-  });
-
-  const missing = await handler(event("GET", "/v1/admin/bookings", undefined, { authorization: false }));
-  const rejected = await handler(event("GET", "/v1/admin/bookings"));
+  const missing = await handlerFor(service, { trace, uid: undefined })(
+    event("GET", "/v1/admin/bookings"),
+  );
+  const rejected = await handlerFor(service, { trace, uid: "not-a-runtime-uid" })(
+    event("GET", "/v1/admin/bookings"),
+  );
 
   assert.equal(missing.statusCode, 401);
   assert.equal(rejected.statusCode, 401);
   assert.deepEqual(responseBody(rejected), {
     error: { code: "AUTH_REQUIRED", message: "Authentication required", retryable: false },
   });
-  assert.equal(rejected.body.includes(TOKEN), false);
-  assert.deepEqual(trace, []);
+  assert.equal(rejected.body.includes("not-a-runtime-uid"), false);
+  assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
 });
 
 test("protected settings and booking audit routes expose versioned, non-PII DTOs", async () => {
   const trace = [];
-  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(fakeService(trace), { trace });
 
   const settings = await handler(event("GET", "/v1/admin/settings"));
   const audits = await handler(event("GET", "/v1/admin/bookings/booking-1/audit-logs"));
@@ -159,11 +147,11 @@ test("protected settings and booking audit routes expose versioned, non-PII DTOs
   assert.equal(audits.body.includes("13800138000"), false);
 });
 
-test("non-staff profiles return 403 and never enter the booking service", async () => {
+test("non-allowlisted runtime UIDs return 403 and never enter the booking service", async () => {
   const trace = [];
   const handler = handlerFor(fakeService(trace), {
     trace,
-    fetch: authFetch([{ id: "user" }], trace),
+    uid: "2086466604197666818",
   });
 
   const response = await handler(
@@ -174,12 +162,12 @@ test("non-staff profiles return 403 and never enter the booking service", async 
   assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
 });
 
-test("an exact free-tier allowlisted user enters service without booking_staff", async () => {
+test("an exact free-tier allowlisted runtime UID enters service", async () => {
   const trace = [];
-  const userId = "2086466604197666817";
+  const userId = TRUSTED_UID;
   const handler = handlerFor(fakeService(trace), {
     trace,
-    fetch: authFetch([{ id: "ordinary_user" }], trace, userId),
+    uid: userId,
     allowedUserIds: [userId],
   });
 
@@ -197,11 +185,7 @@ test("an empty or merely similar free-tier allowlist fails before service", asyn
     const trace = [];
     const handler = handlerFor(fakeService(trace), {
       trace,
-      fetch: authFetch(
-        [{ id: "ordinary_user" }],
-        trace,
-        "2086466604197666817",
-      ),
+      uid: TRUSTED_UID,
       allowedUserIds,
     });
 
@@ -211,23 +195,25 @@ test("an empty or merely similar free-tier allowlist fails before service", asyn
   }
 });
 
-test("booking_staff remains authorized when the exact ID is not allowlisted", async () => {
+test("role-like forged event data cannot replace the exact runtime UID allowlist", async () => {
   const trace = [];
   const handler = handlerFor(fakeService(trace), {
     trace,
-    fetch: authFetch([{ id: "booking_staff" }], trace, "paid-role-user"),
+    uid: "2086466604197666818",
     allowedUserIds: [],
   });
 
-  const response = await handler(event("GET", "/v1/admin/bookings"));
-  assert.equal(response.statusCode, 200);
-  assert.equal(trace.filter((entry) => entry.type === "service").length, 1);
+  const response = await handler(event("GET", "/v1/admin/bookings", undefined, {
+    identity: { uid: TRUSTED_UID, groups: ["booking_staff"] },
+  }));
+  assert.equal(response.statusCode, 403);
+  assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
 });
 
 test("every admin success, error, and CSV response disables shared caching", async () => {
   const successHandler = handlerFor(fakeService());
   const forbiddenHandler = handlerFor(fakeService(), {
-    fetch: authFetch([{ id: "ordinary_user" }]),
+    uid: "2086466604197666818",
     allowedUserIds: ["999999999999999999"],
   });
   const responses = [
@@ -251,10 +237,11 @@ test("every admin success, error, and CSV response disables shared caching", asy
   assert.match(responses[2].headers["Content-Type"], /^text\/csv/);
 });
 
-test("official profile resolution precedes transactions and is the only audit identity source", async () => {
+test("trusted runtime UID resolution precedes transactions and is the only audit identity source", async () => {
   const trace = [];
   const service = fakeService(trace);
-  const handler = handlerFor(service, { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(service, { trace });
+  const context = { request_id: "runtime-context-canary" };
 
   const response = await handler(
     event(
@@ -263,19 +250,19 @@ test("official profile resolution precedes transactions and is the only audit id
       { expectedVersion: 3, actorId: "body-attacker", groups: [{ id: "booking_staff" }] },
       { identity: { user_id: "gateway-attacker", groups: ["booking_staff"] } },
     ),
+    context,
   );
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(trace, [
     {
       type: "auth",
-      url: "https://booking-test-env.api.tcloudbasegateway.com/auth/v1/user/me",
-      authorization: TOKEN,
+      context,
     },
     {
       type: "service",
       name: "confirm",
-      args: [{ bookingId: "booking-1", expectedVersion: 3, actorId: "profile-staff-7" }],
+      args: [{ bookingId: "booking-1", expectedVersion: 3, actorId: TRUSTED_UID }],
     },
   ]);
   assert.equal(response.body.includes("internal-phone-hash"), false);
@@ -284,22 +271,22 @@ test("official profile resolution precedes transactions and is the only audit id
 
 test("every booking lifecycle route requires a version and passes the authenticated actor", async () => {
   const cases = [
-    ["confirm", "/confirm", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorId: "profile-staff-7" }],
-    ["proposeReschedule", "/reschedule", { expectedVersion: 3, sessionId: LATER }, { bookingId: "booking-1", expectedVersion: 3, sessionId: LATER, actorId: "profile-staff-7" }],
-    ["cancel", "/cancel", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorType: "staff", actorId: "profile-staff-7" }],
-    ["complete", "/complete", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorId: "profile-staff-7" }],
-    ["reassign", "/reassign", { expectedVersion: 3, courtId: "02" }, { bookingId: "booking-1", expectedVersion: 3, courtId: "02", actorId: "profile-staff-7" }],
+    ["confirm", "/confirm", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorId: TRUSTED_UID }],
+    ["proposeReschedule", "/reschedule", { expectedVersion: 3, sessionId: LATER }, { bookingId: "booking-1", expectedVersion: 3, sessionId: LATER, actorId: TRUSTED_UID }],
+    ["cancel", "/cancel", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorType: "staff", actorId: TRUSTED_UID }],
+    ["complete", "/complete", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorId: TRUSTED_UID }],
+    ["reassign", "/reassign", { expectedVersion: 3, courtId: "02" }, { bookingId: "booking-1", expectedVersion: 3, courtId: "02", actorId: TRUSTED_UID }],
     [
       "redactPersonalData",
       "/redact",
       { expectedVersion: 3 },
-      ["booking-1", "profile-staff-7", 3, "staff"],
+      ["booking-1", TRUSTED_UID, 3, "staff"],
     ],
   ];
 
   for (const [methodName, suffix, body, expected] of cases) {
     const trace = [];
-    const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+    const handler = handlerFor(fakeService(trace), { trace });
     const response = await handler(event("POST", `/v1/admin/bookings/booking-1${suffix}`, body));
     assert.equal(response.statusCode, 200, methodName);
     const call = trace.find((entry) => entry.type === "service");
@@ -313,9 +300,9 @@ test("every booking lifecycle route requires a version and passes the authentica
   }
 });
 
-test("court and template writes require versions and carry the profile user id", async () => {
+test("court and template writes require versions and carry the trusted runtime UID", async () => {
   const trace = [];
-  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(fakeService(trace), { trace });
 
   assert.equal(
     (await handler(event("PUT", "/v1/admin/courts/01", { enabled: false, expectedVersion: 5 }))).statusCode,
@@ -330,18 +317,18 @@ test("court and template writes require versions and carry the profile user id",
   assert.deepEqual(calls[0], {
     type: "service",
     name: "setCourtEnabled",
-    args: ["01", false, "profile-staff-7", 5],
+    args: ["01", false, TRUSTED_UID, 5],
   });
   assert.deepEqual(calls[1], {
     type: "service",
     name: "setSessionTemplateEnabled",
-    args: ["slot-0700", true, "profile-staff-7", 6],
+    args: ["slot-0700", true, TRUSTED_UID, 6],
   });
 });
 
 test("dashboard, matrix and booking-list routes use their exact scheduling reads", async () => {
   const trace = [];
-  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(fakeService(trace), { trace });
 
   const dashboard = await handler(event("GET", "/v1/admin/dashboard", undefined, { query: { date: DATE } }));
   const matrix = await handler(event("GET", "/v1/admin/matrix", undefined, { query: { date: DATE } }));
@@ -388,7 +375,7 @@ test("bootstrap authenticates once, runs all same-day reads concurrently, and re
       });
     };
   }
-  const handler = handlerFor(service, { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(service, { trace });
 
   const response = await handler(event("GET", "/v1/admin/bootstrap", undefined, {
     query: { today: DATE, date: DATE, status: "pending", mode: "private", q: "Ada" },
@@ -421,25 +408,25 @@ test("bootstrap authenticates once, runs all same-day reads concurrently, and re
   assert.equal(response.body.includes("internal-idempotency-hash"), false);
 });
 
-test("bootstrap rejects a missing bearer token before any service read", async () => {
+test("bootstrap rejects a missing trusted runtime UID before any service read", async () => {
   const trace = [];
   const response = await handlerFor(fakeService(trace), {
     trace,
-    fetch: authFetch(undefined, trace),
+    uid: undefined,
   })(event("GET", "/v1/admin/bootstrap", undefined, {
-    authorization: false,
     query: { today: DATE, date: DATE },
   }));
 
   assert.equal(response.statusCode, 401);
   assert.equal(response.headers["Cache-Control"], "no-store, private");
-  assert.deepEqual(trace, []);
+  assert.equal(trace.filter((entry) => entry.type === "auth").length, 1);
+  assert.equal(trace.filter((entry) => entry.type === "service").length, 0);
 });
 
 test("bootstrap preserves distinct today and selected-date semantics", async () => {
   const selectedDate = "2099-01-02";
   const trace = [];
-  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(fakeService(trace), { trace });
 
   const response = await handler(event("GET", "/v1/admin/bootstrap", undefined, {
     query: { today: DATE, date: selectedDate },
@@ -483,7 +470,6 @@ test("bootstrap strictly validates today, date, status, mode and q before servic
     const trace = [];
     const response = await handlerFor(fakeService(trace), {
       trace,
-      fetch: authFetch(undefined, trace),
     })(event("GET", "/v1/admin/bootstrap", undefined, { query }));
     assert.equal(response.statusCode, 400, JSON.stringify(query));
     assert.deepEqual(responseBody(response), {
@@ -496,7 +482,7 @@ test("bootstrap strictly validates today, date, status, mode and q before servic
 
 test("CSV export uses a strict column allowlist, neutralizes formulas, and escapes RFC-style fields", async () => {
   const trace = [];
-  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(fakeService(trace), { trace });
   const response = await handler(event("GET", "/v1/admin/export.csv", undefined, {
     query: { from: DATE, to: DATE },
   }));
@@ -579,7 +565,7 @@ function realSetup(trace) {
           .digest("hex"),
     },
   );
-  return { repository, service, handler: handlerFor(service, { trace, fetch: authFetch(undefined, trace) }) };
+  return { repository, service, handler: handlerFor(service, { trace }) };
 }
 
 test("stale admin mutation returns 409 without changing repository state", async () => {
@@ -647,7 +633,7 @@ test("redaction through the handler removes both lookup paths and all personal f
   const audit = (await repository.listAuditLogs()).find(
     (entry) => entry.action === "personal_data_redacted",
   );
-  assert.equal(audit.actorId, "profile-staff-7");
+  assert.equal(audit.actorId, TRUSTED_UID);
   assert.equal(audit.actorType, "staff");
   assert.deepEqual(audit.metadata, {});
 });
@@ -717,7 +703,7 @@ test("stale court and template handler writes preserve records and audits", asyn
   const audit = (await repository.listAuditLogs()).find(
     (entry) => entry.action === "court_enabled_changed",
   );
-  assert.equal(audit.actorId, "profile-staff-7");
+  assert.equal(audit.actorId, TRUSTED_UID);
   assert.equal(audit.actorType, "staff");
   assert.deepEqual(audit.metadata, {
     entity: "court",
@@ -739,13 +725,13 @@ test("stale court and template handler writes preserve records and audits", asyn
   const templateAudit = (await repository.listAuditLogs()).find(
     (entry) => entry.action === "session_template_enabled_changed",
   );
-  assert.equal(templateAudit.actorId, "profile-staff-7");
+  assert.equal(templateAudit.actorId, TRUSTED_UID);
   assert.equal(templateAudit.actorType, "staff");
 });
 
 test("only the documented route shapes are accepted", async () => {
   const trace = [];
-  const handler = handlerFor(fakeService(trace), { trace, fetch: authFetch(undefined, trace) });
+  const handler = handlerFor(fakeService(trace), { trace });
   const response = await handler(
     event("POST", "/v1/admin/bookings/booking-1/confirm/extra", { expectedVersion: 3 }),
   );

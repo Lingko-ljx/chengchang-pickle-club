@@ -9,11 +9,14 @@ import type {
   CourtRecord,
   SessionTemplateRecord,
 } from "../../lib/booking/types.ts";
-import { currentUser, requireBookingStaff, type AuthFetch } from "./auth/current-user.ts";
+import {
+  requireAllowedAdminUid,
+  resolveTrustedRuntimeUid,
+} from "./auth/current-user.ts";
+import { cloudbaseApp } from "./cloudbase-app.ts";
 import {
   parseRequestBody,
   queryParameter,
-  requestHeader,
   requestMethod,
   requestPath,
   type CloudBaseHttpEvent,
@@ -72,8 +75,7 @@ interface AdminBookingService {
 
 export interface AdminApiDependencies {
   service: AdminBookingService;
-  fetch?: AuthFetch;
-  envId: string;
+  resolveTrustedUid(context: unknown): Promise<unknown>;
   allowedUserIds: readonly string[];
 }
 
@@ -330,15 +332,15 @@ function bootstrapInput(event: CloudBaseHttpEvent): {
 }
 
 export function createAdminApiHandler(dependencies: AdminApiDependencies) {
-  async function handleAdminApi(event: CloudBaseHttpEvent): Promise<HttpResponse> {
+  async function handleAdminApi(
+    event: CloudBaseHttpEvent,
+    context: unknown,
+  ): Promise<HttpResponse> {
     try {
-      const profile = await currentUser(
-        requestHeader(event, "authorization"),
-        dependencies.envId,
-        dependencies.fetch,
+      const actorId = requireAllowedAdminUid(
+        await dependencies.resolveTrustedUid(context),
+        dependencies.allowedUserIds,
       );
-      requireBookingStaff(profile, dependencies.allowedUserIds);
-      const actorId = profile.user_id;
       const method = requestMethod(event);
       const path = requestPath(event);
 
@@ -462,22 +464,38 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       return errorResponse(error);
     }
   }
-  return async function adminApi(event: CloudBaseHttpEvent): Promise<HttpResponse> {
-    return privateAdminResponse(await handleAdminApi(event));
+  return async function adminApi(
+    event: CloudBaseHttpEvent,
+    context?: unknown,
+  ): Promise<HttpResponse> {
+    return privateAdminResponse(await handleAdminApi(event, context));
   };
 }
 
 let productionHandler: ReturnType<typeof createAdminApiHandler> | undefined;
 
-export async function main(event: CloudBaseHttpEvent): Promise<HttpResponse> {
+export async function main(
+  event: CloudBaseHttpEvent,
+  context?: unknown,
+): Promise<HttpResponse> {
   try {
     const configuration = readAdminRuntimeConfiguration(process.env);
+    const runtimeAuth = cloudbaseApp.auth();
     productionHandler ??= createAdminApiHandler({
       service: new BookingService(new CloudBaseBookingRepository()),
-      envId: configuration.envId,
+      resolveTrustedUid: (runtimeContext) =>
+        resolveTrustedRuntimeUid(
+          {
+            getAuthContext: (trustedContext) =>
+              runtimeAuth.getAuthContext(
+                trustedContext as Parameters<typeof runtimeAuth.getAuthContext>[0],
+              ),
+          },
+          runtimeContext,
+        ),
       allowedUserIds: configuration.allowedUserIds,
     });
-    return await productionHandler(event);
+    return await productionHandler(event, context);
   } catch (error) {
     return privateAdminResponse(errorResponse(error));
   }

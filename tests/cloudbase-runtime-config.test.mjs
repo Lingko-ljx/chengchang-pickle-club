@@ -177,7 +177,7 @@ test("admin production configuration requires Shanghai but never consumes the ph
   );
 });
 
-test("admin production configuration rejects every env ID that could change the auth host", async () => {
+test("admin production configuration rejects every unsafe environment identifier", async () => {
   const runtime = await import("../cloudbase/src/runtime-config.ts");
   for (const envId of [
     "attacker.example/",
@@ -301,7 +301,7 @@ test("admin production entry sanitizes a non-Shanghai timezone before authentica
   assert.doesNotMatch(response.body, /DATA_TIMEZONE|UTC/);
 });
 
-test("admin production entry rejects an unsafe env ID before forwarding its bearer token", async () => {
+test("admin production entry rejects an unsafe env ID before runtime authentication", async () => {
   const { main } = await import("../cloudbase/src/admin-api.ts");
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;
