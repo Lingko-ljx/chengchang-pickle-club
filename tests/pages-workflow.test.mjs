@@ -51,7 +51,10 @@ test("Pages workflow verifies the static site immediately after building", async
   assert.deepEqual(steps[buildIndex + 1], {
     name: "Verify static site",
     env: {
+      PAGES_BASE_PATH: "${{ steps.pages.outputs.base_path }}",
+      NEXT_PUBLIC_SITE_URL: "${{ steps.pages.outputs.base_url }}",
       NEXT_PUBLIC_BOOKING_API_BASE_URL: "${{ vars.BOOKING_API_BASE_URL }}",
+      NEXT_PUBLIC_CLOUDBASE_ENV_ID: "${{ vars.CLOUDBASE_ENV_ID }}",
     },
     run: "npm run test:pages",
   });
