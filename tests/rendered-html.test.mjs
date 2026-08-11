@@ -60,7 +60,7 @@ test("server renders the real booking form and current venue contract", async ()
   );
   assert.match(html, /name="name"/);
   assert.match(html, /name="phone"/);
-  assert.match(html, /<input(?=[^>]*name="email")(?![^>]*required)[^>]*>/i);
+  assert.doesNotMatch(html, /name="email"|电子邮箱/i);
   assert.match(html, /<textarea(?=[^>]*name="note")(?![^>]*required)[^>]*>/i);
   assert.match(html, /name="privacy_consent"/);
   assert.match(
@@ -75,6 +75,12 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /提交后等待工作人员确认/);
   assert.doesNotMatch(html, /Formspree|90 分钟|1—8|六片/);
   assert.match(html, /<script[^>]+data-booking-form-client[^>]+defer/);
-  assert.match(html, /<title>澄场 PICKLE CLUB/);
+  assert.match(html, /<title>睿安成 PICKLE CLUB/);
+  assert.match(html, /刘栖睿/);
+  assert.match(html, /毛之谦/);
+  assert.match(html, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
+  assert.match(html, /13807917663/);
+  assert.match(html, /ruiancheng-court-hero\.png/);
+  assert.doesNotMatch(html, /澄场|CHENGCHANG|上海市徐汇区|社交媒体|演示资料/);
   assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/);
 });

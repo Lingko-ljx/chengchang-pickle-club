@@ -28,7 +28,13 @@ test("exports the real booking form without a framework client runtime", async (
 
   assert.ok(apiBaseUrl, "Pages verification requires the booking API base URL");
 
-  assert.match(html, /\u6f84\u573a PICKLE CLUB/);
+  assert.match(html, /睿安成 PICKLE CLUB/);
+  assert.match(html, /刘栖睿/);
+  assert.match(html, /毛之谦/);
+  assert.match(html, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
+  assert.match(html, /13807917663/);
+  assert.ok(html.includes(`src="${prefixed("/ruiancheng-court-hero.png")}"`));
+  assert.doesNotMatch(html, /澄场|CHENGCHANG|上海市徐汇区|社交媒体|演示资料/);
   assert.ok(html.includes(`${prefixed("/_next/")}`));
   if (basePath) assert.doesNotMatch(html, /(?:href|src)="\/_next\//);
   assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
@@ -58,8 +64,8 @@ test("exports the real booking form without a framework client runtime", async (
       `<meta property="og:image" content="${new URL("og.png", siteUrl)}"`,
     ),
   );
-  assert.match(html, /<meta property="og:image:width" content="1734"/);
-  assert.match(html, /<meta property="og:image:height" content="907"/);
+  assert.match(html, /<meta property="og:image:width" content="1672"/);
+  assert.match(html, /<meta property="og:image:height" content="941"/);
   assert.match(html, /<meta property="og:image:alt" content="[^"]+"/);
 
   const scriptTags = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];

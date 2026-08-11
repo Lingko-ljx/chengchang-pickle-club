@@ -8,9 +8,9 @@ const socialImageUrl = new URL("og.png", siteUrl).toString();
 
 export const metadata: Metadata = {
   metadataBase: siteUrl,
-  title: "澄场 PICKLE CLUB｜城市匹克球体验空间",
+  title: "睿安成 PICKLE CLUB｜南昌匹克球预约",
   description:
-    "认识匹克球、了解澄场的场地与团队，并完成一次预约体验演示。",
+    "了解睿安成 Pickle Club 的场地与教练，在线查询场次并提交预约。",
   icons: {
     icon: faviconUrl,
     shortcut: faviconUrl,
@@ -22,25 +22,25 @@ export const metadata: Metadata = {
     type: "website",
     url: siteConfiguration.siteUrl,
     locale: "zh_CN",
-    title: "澄场 PICKLE CLUB",
-    description: "为城市留一块会呼吸的球场",
+    title: "睿安成 PICKLE CLUB",
+    description: "南昌匹克球场地与在线预约",
     images: [
       {
         url: socialImageUrl,
-        width: 1734,
-        height: 907,
-        alt: "Chengchang PICKLE CLUB social preview",
+        width: 1672,
+        height: 941,
+        alt: "睿安成 PICKLE CLUB 南昌匹克球",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "澄场 PICKLE CLUB",
-    description: "为城市留一块会呼吸的球场",
+    title: "睿安成 PICKLE CLUB",
+    description: "南昌匹克球场地与在线预约",
     images: [
       {
         url: socialImageUrl,
-        alt: "Chengchang PICKLE CLUB social preview",
+        alt: "睿安成 PICKLE CLUB 南昌匹克球",
       },
     ],
   },

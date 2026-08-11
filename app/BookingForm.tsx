@@ -161,15 +161,6 @@ export function BookingForm({
                     type="tel"
                   />
                 </label>
-                <label htmlFor="booking-email">
-                  <span>电子邮箱（选填）</span>
-                  <input
-                    autoComplete="email"
-                    id="booking-email"
-                    name="email"
-                    type="email"
-                  />
-                </label>
                 <label className="form-wide" htmlFor="booking-note">
                   <span>备注（选填）</span>
                   <textarea id="booking-note" name="note" rows={3} />
@@ -183,7 +174,7 @@ export function BookingForm({
                   type="checkbox"
                   value="yes"
                 />
-                <span>我同意澄场仅使用以上信息处理预约并与我联系。</span>
+                <span>我同意睿安成仅使用以上信息处理预约并与我联系。</span>
               </label>
 
               <p className="booking-disclaimer">

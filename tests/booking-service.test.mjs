@@ -65,6 +65,22 @@ function testIds() {
   };
 }
 
+function idsForBookingCodes(codes) {
+  let booking = 0;
+  let code = 0;
+  let event = 0;
+  return {
+    bookingId: () => `booking-${++booking}`,
+    bookingCode: (...args) => {
+      assert.deepEqual(args, [], "booking code generation must not receive personal data");
+      assert.ok(code < codes.length, "booking code candidate list exhausted");
+      return codes[code++];
+    },
+    issuedBookingCodeCount: () => code,
+    eventId: () => `event-${++event}`,
+  };
+}
+
 function phoneHasher(salt = "test-phone-salt") {
   return {
     hash: (phone) => createHmac("sha256", salt).update(phone).digest("hex"),
@@ -94,6 +110,8 @@ function setup(options = {}) {
     },
   };
   const repository = new MemoryBookingRepository({
+    bookings: options.bookings,
+    bookingCodes: options.bookingCodes,
     courts: courtIds.map((id) => ({ id, enabled: id !== options.disabledCourtId, version: 1 })),
     sessionTemplates:
       options.sessionTemplates ??
@@ -101,12 +119,18 @@ function setup(options = {}) {
         { id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 1 },
         { id: "slot-0800", startTime: "08:00", endTime: "09:00", enabled: true, version: 1 },
       ],
+    idempotency: options.idempotency,
     fault: options.fault,
   });
   return {
     clock,
     repository,
-    service: new BookingService(repository, clock, testIds(), phoneHasher(options.phoneSalt)),
+    service: new BookingService(
+      repository,
+      clock,
+      options.ids ?? testIds(),
+      phoneHasher(options.phoneSalt),
+    ),
   };
 }
 
@@ -356,6 +380,128 @@ test("repeating an idempotency key returns the original booking", async () => {
   const first = await service.create(command({ idempotencyKey: "same-request" }));
   const second = await service.create(command({ idempotencyKey: "same-request" }));
   assert.equal(second.id, first.id);
+});
+
+test("new booking codes are eight fully random nonambiguous characters with no phone-derived prefix", async () => {
+  const configured = setup();
+  const service = new BookingService(
+    configured.repository,
+    configured.clock,
+    undefined,
+    phoneHasher(),
+  );
+
+  const booking = await service.create(command({ phone: "138 0013-8000" }));
+
+  assert.match(booking.code, /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/);
+  assert.equal(booking.code.length, 8);
+  assert.equal(booking.code.includes("8000"), false);
+});
+
+test("short booking code collisions select the next of five pre-generated candidates atomically", async () => {
+  const candidates = ["2345AAAA", "2345BBBB", "2345CCCC", "2345DDDD", "2345EEEE"];
+  const ids = idsForBookingCodes(candidates);
+  const { repository, service } = setup({
+    ids,
+    bookingCodes: [{ codeHash: bookingCodeId(candidates[0]), bookingId: "occupied-code" }],
+  });
+
+  const booking = await service.create(command());
+
+  assert.equal(booking.code, candidates[1]);
+  assert.equal(ids.issuedBookingCodeCount(), 5);
+  assert.deepEqual((await repository.listBookings({})).map(({ id }) => id), [booking.id]);
+  assert.equal((await repository.listAuditLogs()).length, 1);
+  assert.equal((await repository.listNotifications()).length, 2);
+  assert.deepEqual(
+    (await repository.runTransaction((transaction) =>
+      transaction.getAllocations(MORNING, courtIds)
+    )).flatMap(({ bookingIds }) => bookingIds),
+    [booking.id],
+  );
+});
+
+test("five short booking code collisions fail without any transactional writes", async () => {
+  const candidates = ["2345AAAA", "2345BBBB", "2345CCCC", "2345DDDD", "2345EEEE"];
+  const { repository, service } = setup({
+    ids: idsForBookingCodes(candidates),
+    bookingCodes: candidates.map((code, index) => ({
+      codeHash: bookingCodeId(code),
+      bookingId: `occupied-${index}`,
+    })),
+  });
+
+  await assert.rejects(() => service.create(command()), /CONFLICT/);
+
+  assert.deepEqual(await repository.listBookings({}), []);
+  assert.deepEqual(await repository.listAuditLogs(), []);
+  assert.deepEqual(await repository.listNotifications(), []);
+  assert.equal(
+    await repository.runTransaction((transaction) =>
+      transaction.getIdempotency(createHash("sha256").update(command().idempotencyKey).digest("hex"))
+    ),
+    null,
+  );
+  assert.equal(
+    await repository.runTransaction((transaction) => transaction.getSession(MORNING)),
+    null,
+  );
+  assert.deepEqual(
+    await repository.runTransaction((transaction) =>
+      transaction.getAllocations(MORNING, courtIds)
+    ),
+    [],
+  );
+});
+
+test("idempotency replay wins before all pre-generated short booking codes collide", async () => {
+  const idempotencyKey = "existing-request";
+  const keyHash = createHash("sha256").update(idempotencyKey).digest("hex");
+  const original = bookingRecord({
+    id: "existing-booking",
+    code: "23456789ABCDEFGHJKLMNPQRSTUVWXYZ",
+    idempotencyKeyHash: keyHash,
+  });
+  const candidates = ["2345AAAA", "2345BBBB", "2345CCCC", "2345DDDD", "2345EEEE"];
+  const { repository, service } = setup({
+    ids: idsForBookingCodes(candidates),
+    bookings: [original],
+    bookingCodes: candidates.map((code, index) => ({
+      codeHash: bookingCodeId(code),
+      bookingId: `occupied-${index}`,
+    })),
+    idempotency: [{ keyHash, bookingId: original.id }],
+  });
+
+  const replayed = await service.create(command({ idempotencyKey }));
+
+  assert.equal(replayed.id, original.id);
+  assert.equal(replayed.code, original.code);
+  assert.deepEqual((await repository.listBookings({})).map(({ id }) => id), [original.id]);
+  assert.deepEqual(await repository.listNotifications(), []);
+});
+
+test("legacy 32-character booking codes remain valid for lookup and cancellation", async () => {
+  const legacyCode = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  assert.equal(legacyCode.length, 32);
+  const { service } = setup({
+    ids: idsForBookingCodes([
+      legacyCode,
+      "2345AAAA",
+      "2345BBBB",
+      "2345CCCC",
+      "2345DDDD",
+    ]),
+  });
+  const booking = await service.create(command());
+
+  assert.equal((await service.lookup(legacyCode.toLowerCase(), booking.phone))?.id, booking.id);
+  const cancelled = await service.cancel({
+    bookingId: booking.id,
+    expectedVersion: booking.version,
+    actorType: "customer",
+  });
+  assert.equal(cancelled.status, "cancelled");
 });
 
 test("a new booking enqueues independent staff and optional customer events", async () => {

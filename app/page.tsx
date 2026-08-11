@@ -41,51 +41,18 @@ const values = [
 
 const coaches = [
   {
-    name: "陆予安",
-    role: "竞技总教练",
-    badge: "LYA",
+    name: "刘栖睿",
+    role: "匹克球教练",
+    badge: "LQR",
     style: "portrait-one",
-    detail: "前职业网球运动员 · PPR 认证教练",
-    quote: "把复杂的击球，讲成身体能记住的节奏。",
+    detail: "课程安排与训练计划请联系球馆确认",
   },
   {
-    name: "周澄",
-    role: "入门与体能教练",
-    badge: "ZC",
+    name: "毛之谦",
+    role: "匹克球教练",
+    badge: "MZQ",
     style: "portrait-two",
-    detail: "运动康复背景 · 青少年课程负责人",
-    quote: "好的第一堂课，是让你离开时已经期待下一次。",
-  },
-  {
-    name: "林岚",
-    role: "球会主理人",
-    badge: "LL",
-    style: "portrait-three",
-    detail: "赛事策划人 · 城市社群发起者",
-    quote: "我们经营的不只是球场，也是人与人相遇的方式。",
-  },
-];
-
-const honors = [
-  {
-    year: "2025",
-    title: "城市球会邀请赛 · 团体冠军",
-    meta: "华东赛区 / 公开组",
-  },
-  {
-    year: "2024",
-    title: "年度新锐运动空间",
-    meta: "CITY SPORTS AWARDS",
-  },
-  {
-    year: "2024",
-    title: "公开赛混合双打 · 冠军",
-    meta: "澄场教练团队",
-  },
-  {
-    year: "2023",
-    title: "青少年推广计划 · 优秀组织",
-    meta: "城市体育公益联盟",
+    detail: "课程安排与训练计划请联系球馆确认",
   },
 ];
 
@@ -93,12 +60,12 @@ export default function Home() {
   return (
     <main>
       <header className="site-header">
-        <a className="brand" href="#home" aria-label="澄场首页">
+        <a className="brand" href="#home" aria-label="睿安成 Pickle Club 首页">
           <span className="brand-mark" aria-hidden="true">
             <span />
           </span>
           <span className="brand-name">
-            澄场
+            睿安成
             <small>PICKLE CLUB</small>
           </span>
         </a>
@@ -118,18 +85,18 @@ export default function Home() {
       <section className="hero section-shell" id="home">
         <div className="hero-copy">
           <p className="eyebrow">
-            SHANGHAI · PRIVATE PICKLEBALL CLUB
+            NANCHANG · PICKLEBALL CLUB
           </p>
           <h1>
-            为城市留一块
+            每一次挥拍，
             <br />
-            <em>会呼吸的球场</em>
+            <em>都有新的回合</em>
           </h1>
           <div className="hero-copy-bottom">
             <p>
-              从第一次挥拍，到每一次默契配合。
+              从第一次上场，到每一次默契配合。
               <br />
-              澄场让运动回到轻松、专注和愉悦。
+              睿安成 Pickle Club，让运动更轻松、更专注。
             </p>
             <a className="text-link" href="#about">
               认识匹克球
@@ -138,29 +105,17 @@ export default function Home() {
           </div>
         </div>
 
-        <div
-          className="hero-visual"
-          role="img"
-          aria-label="暖绿色匹克球场的抽象俯视图"
-        >
-          <div className="hero-court">
-            <span className="court-line court-line-v" />
-            <span className="court-line court-line-h" />
-            <span className="court-line court-line-top" />
-            <span className="court-line court-line-bottom" />
-            <span className="court-net" />
-          </div>
-          <div className="hero-ball" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </div>
+        <div className="hero-visual">
+          {/* The static hosts serve this generated public asset without an image optimizer. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="蓝绿色匹克球场、球拍与黄色匹克球"
+            className="hero-visual-image"
+            src={`${basePath}/ruiancheng-court-hero.png`}
+          />
           <div className="hero-caption">
-            <span>PLAY SLOW</span>
-            <span>FEEL MORE</span>
+            <span>RUIANCHENG</span>
+            <span>NANCHANG</span>
           </div>
         </div>
       </section>
@@ -205,8 +160,8 @@ export default function Home() {
               <span>感觉不到打扰。</span>
             </h2>
             <p>
-              11 片专业缓震场地，独立新风与定向照明。每一处细节都服务于更清晰的球路、
-              更自在的脚步和更纯粹的一场球。
+              11 片场地按小时开放预约。你可以选择散客拼场，也可以选择包场，
+              在线查看可用时段后直接提交。
             </p>
           </div>
           <div className="venue-display">
@@ -221,14 +176,14 @@ export default function Home() {
             </div>
             <div className="venue-details">
               <div>
-                <span>净高</span>
-                <strong>8.2 M</strong>
-                <p>无立柱开阔空间</p>
+                <span>场地</span>
+                <strong>11</strong>
+                <p>预约系统内开放场地</p>
               </div>
               <div>
-                <span>地面</span>
-                <strong>ACRYLIC</strong>
-                <p>专业多层缓震系统</p>
+                <span>场次</span>
+                <strong>60 MIN</strong>
+                <p>每个场次固定 60 分钟</p>
               </div>
               <div>
                 <span>开放</span>
@@ -236,13 +191,12 @@ export default function Home() {
                 <p>每日预约制开放</p>
               </div>
               <div>
-                <span>配套</span>
-                <strong>FULL SET</strong>
-                <p>淋浴、更衣与装备租赁</p>
+                <span>方式</span>
+                <strong>2 MODES</strong>
+                <p>散客拼场或包场预约</p>
               </div>
             </div>
           </div>
-          <p className="demo-note">场地参数为首版演示资料，可替换</p>
         </div>
       </section>
 
@@ -257,7 +211,7 @@ export default function Home() {
             <br />
             <span>只让每一拍更像你。</span>
           </h2>
-          <p>专业方法、清晰反馈，也保留每个人独特的运动节奏。</p>
+          <p>具体课程内容、时间与适合人群，请联系球馆确认。</p>
         </div>
         <div className="coach-grid">
           {coaches.map((coach, index) => (
@@ -277,12 +231,10 @@ export default function Home() {
                   <span>{coach.role}</span>
                 </div>
                 <p>{coach.detail}</p>
-                <blockquote>“{coach.quote}”</blockquote>
               </div>
             </article>
           ))}
         </div>
-        <p className="demo-note dark-note">人物经历为首版演示资料，可替换</p>
       </section>
 
       <section className="honors section-shell" id="honors">
@@ -294,23 +246,13 @@ export default function Home() {
           <div className="honors-title">
             <p>OUR MOMENTS</p>
             <h2>
-              成绩会被记录，
+              保持热爱，
               <br />
-              <span>热爱一直在继续。</span>
+              <span>荣誉留待书写。</span>
             </h2>
           </div>
-          <div className="honor-list">
-            {honors.map((honor) => (
-              <article className="honor-row" key={`${honor.year}-${honor.title}`}>
-                <time>{honor.year}</time>
-                <div>
-                  <h3>{honor.title}</h3>
-                  <p>{honor.meta}</p>
-                </div>
-                <span aria-hidden="true">↗</span>
-              </article>
-            ))}
-            <p className="demo-note">获奖信息为首版演示资料，可替换</p>
+          <div className="honor-list honor-list-empty" aria-label="荣誉资料暂为空">
+            <span aria-hidden="true">—</span>
           </div>
         </div>
       </section>
@@ -355,23 +297,18 @@ export default function Home() {
           <div className="contact-grid">
             <div>
               <span>地址 ADDRESS</span>
-              <p>上海市徐汇区龙腾大道 88 号</p>
-              <small>演示地址，可替换</small>
+              <p>江西省南昌市青山湖区青山湖南大道260号14号楼</p>
+              <small>到店前建议先完成线上预约</small>
             </div>
             <div>
               <span>电话 TELEPHONE</span>
-              <p>021 — 8888 7290</p>
-              <small>演示号码，可替换</small>
+              <p><a href="tel:+8613807917663">13807917663</a></p>
+              <small>点击号码可直接拨打</small>
             </div>
             <div>
               <span>营业时间 OPENING</span>
               <p>周一至周日 07:00 — 23:00</p>
               <small>法定节假日以公告为准</small>
-            </div>
-            <div>
-              <span>社交媒体 SOCIAL</span>
-              <p>小红书 / 微信视频号 @澄场</p>
-              <small>演示账号，可替换</small>
             </div>
           </div>
         </div>
@@ -383,12 +320,12 @@ export default function Home() {
             <span />
           </span>
           <span className="brand-name">
-            澄场
+            睿安成
             <small>PICKLE CLUB</small>
           </span>
         </a>
-        <p>© 2026 CHENGCHANG PICKLE CLUB</p>
-        <p>当前内容为首版演示，不代表真实营业信息</p>
+        <p>© 2026 睿安成 PICKLE CLUB</p>
+        <p>江西 · 南昌</p>
       </footer>
     </main>
   );

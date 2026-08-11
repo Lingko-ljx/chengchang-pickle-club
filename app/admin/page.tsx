@@ -30,7 +30,7 @@ export default function AdminPage() {
       >
         <header className="admin-header">
           <div>
-            <p className="admin-kicker">CHENGCHANG STAFF</p>
+            <p className="admin-kicker">睿安成 STAFF</p>
             <h1>场务管理</h1>
           </div>
           <button hidden id="admin-sign-out" type="button">退出登录</button>

@@ -4,12 +4,27 @@ export const COURT_IDS = Object.freeze([
 export const sessionTemplateDuration = 60;
 export const BOOKING_ACTIONS = [
   ["confirm", "确认预约"],
-  ["reschedule", "提出改期"],
   ["cancel", "取消预约"],
   ["complete", "完结预约"],
-  ["reassign", "调整场地"],
   ["redact", "提前脱敏"],
-];
+] as const;
+
+export function bookingActionsFor(booking: {
+  status: string;
+  personalDataRedactedAt?: string;
+}): Array<(typeof BOOKING_ACTIONS)[number]> {
+  const [confirm, cancel, complete, redact] = BOOKING_ACTIONS;
+  if (booking.status === "pending") return [confirm, cancel];
+  if (booking.status === "confirmed") return [complete, cancel];
+  if (booking.status === "reschedule_proposed") return [cancel];
+  if (
+    (booking.status === "cancelled" || booking.status === "completed") &&
+    !booking.personalDataRedactedAt
+  ) {
+    return [redact];
+  }
+  return [];
+}
 
 export type AdminBooking = {
   id: string;
@@ -31,6 +46,7 @@ export type AdminBooking = {
   note?: string;
   createdAt: string;
   updatedAt: string;
+  personalDataRedactedAt?: string;
   version: number;
 };
 
@@ -68,6 +84,18 @@ type ShanghaiInstantParts = {
   date: string;
   time: string;
 };
+
+export function bookingDisplayName(booking: { name?: string }): string {
+  return booking.name?.trim() || "已脱敏预约";
+}
+
+export function retainSelectedBooking<T extends { id: string }>(
+  selected: T | null,
+  candidates: readonly T[],
+): T | null {
+  if (!selected) return null;
+  return candidates.find((booking) => booking.id === selected.id) ?? selected;
+}
 
 const explicitOffsetInstant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -132,7 +160,8 @@ function bookingButton(booking: AdminBooking, onSelect: (booking: AdminBooking) 
   button.type = "button";
   button.className = "admin-booking-row";
   button.append(
-    text("strong", booking.code),
+    text("strong", bookingDisplayName(booking)),
+    text("span", `预约号 ${booking.code}`, "admin-booking-code"),
     text("span", `${formatShanghaiBookingSchedule(booking)} · ${booking.courtId ?? "待分配"}`),
     text("span", `${statusLabels[booking.status] ?? booking.status} · ${booking.partySize} 人`),
   );
@@ -228,10 +257,12 @@ export function renderBookingDetail(
     return;
   }
   container.append(
-    text("h3", booking.code),
+    text("h3", bookingDisplayName(booking)),
+    text("p", `预约号 ${booking.code}`, "admin-detail-code"),
+    text("p", `状态：${statusLabels[booking.status] ?? booking.status}`, "admin-detail-status"),
     text("p", formatShanghaiBookingSchedule(booking)),
     text("p", `${booking.mode === "private" ? "包场" : "散客"} · ${booking.partySize} 人 · 场地 ${booking.courtId ?? "待分配"}`),
-    text("p", `${booking.name ?? "已脱敏"} · ${booking.phone ?? "号码已脱敏"}`),
+    text("p", booking.phone ?? "号码已脱敏"),
     text("p", booking.email ?? "未留邮箱"),
     text("p", booking.note ?? "无备注"),
   );

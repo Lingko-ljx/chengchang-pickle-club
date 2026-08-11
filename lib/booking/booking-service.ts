@@ -70,9 +70,10 @@ function encodeBookingCode(bytes: Uint8Array): string {
 }
 
 const systemClock: Clock = { now: () => new Date() };
+const bookingCodeCandidateCount = 5;
 const secureIds: IdProvider = {
   bookingId: () => randomUUID(),
-  bookingCode: () => encodeBookingCode(randomBytes(20)),
+  bookingCode: () => encodeBookingCode(randomBytes(5)),
   eventId: () => randomUUID(),
 };
 const unavailablePhoneHasher: PhoneHasher = {
@@ -210,8 +211,9 @@ export class BookingService {
     const parsed = parseSessionId(command.sessionId);
     const now = this.clock.now().toISOString();
     const bookingId = this.ids.bookingId();
-    const code = this.ids.bookingCode().trim().toUpperCase();
-    const codeHash = bookingCodeId(code);
+    const codeCandidates = Array.from({ length: bookingCodeCandidateCount }, () =>
+      this.ids.bookingCode().trim().toUpperCase(),
+    );
     const idempotencyKeyHash = hash(command.idempotencyKey);
     const auditId = this.ids.eventId();
     const staffNotificationId = this.ids.eventId();
@@ -220,7 +222,18 @@ export class BookingService {
     return this.repository.runTransaction(async (transaction) => {
       const previousId = await transaction.getIdempotency(idempotencyKeyHash);
       if (previousId) return requireBooking(await transaction.getBooking(previousId));
-      if (await transaction.getBookingIdByCodeHash(codeHash)) throw new BookingError("CONFLICT");
+
+      let selectedCode: { code: string; codeHash: string } | undefined;
+      for (const candidate of codeCandidates) {
+        if (!candidate) continue;
+        const candidateHash = bookingCodeId(candidate);
+        if (!(await transaction.getBookingIdByCodeHash(candidateHash))) {
+          selectedCode = { code: candidate, codeHash: candidateHash };
+          break;
+        }
+      }
+      if (!selectedCode) throw new BookingError("CONFLICT");
+      const { code, codeHash } = selectedCode;
 
       const prepared = await this.prepareSession(transaction, command.sessionId, now);
       const enabled = new Set(

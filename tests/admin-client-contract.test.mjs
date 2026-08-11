@@ -16,11 +16,14 @@ import {
 import {
   BOOKING_ACTIONS,
   COURT_IDS,
+  bookingActionsFor,
+  bookingDisplayName,
   confirmationMessage,
   formatShanghaiBookingSchedule,
   formatShanghaiDateTime,
   formatShanghaiDateTimeRange,
   matrixBookingsForCell,
+  retainSelectedBooking,
   sessionTemplateDuration,
 } from "../admin-client/render.ts";
 
@@ -317,15 +320,69 @@ test("session templates are fixed to exactly sixty minutes", () => {
   assert.equal(sessionTemplateDuration, 60);
 });
 
-test("booking detail offers every protected lifecycle and privacy action", () => {
+test("booking cards lead with the customer name and use a redacted fallback", async () => {
+  assert.equal(bookingDisplayName({ name: "刘栖睿" }), "刘栖睿");
+  assert.equal(bookingDisplayName({ name: "  毛之谦  " }), "毛之谦");
+  assert.equal(bookingDisplayName({}), "已脱敏预约");
+  assert.equal(bookingDisplayName({ name: "   " }), "已脱敏预约");
+
+  const source = await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8");
+  assert.match(source, /text\("strong", bookingDisplayName\(booking\)\)/);
+  assert.match(source, /`预约号 \$\{booking\.code\}`/);
+  const detailName = source.indexOf('text("h3", bookingDisplayName(booking))');
+  const detailCode = source.indexOf(
+    'text("p", `预约号 ${booking.code}`, "admin-detail-code")',
+    detailName,
+  );
+  assert.notEqual(detailName, -1);
+  assert.ok(detailCode > detailName);
+});
+
+test("booking actions expose only valid core actions for each status", () => {
   assert.deepEqual(BOOKING_ACTIONS, [
     ["confirm", "确认预约"],
-    ["reschedule", "提出改期"],
     ["cancel", "取消预约"],
     ["complete", "完结预约"],
-    ["reassign", "调整场地"],
     ["redact", "提前脱敏"],
   ]);
+  assert.deepEqual(bookingActionsFor({ status: "pending" }), [
+    ["confirm", "确认预约"],
+    ["cancel", "取消预约"],
+  ]);
+  assert.deepEqual(bookingActionsFor({ status: "confirmed" }), [
+    ["complete", "完结预约"],
+    ["cancel", "取消预约"],
+  ]);
+  assert.deepEqual(bookingActionsFor({ status: "cancelled" }), [["redact", "提前脱敏"]]);
+  assert.deepEqual(bookingActionsFor({ status: "completed" }), [["redact", "提前脱敏"]]);
+  assert.deepEqual(
+    bookingActionsFor({
+      status: "cancelled",
+      personalDataRedactedAt: "2026-08-11T14:00:00.000Z",
+    }),
+    [],
+  );
+  assert.deepEqual(bookingActionsFor({ status: "reschedule_proposed" }), [
+    ["cancel", "取消预约"],
+  ]);
+});
+
+test("refresh retains the selected booking when a status filter removes it", () => {
+  const selected = { id: "booking-1", status: "pending", version: 1 };
+  const refreshed = { id: "booking-1", status: "confirmed", version: 2 };
+  assert.equal(retainSelectedBooking(selected, [refreshed]), refreshed);
+  assert.equal(retainSelectedBooking(selected, []), selected);
+  assert.equal(retainSelectedBooking(null, [refreshed]), null);
+});
+
+test("admin mutation UI has an in-flight state and reports success before best-effort refresh", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  assert.match(source, /let activeAction: string \| null = null/);
+  assert.match(source, /button\.disabled = activeAction !== null/);
+  assert.match(source, /activeAction === action \? `\$\{label\}处理中…` : label/);
+  assert.match(source, /const updated = await api\.mutateBooking/);
+  assert.match(source, /personalDataRedactedAt: new Date\(\)\.toISOString\(\)/);
+  assert.match(source, /列表未能自动刷新/);
 });
 
 test("staff login uses the v2 auth contract and keeps its token in closure", async () => {
@@ -499,6 +556,8 @@ test("the generated admin client is an ES2017 IIFE without runtime config or sec
 
 test("the server-rendered admin page contains login and a hidden dashboard", async () => {
   const html = await renderAdminPage();
+  assert.match(html, /睿安成 STAFF/);
+  assert.doesNotMatch(html, /CHENGCHANG STAFF/);
   assert.match(html, /id="admin-login-form"/);
   assert.match(html, /<div\b(?=[^>]*\bid="admin-dashboard")(?=[^>]*\bhidden(?:="")?)[^>]*>/);
   assert.match(html, /data-cloudbase-env-id="booking-test-000000"/);

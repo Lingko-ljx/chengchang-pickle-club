@@ -6,13 +6,13 @@ import {
 } from "./config.ts";
 import { runAdminLoginFlow } from "./login-flow.ts";
 import {
-  BOOKING_ACTIONS,
-  COURT_IDS,
+  bookingActionsFor,
   confirmationMessage,
   renderBookingDetail,
   renderBookingList,
   renderCourtMatrix,
   renderPendingQueue,
+  retainSelectedBooking,
   type AdminAuditLog,
   type AdminBooking,
   type AvailabilitySlot,
@@ -80,6 +80,7 @@ function startAdmin() {
   );
   let selected: AdminBooking | null = null;
   let selectedAudits: AdminAuditLog[] = [];
+  let activeAction: string | null = null;
   let todayDashboard: Dashboard = { date: shanghaiDate(), pending: [], slots: [] };
   let selectedDashboard: Dashboard = { date: shanghaiDate(), pending: [], slots: [] };
   let bookings: AdminBooking[] = [];
@@ -184,8 +185,10 @@ function startAdmin() {
     renderBookingList(required("admin-booking-list"), bookings, onSelect);
     renderCourtMatrix(required("admin-court-matrix"), selectedDashboard.slots, matrixBookings, onSelect);
     if (selected) {
-      selected = [...bookings, ...matrixBookings, ...todayDashboard.pending]
-        .find((booking) => booking.id === selected?.id) ?? null;
+      selected = retainSelectedBooking(
+        selected,
+        [...bookings, ...matrixBookings, ...todayDashboard.pending],
+      );
     }
     renderBookingDetail(required("admin-booking-detail"), selected, selectedAudits);
     renderActions();
@@ -215,22 +218,39 @@ function startAdmin() {
   };
 
   async function runBookingAction(action: string, label: string) {
-    if (!selected) return;
-    const body: Record<string, unknown> = { expectedVersion: selected.version };
-    if (action === "reschedule") {
-      const sessionId = window.prompt("请输入目标场次 ID");
-      if (!sessionId?.trim()) return;
-      body.sessionId = sessionId.trim();
+    if (!selected || activeAction) return;
+    const target = selected;
+    const body: Record<string, unknown> = { expectedVersion: target.version };
+    if (!window.confirm(confirmationMessage(target, label))) return;
+    activeAction = action;
+    renderActions();
+    try {
+      const updated = await api.mutateBooking(target.id, action, body);
+      if (selected?.id === target.id) {
+        selected = action === "redact"
+          ? {
+              ...target,
+              name: undefined,
+              phone: undefined,
+              email: undefined,
+              note: undefined,
+              personalDataRedactedAt: new Date().toISOString(),
+              version: target.version + 1,
+            }
+          : updated as AdminBooking;
+        selectedAudits = [];
+        renderBookingDetail(required("admin-booking-detail"), selected, selectedAudits);
+      }
+      showMessage(`${label}成功。`);
+      try {
+        await refresh();
+      } catch {
+        showMessage(`${label}成功，但列表未能自动刷新，请点击“筛选”重试。`);
+      }
+    } finally {
+      activeAction = null;
+      renderActions();
     }
-    if (action === "reassign") {
-      const courtId = window.prompt("请输入目标场地编号（01–11）");
-      if (!courtId || !COURT_IDS.includes(courtId)) return;
-      body.courtId = courtId;
-    }
-    if (!window.confirm(confirmationMessage(selected, label))) return;
-    await api.mutateBooking(selected.id, action, body);
-    await refresh();
-    showMessage(`${label}已提交。`);
   }
 
   function renderActions() {
@@ -239,10 +259,11 @@ function startAdmin() {
     if (!selected) return;
     const actions = document.createElement("div");
     actions.className = "admin-detail-actions";
-    for (const [action, label] of BOOKING_ACTIONS) {
+    for (const [action, label] of bookingActionsFor(selected)) {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = label;
+      button.disabled = activeAction !== null;
+      button.textContent = activeAction === action ? `${label}处理中…` : label;
       button.addEventListener("click", () => {
         runBookingAction(action, label).catch((error) => showMessage(String(error), true));
       });

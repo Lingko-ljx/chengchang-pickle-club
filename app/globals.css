@@ -1,15 +1,15 @@
 :root {
-  --ink: #161813;
-  --ink-soft: #262920;
-  --paper: #f2efe6;
-  --paper-deep: #e5dfd1;
-  --paper-light: #faf8f2;
-  --lime: #b7d968;
-  --lime-dark: #8fac49;
-  --sage: #6f8060;
-  --line: rgba(22, 24, 19, 0.18);
+  --ink: #0e292b;
+  --ink-soft: #143b3e;
+  --paper: #f4f0e5;
+  --paper-deep: #e8e0cf;
+  --paper-light: #fffdf6;
+  --lime: #d8f01e;
+  --lime-dark: #a9c300;
+  --sage: #167b78;
+  --line: rgba(14, 41, 43, 0.18);
   --light-line: rgba(250, 248, 242, 0.2);
-  --muted: #686b62;
+  --muted: #5f6a66;
   --radius: 1.45rem;
 }
 
@@ -305,7 +305,7 @@ textarea:focus-visible {
 .hero-visual {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 42%),
-    #758863;
+    #0e6164;
   border-radius: 0 0 0 72px;
   min-height: 680px;
   overflow: hidden;
@@ -314,17 +314,25 @@ textarea:focus-visible {
 
 .hero-visual::before {
   background:
-    linear-gradient(90deg, transparent 0 49.8%, rgba(255, 255, 255, 0.07) 50%),
-    linear-gradient(transparent 0 49.8%, rgba(255, 255, 255, 0.07) 50%);
-  background-size: 64px 64px;
+    linear-gradient(180deg, transparent 50%, rgba(7, 28, 30, 0.48)),
+    linear-gradient(135deg, rgba(216, 240, 30, 0.08), transparent 45%);
   content: "";
   bottom: 0;
   left: 0;
   right: 0;
   top: 0;
   inset: 0;
-  opacity: 0.6;
+  opacity: 1;
   position: absolute;
+  z-index: 1;
+}
+
+.hero-visual-image {
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  position: absolute;
+  width: 100%;
 }
 
 .hero-court {
@@ -443,6 +451,7 @@ textarea:focus-visible {
   letter-spacing: 0.19em;
   position: absolute;
   right: 28px;
+  z-index: 2;
 }
 
 @keyframes ball-drift {
@@ -746,7 +755,7 @@ textarea:focus-visible {
 .coach-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .coach-card {
@@ -761,16 +770,16 @@ textarea:focus-visible {
 
 .portrait-one {
   background:
-    radial-gradient(circle at 55% 34%, #d8d2c2 0 10%, transparent 10.5%),
-    radial-gradient(ellipse at 52% 70%, #242720 0 30%, transparent 30.5%),
-    linear-gradient(150deg, #aebc94 0 55%, #d5dacb 55%);
+    radial-gradient(circle at 74% 28%, var(--lime) 0 8%, transparent 8.5%),
+    linear-gradient(90deg, transparent 49.7%, rgba(255, 255, 255, 0.74) 50%, transparent 50.3%),
+    linear-gradient(150deg, #0e6164 0 56%, #1c8e8b 56%);
 }
 
 .portrait-two {
   background:
-    radial-gradient(circle at 46% 32%, #ded6c6 0 10%, transparent 10.5%),
-    radial-gradient(ellipse at 49% 69%, #60704e 0 30%, transparent 30.5%),
-    linear-gradient(26deg, #d7d1c1 0 47%, #939f7e 47%);
+    radial-gradient(circle at 28% 68%, var(--lime) 0 8%, transparent 8.5%),
+    linear-gradient(0deg, transparent 49.7%, rgba(255, 255, 255, 0.74) 50%, transparent 50.3%),
+    linear-gradient(28deg, #0a4f54 0 48%, #29a6a1 48%);
 }
 
 .portrait-three {
@@ -892,6 +901,16 @@ textarea:focus-visible {
 
 .honor-list {
   border-top: 1px solid var(--line);
+}
+
+.honor-list-empty {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  display: flex;
+  font-family: Arial, sans-serif;
+  font-size: 46px;
+  min-height: 190px;
 }
 
 .honor-row {
@@ -1621,11 +1640,6 @@ textarea:focus-visible {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .coach-card:last-child {
-    grid-column: 1 / -1;
-    max-width: calc(50% - 7px);
-  }
-
   .booking-layout {
     gap: 54px;
   }
@@ -1787,11 +1801,6 @@ textarea:focus-visible {
 
   .coach-grid {
     grid-template-columns: 1fr;
-  }
-
-  .coach-card:last-child {
-    grid-column: auto;
-    max-width: none;
   }
 
   .coach-meta blockquote {
@@ -2397,6 +2406,22 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+.contact-grid a:hover {
+  color: var(--sage);
+}
+
+.admin-booking-code,
+.admin-detail-code {
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.admin-detail-status {
+  font-weight: 600;
+}
+
 .admin-filters {
   align-items: end;
   flex-wrap: wrap;
@@ -2482,6 +2507,11 @@ textarea:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.admin-detail-actions button:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .admin-settings-grid {
