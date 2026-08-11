@@ -180,7 +180,8 @@ function loadEnhancement(source, options = {}) {
     getAttribute(name) {
       const attributes = {
         "data-availability-url": "https://booking-api.example.invalid/v1/availability/windows",
-        "data-booking-result-path": "/chengchang-pickle-club/booking/result/",
+        "data-booking-result-path":
+          options.resultPath ?? "/chengchang-pickle-club/booking/result/",
         "data-booking-status-path": "/chengchang-pickle-club/booking/status/",
       };
       return attributes[name] ?? null;
@@ -581,6 +582,24 @@ test("one persisted idempotency key survives failed submissions and clears only 
   assert.equal(
     page.location.href,
     "/chengchang-pickle-club/booking/result/?code=BOOK%2F42",
+  );
+});
+
+test("allowlisted channel attribution survives the result redirect but never enters booking PII", async () => {
+  const source = await readEnhancement();
+  const page = loadEnhancement(source, {
+    date: "2026-08-10",
+    resultPath: "/chengchang-pickle-club/booking/result/?src=wx_menu",
+  });
+
+  page.submit();
+  const request = page.request();
+  assert.doesNotMatch(request.body, /(?:^|&)src=|wx_menu|openid|unionid/i);
+  request.respond(201, JSON.stringify({ data: { code: "L3JSR8PC" } }));
+
+  assert.equal(
+    page.location.href,
+    "/chengchang-pickle-club/booking/result/?src=wx_menu&code=L3JSR8PC",
   );
 });
 

@@ -107,6 +107,14 @@
     }
   }
 
+  function appendQueryParameter(path, name, value) {
+    var hashIndex = path.indexOf("#");
+    var hash = hashIndex >= 0 ? path.slice(hashIndex) : "";
+    var base = hashIndex >= 0 ? path.slice(0, hashIndex) : path;
+    var separator = base.indexOf("?") >= 0 ? "&" : "?";
+    return base + separator + encodeURIComponent(name) + "=" + encodeURIComponent(value) + hash;
+  }
+
   function isValidDate(value) {
     var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
     var parsed;
@@ -480,9 +488,11 @@
             code = "";
           }
           if (typeof code === "string" && code !== "") {
+            resultPath =
+              form.getAttribute("data-booking-result-path") || resultPath;
             clearIdempotencyKey();
             form.reset();
-            window.location.href = resultPath + "?code=" + encodeURIComponent(code);
+            window.location.href = appendQueryParameter(resultPath, "code", code);
             return;
           }
         }

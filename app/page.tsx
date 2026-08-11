@@ -7,6 +7,7 @@ import {
   resolveBookingScriptSrc,
 } from "./booking-config";
 import { siteConfiguration } from "./site-config";
+import { publicWechatEntryUrls } from "./wechat-entry";
 
 const basePath = siteConfiguration.basePath;
 const bookingApiBaseUrl = resolveBookingApiBaseUrl(
@@ -20,6 +21,7 @@ const formEndpoint = bookingApiBaseUrl
   ? bookingCreateUrl(bookingApiBaseUrl)
   : "";
 const bookingScriptSrc = resolveBookingScriptSrc(basePath);
+const wechatEntryUrls = publicWechatEntryUrls(siteConfiguration.siteUrl);
 
 const values = [
   {
@@ -117,7 +119,12 @@ const honors = [
 
 export default function Home() {
   return (
-    <main>
+    <main
+      data-public-channel-page="booking"
+      data-wechat-menu-booking-url={wechatEntryUrls.menuBooking}
+      data-wechat-menu-status-url={wechatEntryUrls.menuStatus}
+      data-wechat-qr-booking-url={wechatEntryUrls.qrBooking}
+    >
       <header className="site-header">
         <a className="brand" href="#home" aria-label="睿安成 Pickle Club 首页">
           <span className="brand-mark" aria-hidden="true">
@@ -359,7 +366,9 @@ export default function Home() {
           />
           <div className="booking-status-entry">
             <span>已经提交过预约？</span>
-            <a href={bookingStatusPath(basePath)}>查询状态、取消或回应改期 →</a>
+            <a data-preserve-public-channel href={bookingStatusPath(basePath)}>
+              查询状态、取消或回应改期 →
+            </a>
           </div>
         </div>
       </section>
@@ -415,6 +424,7 @@ export default function Home() {
         <p>江西 · 南昌</p>
       </footer>
       <script data-homepage-media-client defer src={`${basePath}/homepage-media.js`} />
+      <script data-wechat-entry-client defer src={`${basePath}/wechat-entry.js`} />
     </main>
   );
 }

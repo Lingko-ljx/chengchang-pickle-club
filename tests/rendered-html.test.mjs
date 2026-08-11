@@ -81,6 +81,10 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /data-homepage-media(?:="")?/);
   assert.match(html, /data-homepage-media-list(?:="")?/);
   assert.match(html, /<script[^>]+data-homepage-media-client[^>]+defer/);
+  assert.match(html, /<script[^>]+data-wechat-entry-client[^>]+defer/);
+  assert.match(html, /data-public-channel-page="booking"/);
+  assert.match(html, /data-wechat-menu-booking-url=/);
+  assert.match(html, /data-wechat-qr-booking-url=/);
   assert.match(html, /DAILY MOMENTS/);
   assert.match(html, /<title>睿安成 PICKLE CLUB/);
   for (const content of [

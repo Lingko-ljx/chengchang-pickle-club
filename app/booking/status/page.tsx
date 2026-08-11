@@ -15,7 +15,7 @@ const bookingApiBaseUrl = resolveBookingApiBaseUrl(
 
 export default function BookingStatusPage() {
   return (
-    <main className="booking-flow-page">
+    <main className="booking-flow-page" data-public-channel-page="status">
       <section
         className="booking-flow-card booking-status-card"
         data-api-base-url={bookingApiBaseUrl}
@@ -134,7 +134,11 @@ export default function BookingStatusPage() {
           </div>
         </section>
 
-        <a className="booking-flow-back" href={`${basePath}/#booking`}>
+        <a
+          className="booking-flow-back"
+          data-preserve-public-channel
+          href={`${basePath}/#booking`}
+        >
           返回预约页面
         </a>
       </section>
@@ -143,6 +147,7 @@ export default function BookingStatusPage() {
         defer
         src={`${basePath}/booking-status.js`}
       />
+      <script data-wechat-entry-client defer src={`${basePath}/wechat-entry.js`} />
     </main>
   );
 }

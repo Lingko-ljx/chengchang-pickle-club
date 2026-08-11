@@ -32,6 +32,21 @@ outputs, so both a GitHub project URL and a custom-domain root URL are supported
 In GitHub **Settings → Pages**, set **Source** to **GitHub Actions** before the
 first release; the legacy branch publisher must not remain active.
 
+## WeChat Official Account launch
+
+The lowest-risk initial integration is a public `view` menu that opens the
+existing HTTPS H5 site inside WeChat. It does not require OAuth, JS-SDK, or a
+mini program. Keep `/admin/` staff-only and never place it in a menu, automatic
+reply, article, or QR code.
+
+Use the account-independent launch runbook in
+[`docs/wechat-official-account-launch.md`](docs/wechat-official-account-launch.md)
+and replace the placeholders in
+[`docs/wechat-menu-template.json`](docs/wechat-menu-template.json) before
+publishing the three-item menu. The runbook also covers automatic replies, the
+two different QR-code goals, migration to an owned domain, later OAuth/JS-SDK
+gates, WeChat iOS/Android acceptance, and security red lines.
+
 ## Booking v2 operating rules
 
 All customer and staff booking times are Beijing time (`Asia/Shanghai`). The

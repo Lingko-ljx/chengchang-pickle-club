@@ -81,6 +81,7 @@ test("exports the real booking form without a framework client runtime", async (
   assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.ok(html.includes(`src="${prefixed("/booking-form.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/homepage-media.js")}"`));
+  assert.ok(html.includes(`src="${prefixed("/wechat-entry.js")}"`));
   assert.match(html, /data-homepage-media(?:="")?/);
   assert.match(html, /data-homepage-media-list(?:="")?/);
   assert.doesNotMatch(html, /_next\/static\/chunks\/[^"]+\.js/);
@@ -97,9 +98,10 @@ test("exports the real booking form without a framework client runtime", async (
   assert.match(html, /<meta property="og:image:alt" content="[^"]+"/);
 
   const scriptTags = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
-  assert.equal(scriptTags.length, 2);
+  assert.equal(scriptTags.length, 3);
   assert.ok(scriptTags.some((script) => /data-booking-form-client/.test(script)));
   assert.ok(scriptTags.some((script) => /data-homepage-media-client/.test(script)));
+  assert.ok(scriptTags.some((script) => /data-wechat-entry-client/.test(script)));
 });
 
 test("exports result and status pages with only their ES5 clients", async () => {
@@ -125,8 +127,9 @@ test("exports result and status pages with only their ES5 clients", async () => 
     assert.doesNotMatch(html, /_next\/static\/chunks\/[^\"]+\.js/);
     assert.doesNotMatch(html, /self\.__next|__next_f|modulepreload/);
     const scripts = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
-    assert.equal(scripts.length, 1);
+    assert.equal(scripts.length, 2);
     assert.match(scripts[0], page.client);
+    assert.ok(scripts.some((script) => /data-wechat-entry-client/.test(script)));
   }
 });
 

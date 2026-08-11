@@ -1,0 +1,19 @@
+{
+  "button": [
+    {
+      "type": "view",
+      "name": "预约场地",
+      "url": "{{BOOKING_MENU_URL}}"
+    },
+    {
+      "type": "view",
+      "name": "球馆动态",
+      "url": "{{DAILY_MENU_URL}}"
+    },
+    {
+      "type": "view",
+      "name": "联系我们",
+      "url": "{{CONTACT_MENU_URL}}"
+    }
+  ]
+}
