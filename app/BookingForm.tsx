@@ -76,7 +76,7 @@ export function BookingForm({
               acceptCharset="UTF-8"
               action={formEndpoint}
               className="booking-form"
-              data-availability-url={`${apiBaseUrl.replace(/\/+$/, "")}/v2/availability`}
+              data-availability-url={`${apiBaseUrl.replace(/\/+$/, "")}/v1/availability/windows`}
               data-booking-result-path={resultPath}
               data-booking-status-path={statusPath}
               id="booking-form"

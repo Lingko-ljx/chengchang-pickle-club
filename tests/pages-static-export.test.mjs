@@ -62,7 +62,7 @@ test("exports the real booking form without a framework client runtime", async (
   assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
   assert.ok(
     html.includes(
-      `data-availability-url="${apiBaseUrl}/v2/availability"`,
+      `data-availability-url="${apiBaseUrl}/v1/availability/windows"`,
     ),
   );
   assert.match(

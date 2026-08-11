@@ -176,7 +176,7 @@ test("public homepage media is served through the same exact-origin CORS policy"
   assert.deepEqual(calls, ["listPublished"]);
 });
 
-test("v2 availability validates the date and delegates the 30-minute window query", async () => {
+test("window availability stays under the deployed v1 gateway and delegates the 30-minute query", async () => {
   const queries = [];
   const windows = {
     policy: {
@@ -209,7 +209,7 @@ test("v2 availability validates the date and delegates the 30-minute window quer
   });
 
   const response = await handler(
-    jsonEvent("GET", "/v2/availability", undefined, {
+    jsonEvent("GET", "/v1/availability/windows", undefined, {
       queryStringParameters: { date: "2028-02-29" },
     }),
   );
@@ -218,12 +218,21 @@ test("v2 availability validates the date and delegates the 30-minute window quer
   assert.deepEqual(queries, [{ date: "2028-02-29" }]);
 
   const invalid = await handler(
-    jsonEvent("GET", "/v2/availability", undefined, {
+    jsonEvent("GET", "/v1/availability/windows", undefined, {
       queryStringParameters: { date: "2028-02-30" },
     }),
   );
   assert.equal(invalid.statusCode, 400);
   assert.equal(responseBody(invalid).error.code, "INVALID_INPUT");
+
+  const undeployedVersionRoot = await handler(
+    jsonEvent("GET", "/v2/availability", undefined, {
+      queryStringParameters: { date: "2028-02-29" },
+    }),
+  );
+  assert.equal(undeployedVersionRoot.statusCode, 404);
+  assert.equal(responseBody(undeployedVersionRoot).error.code, "BOOKING_NOT_FOUND");
+  assert.deepEqual(queries, [{ date: "2028-02-29" }]);
 });
 
 test("availability advertises open party sizes that fit one court, not aggregate seats", async () => {

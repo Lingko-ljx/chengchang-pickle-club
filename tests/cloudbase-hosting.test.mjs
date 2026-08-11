@@ -72,7 +72,7 @@ test("deployed page smoke requires real public/admin configuration and only appr
       return htmlResponse(`<!doctype html>
         <link rel="stylesheet" href="/_next/static/chunks/site.css">
         <form action="${configuration.apiBaseUrl}/v1/bookings"
-          data-availability-url="${configuration.apiBaseUrl}/v2/availability"></form>
+          data-availability-url="${configuration.apiBaseUrl}/v1/availability/windows"></form>
         <script data-booking-form-client src="/booking-form.js"></script>
         <script data-homepage-media-client src="/homepage-media.js"></script>`);
     }
@@ -185,7 +185,7 @@ test("public API smoke requires ready v2 windows, media and bounded retries", as
     "https://booking-api.example/v1/admin/dashboard",
     "https://booking-api.example/v1/admin/bookings/smoke-booking/confirm",
     "https://booking-api.example/v1/admin/courts/01",
-    "https://booking-api.example/v2/availability?date=2099-01-01",
+    "https://booking-api.example/v1/availability/windows?date=2099-01-01",
     "https://booking-api.example/v1/homepage-media",
   ]);
   assert.deepEqual(requests[0].init.headers, {

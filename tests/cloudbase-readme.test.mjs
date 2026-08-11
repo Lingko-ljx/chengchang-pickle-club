@@ -59,6 +59,9 @@ test("runbook fixes the Beijing booking-v2 window and compact settings ownership
   assert.match(section, /explicit date, start time, and end time/);
   assert.match(section, /free-experience tier fixes function timeout at \*\*3\s+seconds\*\*/);
   assert.match(section, /deployment verifier checks[\s\S]*`Timeout: 3`/);
+  assert.match(section, /GET `?\/v1\/availability`?/);
+  assert.match(section, /GET `?\/v1\/availability\/windows`?/);
+  assert.match(section, /Do not publish a separate `\/v2` gateway[\s\S]{0,20}path/);
   assert.match(section, /营业设置/);
   assert.match(section, /system_state\/booking-policy-v2[\s\S]{0,100}authoritative/i);
   assert.match(section, /session_templates[\s\S]{0,100}compatibility/i);

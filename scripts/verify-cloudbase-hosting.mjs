@@ -106,7 +106,7 @@ function verifyRootHtml(body, configuration) {
   if (
     !body.includes(`action="${configuration.apiBaseUrl}/v1/bookings"`) ||
     !body.includes(
-      `data-availability-url="${configuration.apiBaseUrl}/v2/availability"`,
+      `data-availability-url="${configuration.apiBaseUrl}/v1/availability/windows"`,
     ) ||
     !/\bdata-booking-form-client(?:\s|=|>)/i.test(body) ||
     !/\bdata-homepage-media-client(?:\s|=|>)/i.test(body) ||
@@ -220,7 +220,7 @@ export async function verifyCloudBaseApi(configuration, options = {}) {
         });
       }
       const availabilityResponse = await fetchImpl(
-        `${configuration.apiBaseUrl}/v2/availability?date=${smokeDate}`,
+        `${configuration.apiBaseUrl}/v1/availability/windows?date=${smokeDate}`,
         {
           headers: { Accept: "application/json", Origin: siteOrigin },
           redirect: "error",

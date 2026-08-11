@@ -179,7 +179,7 @@ function loadEnhancement(source, options = {}) {
     },
     getAttribute(name) {
       const attributes = {
-        "data-availability-url": "https://booking-api.example.invalid/v2/availability",
+        "data-availability-url": "https://booking-api.example.invalid/v1/availability/windows",
         "data-booking-result-path": "/chengchang-pickle-club/booking/result/",
         "data-booking-status-path": "/chengchang-pickle-club/booking/status/",
       };
@@ -320,7 +320,7 @@ test("valid dates fetch v2 windows and filter start/end choices by mode and whol
   assert.equal(request.method, "GET");
   assert.equal(
     request.url,
-    "https://booking-api.example.invalid/v2/availability?date=2026-08-10",
+    "https://booking-api.example.invalid/v1/availability/windows?date=2026-08-10",
   );
   assert.equal(request.headers.Accept, "application/json");
   assert.equal(startTime.disabled, true);

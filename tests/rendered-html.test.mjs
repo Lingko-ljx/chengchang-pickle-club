@@ -35,7 +35,7 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /<form[^>]+id="booking-form"[^>]+method="post"/i);
   assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
   assert.ok(
-    html.includes(`data-availability-url="${apiBaseUrl}/v2/availability"`),
+    html.includes(`data-availability-url="${apiBaseUrl}/v1/availability/windows"`),
   );
   assert.ok(
     html.includes(`data-booking-result-path="${basePath}/booking/result/"`),

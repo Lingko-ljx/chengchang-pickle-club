@@ -47,6 +47,11 @@ seconds** and does not allow it to be increased. The deployment verifier checks
 that all three functions still report `Timeout: 3`; performance work must reduce
 database round trips rather than trying to override the plan limit.
 
+The public gateway remains versioned under `/v1`. Legacy hourly availability is
+served at `GET /v1/availability`, while the half-hour booking-window response is
+served at `GET /v1/availability/windows`. Do not publish a separate `/v2` gateway
+path unless the CloudBase gateway itself is explicitly provisioned for it.
+
 The compact **营业设置** panel is for enabling or disabling courts. Do not try
 to recreate the booking window by checking dozens of individual hourly
 templates: `system_state/booking-policy-v2` is the authoritative v2 policy. The

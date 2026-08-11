@@ -373,7 +373,7 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
         return jsonResponse(200, slots.filter(publicLegacyAvailabilitySlot), headers);
       }
 
-      if (method === "GET" && path === "/v2/availability") {
+      if (method === "GET" && path === "/v1/availability/windows") {
         const date = requireCalendarDate(queryParameter(event, "date")?.trim() ?? "");
         const windows = await dependencies.service.listWindowAvailability({ date });
         return jsonResponse(200, windows, headers);
