@@ -53,7 +53,8 @@ const featuredCoaches = [
     detail: "以实战判断、技术拆解与竞赛能力提升为训练重点。",
     highlights: [
       "2026 李宁杯中国匹克球巡回赛呼和浩特站（CPC-1000）公开组男子单打第一名",
-      "课程与训练计划请联系球馆确认",
+      "2026 WPC 海南站 4.0 男子双打冠军",
+      "2025 CPC600 兰威杯男子单打冠军",
     ],
   },
   {
@@ -127,26 +128,102 @@ const coachGallery = [
     layout: "wide",
   },
   {
-    slot: "liu-singles-certificate",
-    image: "coaches/liu-kaihua-cpc1000-singles-second.jpg",
-    imageAlt: "刘栖睿获浙江开化站CPC-1000公开组男子单打第二名证书",
-    imageHeight: 1080,
-    imageWidth: 1919,
-    label: "CERTIFICATE · 男子单打",
-    title: "浙江开化站公开组第二名",
-    copy: "刘栖睿 · CPC-1000",
-    layout: "portrait",
+    slot: "liu-tang-lushan-runner-up",
+    image: "coaches/moments/liu-tang-lushan-runner-up.jpg",
+    imageAlt: "刘栖睿与唐语彤手持庐山西海站匹克球巡回赛亚军奖牌和奖牌板",
+    imageHeight: 2662,
+    imageWidth: 3998,
+    label: "PODIUM · 庐山西海",
+    title: "混合双打赛场搭档",
+    copy: "刘栖睿 · 唐语彤 · 2026",
+    layout: "wide",
   },
   {
-    slot: "liu-tang-mixed-certificate",
-    image: "coaches/liu-tang-hohhot-cpc1000-mixed-second.jpg",
-    imageAlt: "刘栖睿和唐语彤获呼和浩特站CPC-1000公开混合双打第二名证书",
-    imageHeight: 1919,
-    imageWidth: 1080,
-    label: "CERTIFICATE · 混合双打",
-    title: "呼和浩特站公开混合双打第二名",
+    slot: "liu-tang-doubles-teamwork",
+    image: "coaches/moments/liu-tang-doubles-teamwork.jpg",
+    imageAlt: "刘栖睿与唐语彤在匹克球双打比赛中击掌配合",
+    imageHeight: 2492,
+    imageWidth: 3744,
+    label: "MATCH · 双打协作",
+    title: "每一分都从沟通开始",
     copy: "刘栖睿 · 唐语彤",
+    layout: "wide",
+  },
+  {
+    slot: "liu-tang-hohhot-award",
+    image: "coaches/moments/liu-tang-hohhot-award.jpg",
+    imageAlt: "刘栖睿与唐语彤在呼和浩特站匹克球巡回赛颁奖现场",
+    imageHeight: 959,
+    imageWidth: 1440,
+    label: "AWARD · 呼和浩特",
+    title: "赛后颁奖时刻",
+    copy: "刘栖睿 · 唐语彤 · 2026",
+    layout: "wide",
+  },
+  {
+    slot: "liu-match-backhand",
+    image: "coaches/moments/liu-qirui-match-backhand.jpg",
+    imageAlt: "刘栖睿在匹克球比赛中准备反手击球",
+    imageHeight: 960,
+    imageWidth: 1440,
+    label: "MATCH · 男子单打",
+    title: "刘栖睿赛场瞬间",
+    copy: "职业教练 · 实战",
+    layout: "wide",
+  },
+  {
+    slot: "tang-match-focus",
+    image: "coaches/moments/tang-yutong-match-focus.jpg",
+    imageAlt: "唐语彤在匹克球比赛中专注准备接球",
+    imageHeight: 3200,
+    imageWidth: 2133,
+    label: "MATCH · 赛场专注",
+    title: "唐语彤赛场瞬间",
+    copy: "特邀职业教练 · 实战",
     layout: "portrait",
+  },
+];
+
+const championHighlights = [
+  {
+    year: "2026",
+    short: "CPC-1000 · 呼和浩特",
+    title: "公开组男子单打第一名",
+  },
+  {
+    year: "2026",
+    short: "WPC · 海南站",
+    title: "4.0 男子双打冠军",
+  },
+  {
+    year: "2025",
+    short: "CPC600 · 兰威杯",
+    title: "男子单打冠军",
+  },
+];
+
+const staticHonorMedia = [
+  {
+    slot: "liu-kaihua-certificate",
+    image: "coaches/honors/liu-kaihua-cpc1000-singles-second-certificate.jpg",
+    imageAlt: "刘栖睿浙江开化站CPC-1000公开组男子单打第二名证书",
+    year: 2026,
+    owner: "liu-qirui",
+    title: "浙江开化站公开组第二名",
+    description: "CPC-1000 · 男子单打",
+    imageHeight: 1110,
+    imageWidth: 790,
+  },
+  {
+    slot: "liu-tang-hohhot-certificate",
+    image: "coaches/honors/liu-tang-hohhot-cpc1000-mixed-second-certificate.jpg",
+    imageAlt: "刘栖睿和唐语彤呼和浩特站CPC-1000公开混合双打第二名证书",
+    year: 2026,
+    owner: "coach-team",
+    title: "呼和浩特站混合双打第二名",
+    description: "CPC-1000 · 刘栖睿 / 唐语彤",
+    imageHeight: 900,
+    imageWidth: 640,
   },
 ];
 
@@ -216,6 +293,18 @@ export default function Home() {
         </a>
       </header>
 
+      <details className="mobile-site-nav">
+        <summary>浏览目录</summary>
+        <nav aria-label="手机页面目录">
+          <a href="#home">首页</a>
+          <a href="#daily-moments">今日 / 往日球场</a>
+          <a href="#team">教练</a>
+          <a href="#honors">荣誉</a>
+          <a href="#booking">预约</a>
+          <a href="#contact">联系</a>
+        </nav>
+      </details>
+
       <section className="hero section-shell" id="home">
         <div className="hero-copy">
           <p className="eyebrow">
@@ -259,17 +348,22 @@ export default function Home() {
         className="daily-media section-shell"
         data-api-base={bookingApiBaseUrl}
         data-homepage-media
-        hidden
         id="daily-moments"
       >
         <div className="daily-media-heading">
           <div>
             <p>DAILY MOMENTS</p>
-            <h2>今日球场</h2>
+            <h2 data-homepage-media-title>今日球场</h2>
           </div>
-          <p>每天更新球场里的好回合、好照片和新鲜动态。</p>
+          <div className="daily-media-heading-actions">
+            <p>每天更新球场里的好回合、好照片和新鲜动态。</p>
+            <button data-homepage-media-today hidden type="button">回到最新</button>
+          </div>
         </div>
-        <div className="daily-media-grid" data-homepage-media-list />
+        <div className="daily-media-date-track" data-homepage-media-dates hidden />
+        <div className="daily-media-grid" data-homepage-media-list>
+          <p className="daily-media-empty" data-homepage-media-empty>今日内容更新后将在这里呈现，也可浏览往日球场。</p>
+        </div>
       </section>
 
       <section className="intro section-shell" id="about">
@@ -433,19 +527,34 @@ export default function Home() {
               <span>个人赛事荣誉</span>
             </h2>
           </div>
-          <div className="honor-list" aria-label="刘栖睿个人赛事荣誉">
-            {honors.map((honor, index) => (
-              <article className="honor-row" key={honor.title}>
-                <time>{honor.year}</time>
-                <div>
+          <div className="honor-overview">
+            <div className="honor-champion-track" aria-label="刘栖睿重点冠军荣誉">
+              {championHighlights.map((honor, index) => (
+                <article className="honor-champion-card" key={honor.title}>
+                  <span>0{index + 1}</span>
+                  <time>{honor.year}</time>
+                  <p>{honor.short}</p>
                   <h3>{honor.title}</h3>
-                  <p>刘栖睿 · 个人赛事荣誉</p>
-                </div>
-                <span className="honor-index" aria-hidden="true">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-              </article>
-            ))}
+                </article>
+              ))}
+            </div>
+            <details className="honor-history">
+              <summary>查看完整赛事履历 <span>{honors.length} 项</span></summary>
+              <div className="honor-history-track honor-list" aria-label="刘栖睿个人赛事荣誉">
+                {honors.map((honor, index) => (
+                  <article className="honor-row" key={honor.title}>
+                    <time>{honor.year}</time>
+                    <div>
+                      <h3>{honor.title}</h3>
+                      <p>刘栖睿 · 个人赛事荣誉</p>
+                    </div>
+                    <span className="honor-index" aria-hidden="true">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                  </article>
+                ))}
+              </div>
+            </details>
           </div>
         </div>
         <div className="coach-gallery-heading">
@@ -455,7 +564,7 @@ export default function Home() {
           </div>
           <p>将比赛动作、领奖时刻和证书分开呈现，快速看清每位教练的赛场经历。</p>
         </div>
-        <div className="coach-gallery" aria-label="教练赛场与荣誉照片画廊">
+        <div className="coach-gallery honor-media-track" aria-label="教练赛场与荣誉照片画廊">
           {coachGallery.map((item) => (
             <figure
               className={`coach-gallery-item is-${item.layout}`}
@@ -481,6 +590,35 @@ export default function Home() {
             </figure>
           ))}
         </div>
+        <section className="honor-media" data-api-base={bookingApiBaseUrl} data-honor-media>
+          <div className="honor-media-track honor-media-fallback" data-honor-media-fallback data-honor-media-list>
+            {staticHonorMedia.map((item) => (
+              <figure
+                className="honor-media-card is-fallback"
+                data-honor-fallback-key={`${item.owner}|${item.year}|${item.title}`}
+                data-coach-media-slot={item.slot}
+                key={item.slot}
+              >
+                <div className="honor-media-frame">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt={item.imageAlt}
+                    decoding="async"
+                    height={item.imageHeight}
+                    loading="lazy"
+                    src={`${basePath}/${item.image}`}
+                    width={item.imageWidth}
+                  />
+                </div>
+                <figcaption>
+                  <span>{item.year} · CERTIFICATE</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.description}</p>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
       </section>
 
       <section className="booking-section" id="booking">
@@ -557,6 +695,7 @@ export default function Home() {
         <p>江西 · 南昌</p>
       </footer>
       <script data-homepage-media-client defer src={`${basePath}/homepage-media.js`} />
+      <script data-honor-media-client defer src={`${basePath}/honor-media.js`} />
       <script data-wechat-entry-client defer src={`${basePath}/wechat-entry.js`} />
     </main>
   );

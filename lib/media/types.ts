@@ -12,6 +12,7 @@ export interface HomepageMediaItem {
   title: string;
   caption?: string;
   altText: string;
+  mediaDate?: string;
   status: HomepageMediaStatus;
   uploadExpiresAt: string;
   createdAt: string;
@@ -47,6 +48,7 @@ export interface PublicHomepageMediaItem {
   title: string;
   caption?: string;
   altText: string;
+  mediaDate: string;
   publishedAt: string;
   pinned: boolean;
 }
@@ -59,7 +61,15 @@ export interface MediaUploadRequest {
   title: string;
   caption?: string;
   altText: string;
+  mediaDate?: string;
   expectedManifestVersion: number;
+}
+
+export interface PublicHomepageMediaArchive {
+  items: PublicHomepageMediaItem[];
+  availableDates: string[];
+  selectedDate: string | null;
+  isToday: boolean;
 }
 
 export interface SignedMediaUpload {

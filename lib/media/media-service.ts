@@ -10,14 +10,16 @@ import type {
   HomepageMediaItem,
   HomepageMediaManifest,
   MediaUploadRequest,
+  PublicHomepageMediaArchive,
   PublicHomepageMediaItem,
 } from "./types.ts";
-import { validateManifestVersion, validateMediaUpload } from "./validation.ts";
+import { validateManifestVersion, validateMediaDate, validateMediaUpload } from "./validation.ts";
 
 const systemClock: MediaClock = { now: () => new Date() };
-const MAX_ITEMS = 24;
-const MAX_PUBLISHED = 12;
+const MAX_ITEMS = 400;
+const MAX_PUBLISHED_PER_DATE = 6;
 const PUBLIC_LIMIT = 6;
+const AVAILABLE_DATE_LIMIT = MAX_ITEMS;
 const AUDIT_LIMIT = 100;
 
 function audit(itemId: string, action: HomepageMediaAudit["action"], actorId: string, at: string): HomepageMediaAudit {
@@ -53,6 +55,32 @@ function itemById(manifest: HomepageMediaManifest, itemId: string): HomepageMedi
   return item;
 }
 
+function shanghaiDate(instant: Date | string): string {
+  const date = instant instanceof Date ? instant : new Date(instant);
+  if (Number.isNaN(date.getTime())) throw new MediaError("INVALID_MEDIA_INPUT");
+  const values = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date).map(({ type, value }) => [type, value]),
+  );
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function itemMediaDate(item: HomepageMediaItem): string {
+  if (item.mediaDate) {
+    try { return validateMediaDate(item.mediaDate); } catch { /* legacy fallback */ }
+  }
+  return shanghaiDate(item.publishedAt ?? item.createdAt);
+}
+
+function publicOrder(left: HomepageMediaItem, right: HomepageMediaItem): number {
+  const pinned = Number(Boolean(right.pinnedAt)) - Number(Boolean(left.pinnedAt));
+  return pinned || String(right.pinnedAt ?? right.publishedAt).localeCompare(String(left.pinnedAt ?? left.publishedAt)) || left.id.localeCompare(right.id);
+}
+
 export class HomepageMediaService {
   private readonly repository: HomepageMediaRepository;
   private readonly storage: HomepageMediaStorage;
@@ -75,13 +103,26 @@ export class HomepageMediaService {
   }
 
   async listPublished(): Promise<PublicHomepageMediaItem[]> {
+    return (await this.listPublicArchive({ now: this.clock.now() })).items;
+  }
+
+  async listPublicArchive(input: { date?: string; now?: Date } = {}): Promise<PublicHomepageMediaArchive> {
     const manifest = await this.repository.read();
-    const visible = manifest.items
-      .filter((item) => item.status === "published" && item.publishedAt)
-      .sort((left, right) => {
-        const pinned = Number(Boolean(right.pinnedAt)) - Number(Boolean(left.pinnedAt));
-        return pinned || String(right.pinnedAt ?? right.publishedAt).localeCompare(String(left.pinnedAt ?? left.publishedAt)) || left.id.localeCompare(right.id);
-      })
+    const today = shanghaiDate(input.now ?? this.clock.now());
+    const published = manifest.items.filter(
+      (item) => item.status === "published" && item.publishedAt && itemMediaDate(item) <= today,
+    );
+    const availableDates = [...new Set(published.map(itemMediaDate))]
+      .sort((left, right) => right.localeCompare(left))
+      .slice(0, AVAILABLE_DATE_LIMIT);
+    const requested = input.date === undefined ? undefined : validateMediaDate(input.date);
+    if (requested && requested > today) throw new MediaError("INVALID_MEDIA_INPUT");
+    const selectedDate = requested ?? (availableDates.includes(today)
+      ? today
+      : availableDates.find((date) => date <= today) ?? availableDates[0] ?? null);
+    const visible = selectedDate === null ? [] : published
+      .filter((item) => itemMediaDate(item) === selectedDate)
+      .sort(publicOrder)
       .slice(0, PUBLIC_LIMIT);
     const urls = await this.storage.publicUrls(visible.map(({ fileId }) => fileId));
     const result: PublicHomepageMediaItem[] = [];
@@ -96,11 +137,12 @@ export class HomepageMediaService {
         title: item.title,
         ...(item.caption ? { caption: item.caption } : {}),
         altText: item.altText,
+        mediaDate: itemMediaDate(item),
         publishedAt: item.publishedAt!,
         pinned: Boolean(item.pinnedAt),
       });
     }
-    return result;
+    return { items: result, availableDates, selectedDate, isToday: selectedDate === today };
   }
 
   async createUploadIntent(input: MediaUploadRequest, actorId: string) {
@@ -108,6 +150,7 @@ export class HomepageMediaService {
     const value = validateMediaUpload(input);
     const actor = canonicalActor(actorId);
     const now = this.clock.now().toISOString();
+    const mediaDate = value.mediaDate ?? shanghaiDate(now);
     const manifest = await this.repository.read();
     if (manifest.version !== expectedVersion) throw new MediaError("MEDIA_CONFLICT");
     if (manifest.items.length >= MAX_ITEMS) throw new MediaError("MEDIA_LIMIT_REACHED");
@@ -135,6 +178,7 @@ export class HomepageMediaService {
       title: value.title,
       ...(value.caption ? { caption: value.caption } : {}),
       altText: value.altText,
+      mediaDate,
       status: "uploading",
       uploadExpiresAt,
       createdAt: now,
@@ -157,7 +201,7 @@ export class HomepageMediaService {
     if (info.mimeType !== item.mimeType || info.sizeBytes !== item.sizeBytes) {
       throw new MediaError("MEDIA_UPLOAD_MISMATCH");
     }
-    if (command.publish && manifest.items.filter(({ status }) => status === "published").length >= MAX_PUBLISHED) {
+    if (command.publish && manifest.items.filter((candidate) => candidate.status === "published" && itemMediaDate(candidate) === itemMediaDate(item)).length >= MAX_PUBLISHED_PER_DATE) {
       throw new MediaError("MEDIA_LIMIT_REACHED");
     }
     const now = this.clock.now().toISOString();
@@ -178,7 +222,7 @@ export class HomepageMediaService {
     const manifest = await this.checkedManifest(command.expectedManifestVersion);
     const item = itemById(manifest, command.itemId);
     if (item.status !== "draft" && item.status !== "published") throw new MediaError("MEDIA_CONFLICT");
-    if (command.published && item.status !== "published" && manifest.items.filter(({ status }) => status === "published").length >= MAX_PUBLISHED) {
+    if (command.published && item.status !== "published" && manifest.items.filter((candidate) => candidate.status === "published" && itemMediaDate(candidate) === itemMediaDate(item)).length >= MAX_PUBLISHED_PER_DATE) {
       throw new MediaError("MEDIA_LIMIT_REACHED");
     }
     const now = this.clock.now().toISOString();

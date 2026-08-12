@@ -61,6 +61,7 @@ export default function AdminPage() {
             <a href="#admin-records">预约记录</a>
             <a href="#admin-calendar">场地排期</a>
             <a href="#admin-media">首页宣传</a>
+            <a href="#admin-honors">荣誉管理</a>
             <a href="#admin-settings">营业设置</a>
           </nav>
 
@@ -228,6 +229,7 @@ export default function AdminPage() {
                 </div>
                 <label htmlFor="admin-media-file"><span>图片或视频</span><input accept="image/jpeg,image/png,image/webp,video/mp4" id="admin-media-file" required type="file" /></label>
                 <label htmlFor="admin-media-title"><span>标题</span><input id="admin-media-title" maxLength={60} placeholder="例如：今日精彩回合" required type="text" /></label>
+                <label htmlFor="admin-media-date"><span>拍摄日期（北京时间）</span><input id="admin-media-date" required type="date" /></label>
                 <label htmlFor="admin-media-caption"><span>说明（选填）</span><textarea id="admin-media-caption" maxLength={200} placeholder="一句话介绍今天的球场瞬间" rows={3} /></label>
                 <label htmlFor="admin-media-alt"><span>画面描述（选填）</span><input id="admin-media-alt" maxLength={120} placeholder="未填写时自动使用标题" type="text" /></label>
                 <button className="primary-button" id="admin-media-upload" type="submit">上传并发布</button>
@@ -236,6 +238,30 @@ export default function AdminPage() {
               <div className="admin-media-library">
                 <div className="admin-media-library-heading"><h3>已上传内容</h3><span id="admin-media-count">0 条</span></div>
                 <div className="admin-media-list" id="admin-media-list" />
+              </div>
+            </div>
+          </section>
+
+          <section className="admin-panel admin-media" id="admin-honors">
+            <div className="admin-section-heading">
+              <div><span>HONORS</span><h2>荣誉图片与视频</h2><p>上传证书裁图、领奖照片或比赛视频，可编辑归属、年份、奖项说明和展示顺序。</p></div>
+            </div>
+            <div className="admin-media-layout">
+              <form className="admin-media-form" id="admin-honor-upload-form">
+                <div><h3 id="admin-honor-form-title">新增荣誉素材</h3><p>图片支持 JPG、PNG、WebP（8MB 内），视频支持 MP4（50MB 内）。</p></div>
+                <label htmlFor="admin-honor-file"><span>图片或视频</span><input accept="image/jpeg,image/png,image/webp,video/mp4" id="admin-honor-file" required type="file" /></label>
+                <label htmlFor="admin-honor-title"><span>标题</span><input id="admin-honor-title" maxLength={80} required type="text" /></label>
+                <label htmlFor="admin-honor-owner"><span>荣誉归属</span><select id="admin-honor-owner"><option value="liu-qirui">刘栖睿</option><option value="tang-yutong">唐语彤</option><option value="coach-team">教练团队</option></select></label>
+                <label htmlFor="admin-honor-year"><span>年份</span><input id="admin-honor-year" min={1900} max={2100} required type="number" /></label>
+                <label htmlFor="admin-honor-description"><span>奖项说明</span><textarea id="admin-honor-description" maxLength={300} required rows={3} /></label>
+                <label htmlFor="admin-honor-alt"><span>画面描述</span><input id="admin-honor-alt" maxLength={160} required type="text" /></label>
+                <label htmlFor="admin-honor-sort"><span>展示顺序</span><input id="admin-honor-sort" min={0} max={9999} required type="number" /></label>
+                <div className="admin-media-actions"><button className="primary-button" id="admin-honor-submit" type="submit">上传并发布</button><button hidden id="admin-honor-cancel-edit" type="button">取消编辑</button></div>
+                <p className="admin-media-form-status" hidden id="admin-honor-status" role="status" />
+              </form>
+              <div className="admin-media-library">
+                <div className="admin-media-library-heading"><h3>荣誉素材库</h3><span id="admin-honor-count">0 条</span></div>
+                <div className="admin-media-list" id="admin-honor-list" />
               </div>
             </div>
           </section>

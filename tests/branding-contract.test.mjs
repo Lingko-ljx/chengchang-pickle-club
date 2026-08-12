@@ -101,12 +101,12 @@ test("the coach section gives the two professional coaches a featured, gallery-r
   assert.match(pageSource, /const supportCoaches = \[/);
   assert.match(pageSource, /className="coach-feature-grid"/);
   assert.match(pageSource, /className="coach-support-grid"/);
-  assert.match(pageSource, /className="coach-gallery"/);
+  assert.match(pageSource, /className="coach-gallery honor-media-track"/);
   assert.match(pageSource, /aria-label="教练赛场与荣誉照片画廊"/);
   assert.match(pageSource, /data-coach-media-slot=/);
   assert.match(globalStyles, /\.coach-feature-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(globalStyles, /\.coach-support-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.match(globalStyles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.coach-feature-grid[\s\S]*grid-template-columns:\s*1fr/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.coach-feature-grid\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*auto;/s);
 });
 
 test("coach media captions keep the supplied events and results correctly separated", () => {
@@ -115,14 +115,20 @@ test("coach media captions keep the supplied events and results correctly separa
     "coaches/coach-tang-yutong.jpg",
     "coaches/coaches-doubles-match.jpg",
     "coaches/liu-hohhot-cpc1000-podium.jpg",
-    "coaches/liu-kaihua-cpc1000-singles-second.jpg",
-    "coaches/liu-tang-hohhot-cpc1000-mixed-second.jpg",
+    "coaches/moments/liu-tang-lushan-runner-up.jpg",
+    "coaches/moments/liu-tang-doubles-teamwork.jpg",
+    "coaches/moments/liu-tang-hohhot-award.jpg",
+    "coaches/moments/liu-qirui-match-backhand.jpg",
+    "coaches/moments/tang-yutong-match-focus.jpg",
+    "coaches/honors/liu-kaihua-cpc1000-singles-second-certificate.jpg",
+    "coaches/honors/liu-tang-hohhot-cpc1000-mixed-second-certificate.jpg",
   ]) {
     assert.match(pageSource, new RegExp(asset.replaceAll(".", "\\.")));
   }
   assert.match(pageSource, /浙江开化站公开组第二名/);
-  assert.match(pageSource, /呼和浩特站公开混合双打第二名/);
+  assert.match(pageSource, /呼和浩特站混合双打第二名/);
   assert.match(pageSource, /CPC-1000 冠军领奖台/);
+  assert.doesNotMatch(pageSource, /coaches\/liu-kaihua-cpc1000-singles-second\.jpg|coaches\/liu-tang-hohhot-cpc1000-mixed-second\.jpg/);
   assert.doesNotMatch(pageSource, /浙江桐乡站|呼和浩特站公开混合双打第一名/);
 });
 

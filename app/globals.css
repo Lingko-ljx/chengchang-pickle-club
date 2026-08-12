@@ -489,6 +489,50 @@ textarea:focus-visible {
   max-width: 420px;
 }
 
+.daily-media-heading-actions {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.daily-media-heading-actions p {
+  color: var(--muted);
+  line-height: 1.8;
+  margin: 0;
+}
+
+.daily-media-heading-actions button,
+.daily-media-date-chip {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  min-height: 44px;
+  padding: 0 18px;
+}
+
+.daily-media-date-track {
+  display: flex;
+  gap: 8px;
+  margin: -10px 0 22px;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+  scrollbar-width: thin;
+}
+
+.daily-media-date-chip {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.daily-media-date-chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper-light);
+}
+
 .daily-media-grid {
   display: grid;
   gap: 14px;
@@ -499,6 +543,13 @@ textarea:focus-visible {
   background: var(--paper-light);
   border: 1px solid var(--line);
   min-width: 0;
+}
+
+.daily-media-empty {
+  color: var(--muted);
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 26px 0;
 }
 
 .daily-media-card.is-pinned {
@@ -1002,6 +1053,16 @@ textarea:focus-visible {
   letter-spacing: 0.1em;
 }
 
+.mobile-site-nav {
+  display: none;
+}
+
+.mobile-site-nav a {
+  align-items: center;
+  display: flex;
+  min-height: 44px;
+}
+
 .coach-support-card h3,
 .coach-support-card p {
   margin: 0;
@@ -1162,6 +1223,81 @@ textarea:focus-visible {
   margin: 84px 0 0 72px;
 }
 
+.honor-overview {
+  min-width: 0;
+}
+
+.honor-champion-track {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.honor-champion-card {
+  background: var(--ink);
+  border-radius: var(--radius);
+  color: var(--paper-light);
+  min-height: 230px;
+  padding: 22px;
+  position: relative;
+}
+
+.honor-champion-card > span {
+  color: var(--lime);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  position: absolute;
+  right: 18px;
+  top: 18px;
+}
+
+.honor-champion-card time,
+.honor-champion-card p {
+  color: rgba(250, 248, 242, 0.68);
+  font-size: 10px;
+}
+
+.honor-champion-card p {
+  letter-spacing: 0.08em;
+  margin: 52px 0 10px;
+}
+
+.honor-champion-card h3 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.honor-history {
+  border-bottom: 1px solid var(--line);
+  margin-top: 18px;
+}
+
+.honor-history summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 56px;
+}
+
+.honor-history summary::-webkit-details-marker {
+  display: none;
+}
+
+.honor-history summary span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.honor-history[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
 .honors-title > p {
   color: var(--muted);
   font-family: Arial, sans-serif;
@@ -1255,6 +1391,80 @@ textarea:focus-visible {
   gap: 18px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   margin-top: 24px;
+}
+
+.honor-media {
+  margin-top: 18px;
+}
+
+.honor-media-track {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  padding: 2px 0 14px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+
+.honor-media-track[hidden] {
+  display: none;
+}
+
+.coach-gallery.honor-media-track .coach-gallery-item {
+  flex: 0 0 min(520px, 64vw);
+  scroll-snap-align: start;
+}
+
+.honor-media-card {
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  flex: 0 0 min(390px, 76vw);
+  margin: 0;
+  overflow: hidden;
+  scroll-snap-align: start;
+}
+
+.honor-media-card[hidden] {
+  display: none;
+}
+
+.honor-media-frame {
+  aspect-ratio: 4 / 5;
+  background: var(--paper-deep);
+  overflow: hidden;
+}
+
+.honor-media-frame img,
+.honor-media-frame video {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.honor-media-card figcaption {
+  padding: 16px 18px 19px;
+}
+
+.honor-media-card figcaption span {
+  color: var(--sage);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.honor-media-card h3 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 21px;
+  font-weight: 400;
+  margin: 8px 0 5px;
+}
+
+.honor-media-card p {
+  color: var(--muted);
+  font-size: 10px;
+  margin: 0;
 }
 
 .coach-gallery-item {
@@ -2043,6 +2253,10 @@ textarea:focus-visible {
 }
 
 @media (max-width: 860px) {
+  html {
+    scroll-padding-top: calc(122px + env(safe-area-inset-top, 0px));
+  }
+
   .section-shell {
     width: calc(100% - 40px);
   }
@@ -2156,7 +2370,7 @@ textarea:focus-visible {
 
 @media (max-width: 620px) {
   html {
-    scroll-padding-top: 5.5rem;
+    scroll-padding-top: calc(114px + env(safe-area-inset-top, 0px));
   }
 
   .section-shell {
@@ -3729,14 +3943,96 @@ textarea:focus-visible {
   border-left-color: #b34c3f;
 }
 
-@media (max-width: 760px) {
-  .coach-feature-grid,
+@media (max-width: 860px) {
+  .mobile-site-nav {
+    background: rgba(244, 240, 229, 0.96);
+    border-bottom: 1px solid var(--line);
+    display: block;
+    padding-left: max(15px, env(safe-area-inset-left, 0px));
+    padding-right: max(15px, env(safe-area-inset-right, 0px));
+    position: sticky;
+    top: calc(78px + env(safe-area-inset-top, 0px));
+    z-index: 19;
+  }
+
+  .mobile-site-nav summary {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    font-size: 12px;
+    font-weight: 650;
+    justify-content: space-between;
+    letter-spacing: 0.08em;
+    list-style: none;
+    min-height: 44px;
+  }
+
+  .mobile-site-nav summary::after {
+    content: "+";
+    font-size: 18px;
+    font-weight: 400;
+  }
+
+  .mobile-site-nav[open] summary::after {
+    content: "−";
+  }
+
+  .mobile-site-nav summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .mobile-site-nav nav {
+    display: grid;
+    gap: 1px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-bottom: 12px;
+  }
+
+  .mobile-site-nav a {
+    background: var(--paper-light);
+    font-size: 12px;
+    padding: 0 14px;
+  }
+
+  .coach-feature-grid {
+    display: flex;
+    gap: 14px;
+    margin-right: calc((100vw - 100%) / -2);
+    overflow-x: auto;
+    padding-bottom: 12px;
+    scroll-padding-left: 0;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+
+  .coach-feature-card {
+    flex: 0 0 min(84vw, 440px);
+    scroll-snap-align: start;
+  }
+
   .coach-support-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .coach-feature-copy {
-    padding: 24px;
+    gap: 12px;
+    padding: 20px;
+  }
+
+  .coach-feature-photo {
+    aspect-ratio: 16 / 10;
+  }
+
+  .coach-feature-copy h3 {
+    font-size: 28px;
+  }
+
+  .coach-feature-copy ul {
+    gap: 7px;
+  }
+
+  .coach-feature-copy li {
+    line-height: 1.55;
   }
 
   .coach-support-heading,
@@ -3745,14 +4041,57 @@ textarea:focus-visible {
     flex-direction: column;
   }
 
+  .honors-layout {
+    gap: 34px;
+  }
+
+  .honor-champion-track {
+    display: flex;
+    gap: 12px;
+    margin-right: calc((100vw - 100%) / -2);
+    overflow-x: auto;
+    padding-bottom: 12px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+
+  .honor-champion-card {
+    flex: 0 0 min(72vw, 320px);
+    min-height: 196px;
+    scroll-snap-align: start;
+  }
+
+  .honor-history-track {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 12px 0;
+    scroll-snap-type: x mandatory;
+  }
+
+  .honor-history-track .honor-row {
+    background: var(--paper-light);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    flex: 0 0 min(78vw, 340px);
+    min-height: 116px;
+    padding: 16px;
+    scroll-snap-align: start;
+  }
+
   .coach-gallery {
-    grid-template-columns: 1fr;
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+    scroll-snap-type: x mandatory;
   }
 
   .coach-gallery-item,
   .coach-gallery-item.is-portrait,
   .coach-gallery-item.is-portrait + .coach-gallery-item.is-portrait {
-    grid-column: 1;
+    flex: 0 0 min(82vw, 390px);
+    scroll-snap-align: start;
   }
 
   .coach-gallery-item.is-portrait .coach-gallery-frame {
@@ -3896,8 +4235,32 @@ textarea:focus-visible {
 }
 
 @media (max-width: 620px) {
+  .mobile-site-nav {
+    top: calc(70px + env(safe-area-inset-top, 0px));
+  }
+
+  .daily-media {
+    padding-bottom: 58px;
+    padding-top: 58px;
+  }
+
+  .daily-media-heading-actions {
+    align-items: flex-start;
+  }
+
   .daily-media-grid {
-    grid-template-columns: 1fr;
+    display: flex;
+    gap: 12px;
+    margin-right: calc((100vw - 100%) / -2);
+    overflow-x: auto;
+    padding-bottom: 12px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+
+  .daily-media-card {
+    flex: 0 0 min(82vw, 380px);
+    scroll-snap-align: start;
   }
 
   .daily-media-card.is-pinned {
@@ -3906,6 +4269,6 @@ textarea:focus-visible {
 
   .daily-media-frame,
   .daily-media-card.is-pinned .daily-media-frame {
-    height: 260px;
+    height: 230px;
   }
 }

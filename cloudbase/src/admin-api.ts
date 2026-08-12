@@ -34,6 +34,11 @@ import {
   handleAdminHomepageMedia,
   type HomepageMediaApiService,
 } from "./homepage-media.ts";
+import {
+  createDefaultHonorMediaService,
+  handleAdminHonorMedia,
+  type HonorMediaApiService,
+} from "./honor-media.ts";
 import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-repository.ts";
 import { readAdminRuntimeConfiguration } from "./runtime-config.ts";
 
@@ -116,6 +121,7 @@ export interface AdminApiDependencies {
   resolveTrustedUid(context: unknown): Promise<unknown>;
   allowedUserIds: readonly string[];
   mediaService?: HomepageMediaApiService;
+  honorMediaService?: HonorMediaApiService;
 }
 
 function privateAdminResponse(response: HttpResponse): HttpResponse {
@@ -490,6 +496,17 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
         if (mediaResponse) return mediaResponse;
       }
 
+      if (dependencies.honorMediaService && path.startsWith("/v1/admin/honor-media")) {
+        const honorResponse = await handleAdminHonorMedia({
+          method,
+          path,
+          body: method === "GET" ? {} : parseRequestBody(event).values,
+          actorId,
+          service: dependencies.honorMediaService,
+        });
+        if (honorResponse) return honorResponse;
+      }
+
       if (method === "GET" && path === "/v1/admin/bootstrap") {
         const { today, selectedDate, filter } = bootstrapInput(event);
         const todayDashboardPromise = dashboardDto(dependencies.service, today);
@@ -825,6 +842,7 @@ export async function main(
     productionHandler ??= createAdminApiHandler({
       service: new BookingService(new CloudBaseBookingRepository()),
       mediaService: createDefaultHomepageMediaService(),
+      honorMediaService: createDefaultHonorMediaService(),
       resolveTrustedUid: (runtimeContext) =>
         resolveTrustedRuntimeUid(
           {

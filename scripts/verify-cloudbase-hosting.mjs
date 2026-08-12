@@ -110,6 +110,7 @@ function verifyRootHtml(body, configuration) {
     ) ||
     !/\bdata-booking-form-client(?:\s|=|>)/i.test(body) ||
     !/\bdata-homepage-media-client(?:\s|=|>)/i.test(body) ||
+    !/\bdata-honor-media-client(?:\s|=|>)/i.test(body) ||
     !/\bdata-public-schedule-client(?:\s|=|>)/i.test(body) ||
     forbiddenStaticContent.test(body)
   ) {
@@ -277,6 +278,35 @@ export async function verifyCloudBaseApi(configuration, options = {}) {
       ) {
         throw new Error("INVALID_API_RESPONSE");
       }
+      const honorResponse = await fetchImpl(
+        `${configuration.apiBaseUrl}/v1/honor-media`,
+        {
+          headers: { Accept: "application/json", Origin: siteOrigin },
+          redirect: "error",
+          signal: requestSignal(requestTimeoutMs),
+        },
+      );
+      if (
+        !honorResponse.ok ||
+        !/^application\/json\b/i.test(honorResponse.headers.get("content-type") ?? "") ||
+        honorResponse.headers.get("access-control-allow-origin") !== siteOrigin ||
+        !/^no-store(?:\b|,)/i.test(honorResponse.headers.get("cache-control") ?? "")
+      ) throw new Error("INVALID_API_RESPONSE");
+      const honorBody = await honorResponse.json();
+      if (
+        !honorBody?.data || !Array.isArray(honorBody.data.items) ||
+        honorBody.data.items.some((item) =>
+          !item || typeof item !== "object" || Array.isArray(item) ||
+          typeof item.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/u.test(item.id) ||
+          (item.kind !== "image" && item.kind !== "video") ||
+          typeof item.url !== "string" || !/^https:\/\//i.test(item.url) ||
+          typeof item.title !== "string" ||
+          !["liu-qirui", "tang-yutong", "coach-team"].includes(item.owner) ||
+          !Number.isSafeInteger(item.year) || typeof item.awardDescription !== "string" ||
+          typeof item.altText !== "string" || !Number.isSafeInteger(item.sortOrder) ||
+          ["createdBy", "originalName", "storagePath", "audit"].some((name) => Object.hasOwn(item, name))
+        )
+      ) throw new Error("INVALID_API_RESPONSE");
       const publicScheduleResponse = await fetchImpl(
         `${configuration.apiBaseUrl}/v1/public-schedule?date=${smokeDate}`,
         {

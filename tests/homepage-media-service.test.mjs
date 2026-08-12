@@ -32,6 +32,82 @@ function image(overrides = {}) {
   };
 }
 
+test("public archive selects Beijing today, exposes dates and signs only the selected day", async () => {
+  const { storage, service } = setup();
+  const today = await service.createUploadIntent(image({ mediaDate: "2026-08-12" }), "staff-1");
+  storage.complete(today.item.fileId, { mimeType: "image/webp", sizeBytes: 1024 });
+  await service.finalizeUpload({ itemId: today.item.id, expectedManifestVersion: 1, publish: true }, "staff-1");
+  const yesterday = await service.createUploadIntent(image({ mediaDate: "2026-08-11", title: "昨日训练", expectedManifestVersion: 2 }), "staff-1");
+  storage.complete(yesterday.item.fileId, { mimeType: "image/webp", sizeBytes: 1024 });
+  await service.finalizeUpload({ itemId: yesterday.item.id, expectedManifestVersion: 3, publish: true }, "staff-1");
+
+  const feed = await service.listPublicArchive({ now: new Date("2026-08-12T03:00:00.000Z") });
+  assert.equal(feed.selectedDate, "2026-08-12");
+  assert.equal(feed.isToday, true);
+  assert.deepEqual(feed.availableDates, ["2026-08-12", "2026-08-11"]);
+  assert.deepEqual(feed.items.map(({ id, mediaDate }) => ({ id, mediaDate })), [{ id: "media-1", mediaDate: "2026-08-12" }]);
+  assert.deepEqual(storage.publicUrlRequests.at(-1), [today.item.fileId]);
+
+  const old = await service.listPublicArchive({ date: "2026-08-11", now: new Date("2026-08-12T03:00:00.000Z") });
+  assert.equal(old.selectedDate, "2026-08-11");
+  assert.equal(old.isToday, false);
+  assert.deepEqual(old.items.map(({ id }) => id), ["media-2"]);
+});
+
+test("future-dated published media stays hidden until its Beijing calendar day", async () => {
+  const { storage, service } = setup();
+  const intent = await service.createUploadIntent(image({ mediaDate: "2026-08-13" }), "staff-1");
+  storage.complete(intent.item.fileId, { mimeType: "image/webp", sizeBytes: 1024 });
+  await service.finalizeUpload({ itemId: intent.item.id, expectedManifestVersion: 1, publish: true }, "staff-1");
+
+  const before = await service.listPublicArchive({ now: new Date("2026-08-12T03:00:00.000Z") });
+  assert.deepEqual(before.availableDates, []);
+  assert.deepEqual(before.items, []);
+  await assert.rejects(
+    () => service.listPublicArchive({ date: "2026-08-13", now: new Date("2026-08-12T03:00:00.000Z") }),
+    /INVALID_MEDIA_INPUT/,
+  );
+
+  const onDay = await service.listPublicArchive({ now: new Date("2026-08-12T16:00:00.000Z") });
+  assert.equal(onDay.selectedDate, "2026-08-13");
+  assert.deepEqual(onDay.items.map(({ id }) => id), [intent.item.id]);
+});
+
+test("legacy published items without mediaDate remain visible using Shanghai fallback", async () => {
+  const { repository, storage, service } = setup();
+  const intent = await service.createUploadIntent(image({ mediaDate: "2026-08-12" }), "staff-1");
+  storage.complete(intent.item.fileId, { mimeType: "image/webp", sizeBytes: 1024 });
+  await service.finalizeUpload({ itemId: intent.item.id, expectedManifestVersion: 1, publish: true }, "staff-1");
+  const manifest = await repository.read();
+  delete manifest.items[0].mediaDate;
+  manifest.items[0].publishedAt = "2026-08-11T16:30:00.000Z";
+  manifest.version += 1;
+  await repository.replace(manifest.version - 1, manifest);
+
+  const feed = await service.listPublicArchive({ date: "2026-08-12", now: new Date("2026-08-12T03:00:00.000Z") });
+  assert.equal(feed.items[0].mediaDate, "2026-08-12");
+});
+
+test("published daily limit applies per mediaDate and allows another day", async () => {
+  const { storage, service } = setup();
+  let version = 0;
+  for (let index = 0; index < 6; index += 1) {
+    const intent = await service.createUploadIntent(image({ title: `today-${index}`, mediaDate: "2026-08-12", expectedManifestVersion: version }), "staff-1");
+    version += 1;
+    storage.complete(intent.item.fileId, { mimeType: "image/webp", sizeBytes: 1024 });
+    await service.finalizeUpload({ itemId: intent.item.id, expectedManifestVersion: version, publish: true }, "staff-1");
+    version += 1;
+  }
+  const seventh = await service.createUploadIntent(image({ title: "today-7", mediaDate: "2026-08-12", expectedManifestVersion: version }), "staff-1");
+  version += 1;
+  storage.complete(seventh.item.fileId, { mimeType: "image/webp", sizeBytes: 1024 });
+  await assert.rejects(() => service.finalizeUpload({ itemId: seventh.item.id, expectedManifestVersion: version, publish: true }, "staff-1"), /MEDIA_LIMIT_REACHED/);
+
+  const otherDay = await service.createUploadIntent(image({ title: "tomorrow", mediaDate: "2026-08-13", expectedManifestVersion: version }), "staff-1");
+  storage.complete(otherDay.item.fileId, { mimeType: "image/webp", sizeBytes: 1024 });
+  await service.finalizeUpload({ itemId: otherDay.item.id, expectedManifestVersion: version + 1, publish: true }, "staff-1");
+});
+
 test("an authenticated editor can upload, finalize and publish a safe homepage image", async () => {
   const { repository, storage, service } = setup();
 
@@ -59,6 +135,7 @@ test("an authenticated editor can upload, finalize and publish a safe homepage i
       title: "今日训练",
       caption: "一起上场，享受匹克球。",
       altText: "会员在匹克球场进行训练",
+      mediaDate: "2026-08-12",
       publishedAt: "2026-08-12T02:00:00.000Z",
       pinned: false,
     },

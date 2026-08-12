@@ -251,7 +251,7 @@ export async function main(): Promise<{ ok: true }> {
   const bookingRepository = new CloudBaseBookingRepository();
   const bookingService = new BookingService(bookingRepository);
   await runMailerSafely({
-    environment: process.env as MailEnvironment,
+    environment: process.env as unknown as MailEnvironment,
     outbox: new CloudBaseOutboxRepository(),
     bookings: bookingRepository,
     runRetention: () =>

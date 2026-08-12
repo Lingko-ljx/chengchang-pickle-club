@@ -102,9 +102,12 @@ test("exports the real booking form without a framework client runtime", async (
   assert.ok(html.includes(`src="${prefixed("/booking-form.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/public-schedule.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/homepage-media.js")}"`));
+  assert.ok(html.includes(`src="${prefixed("/honor-media.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/wechat-entry.js")}"`));
   assert.match(html, /data-homepage-media(?:="")?/);
   assert.match(html, /data-homepage-media-list(?:="")?/);
+  assert.match(html, /data-honor-media(?:="")?/);
+  assert.match(html, /data-honor-media-list(?:="")?/);
   assert.doesNotMatch(html, /_next\/static\/chunks\/[^"]+\.js/);
   assert.doesNotMatch(html, /self\.__next|__next_f|modulepreload/);
   assert.ok(html.includes(`<link rel="canonical" href="${siteUrl}"`));
@@ -119,9 +122,10 @@ test("exports the real booking form without a framework client runtime", async (
   assert.match(html, /<meta property="og:image:alt" content="[^"]+"/);
 
   const scriptTags = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
-  assert.equal(scriptTags.length, 4);
+  assert.equal(scriptTags.length, 5);
   assert.ok(scriptTags.some((script) => /data-booking-form-client/.test(script)));
   assert.ok(scriptTags.some((script) => /data-homepage-media-client/.test(script)));
+  assert.ok(scriptTags.some((script) => /data-honor-media-client/.test(script)));
   assert.ok(scriptTags.some((script) => /data-public-schedule-client/.test(script)));
   assert.ok(scriptTags.some((script) => /data-wechat-entry-client/.test(script)));
 });

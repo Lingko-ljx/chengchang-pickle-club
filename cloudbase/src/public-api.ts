@@ -21,6 +21,11 @@ import {
   handlePublicHomepageMedia,
   type HomepageMediaApiService,
 } from "./homepage-media.ts";
+import {
+  createDefaultHonorMediaService,
+  handlePublicHonorMedia,
+  type HonorMediaApiService,
+} from "./honor-media.ts";
 import { readPublicRuntimeConfiguration } from "./runtime-config.ts";
 
 const TEN_MINUTES = 10 * 60 * 1000;
@@ -52,6 +57,7 @@ export interface PublicApiDependencies {
   resultUrl: string;
   idempotencySalt: string;
   mediaService?: HomepageMediaApiService;
+  honorMediaService?: HonorMediaApiService;
 }
 
 function field(body: Record<string, unknown>, snake: string, camel = snake): unknown {
@@ -402,16 +408,50 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
       }
 
       if (dependencies.mediaService) {
+        if (path === "/v1/homepage-media") {
+          const parameters = event.queryStringParameters;
+          if (parameters && (
+            typeof parameters !== "object" ||
+            Array.isArray(parameters) ||
+            Object.keys(parameters).some((name) => name !== "date") ||
+            (Object.prototype.hasOwnProperty.call(parameters, "date") && typeof (parameters as Record<string, unknown>).date !== "string")
+          )) throw new BookingError("INVALID_INPUT");
+          const requestedMediaDate = queryParameter(event, "date")?.trim();
+          if (requestedMediaDate !== undefined) requireCalendarDate(requestedMediaDate);
+          await enforce(
+            dependencies.rateLimiter,
+            "homepage-media-ip",
+            trustedClientAddress(event) ?? "anonymous",
+            60,
+          );
+        }
         const mediaResponse = await handlePublicHomepageMedia(
           method,
           path,
           dependencies.mediaService,
+          queryParameter(event, "date")?.trim(),
+          now(),
         );
         if (mediaResponse) {
           return {
             ...mediaResponse,
             headers: { ...mediaResponse.headers, ...headers },
           };
+        }
+      }
+
+      if (dependencies.honorMediaService) {
+        if (method === "GET" && path === "/v1/honor-media") {
+          await enforce(
+            dependencies.rateLimiter,
+            "honor-media-ip",
+            trustedClientAddress(event) ?? "anonymous",
+            60,
+          );
+        }
+        const honorResponse = await handlePublicHonorMedia(method, path, dependencies.honorMediaService);
+        if (honorResponse) {
+          return { ...honorResponse, headers: { ...honorResponse.headers, ...headers } };
         }
       }
 
@@ -575,6 +615,7 @@ export async function main(event: CloudBaseHttpEvent): Promise<HttpResponse> {
       resultUrl: configuration.resultUrl,
       idempotencySalt: configuration.idempotencySalt,
       mediaService: createDefaultHomepageMediaService(),
+      honorMediaService: createDefaultHonorMediaService(),
     });
     return await productionHandler(event);
   } catch (error) {

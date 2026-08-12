@@ -12,6 +12,7 @@ function fakeService() {
     calls,
     async listAdmin() { calls.push(["listAdmin"]); return { version: 0, items: [] }; },
     async listPublished() { calls.push(["listPublished"]); return [{ id: "media-1" }]; },
+    async listPublicArchive(input) { calls.push(["listPublicArchive", input]); return { items: [{ id: "media-1", mediaDate: "2026-08-12" }], availableDates: ["2026-08-12"], selectedDate: "2026-08-12", isToday: true }; },
     async createUploadIntent(input, actorId) { calls.push(["create", input, actorId]); return { item: { id: "media-1" }, upload: { method: "PUT" } }; },
     async finalizeUpload(input, actorId) { calls.push(["finalize", input, actorId]); return { id: input.itemId, status: "published" }; },
     async setPublished(input, actorId) { calls.push(["publication", input, actorId]); return { id: input.itemId, status: input.published ? "published" : "draft" }; },
@@ -20,11 +21,13 @@ function fakeService() {
   };
 }
 
-test("public homepage media route exposes only the service public projection", async () => {
+test("public homepage media route exposes the dated archive projection", async () => {
   const service = fakeService();
-  const response = await handlePublicHomepageMedia("GET", "/v1/homepage-media", service);
+  const now = new Date("2026-08-12T03:00:00.000Z");
+  const response = await handlePublicHomepageMedia("GET", "/v1/homepage-media", service, "2026-08-12", now);
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(JSON.parse(response.body), { data: { items: [{ id: "media-1" }] } });
+  assert.deepEqual(JSON.parse(response.body), { data: { items: [{ id: "media-1", mediaDate: "2026-08-12" }], availableDates: ["2026-08-12"], selectedDate: "2026-08-12", isToday: true } });
+  assert.deepEqual(service.calls[0], ["listPublicArchive", { date: "2026-08-12", now }]);
   assert.equal(await handlePublicHomepageMedia("POST", "/v1/homepage-media", service), null);
 });
 
@@ -43,6 +46,7 @@ test("admin upload intent forwards a strict typed request and trusted actor", as
       title: "今日球场",
       caption: "一起打球",
       altText: "匹克球场照片",
+      mediaDate: "2026-08-12",
       expectedManifestVersion: 3,
     },
   });
@@ -55,6 +59,7 @@ test("admin upload intent forwards a strict typed request and trusted actor", as
     title: "今日球场",
     caption: "一起打球",
     altText: "匹克球场照片",
+    mediaDate: "2026-08-12",
     expectedManifestVersion: 3,
   }, "trusted-uid"]);
 });

@@ -177,6 +177,38 @@ test("public homepage media is served through the same exact-origin CORS policy"
   assert.deepEqual(calls, ["listPublished"]);
 });
 
+test("public media URL signing is protected by lightweight IP rate limits", async () => {
+  const consumed = [];
+  const rateLimiter = { consume: async (request) => { consumed.push(request); return true; } };
+  const mediaService = {
+    async listPublished() { return []; },
+    async listPublicArchive() { return { items: [], availableDates: [], selectedDate: null, isToday: false }; },
+  };
+  const honorMediaService = { async listPublished() { return []; } };
+  const handler = createPublicApiHandler({
+    service: {}, rateLimiter, now: () => new Date(NOW), allowedOrigins: ALLOWED_ORIGIN,
+    resultUrl: "https://example.test/booking/result", idempotencySalt: "salt",
+    mediaService, honorMediaService,
+  });
+  const trusted = { requestContext: { http: { sourceIp: "203.0.113.7" } } };
+  await handler(jsonEvent("GET", "/v1/homepage-media", undefined, trusted));
+  await handler(jsonEvent("GET", "/v1/honor-media", undefined, trusted));
+  assert.deepEqual(consumed.map(({ scope, key, limit }) => [scope, key, limit]), [
+    ["homepage-media-ip", "203.0.113.7", 60],
+    ["honor-media-ip", "203.0.113.7", 60],
+  ]);
+});
+
+test("homepage media archive accepts only one canonical date query", async () => {
+  const mediaService = {
+    async listPublished() { return []; },
+    async listPublicArchive() { return { items: [], availableDates: [], selectedDate: null, isToday: false }; },
+  };
+  const handler = handlerFor({}, { mediaService });
+  assert.equal((await handler(jsonEvent("GET", "/v1/homepage-media", undefined, { queryStringParameters: { date: "2026-02-30" } }))).statusCode, 400);
+  assert.equal((await handler(jsonEvent("GET", "/v1/homepage-media", undefined, { queryStringParameters: { date: "2026-08-12", extra: "x" } }))).statusCode, 400);
+});
+
 test("window availability stays under the deployed v1 gateway and delegates the 30-minute query", async () => {
   const queries = [];
   const windows = {

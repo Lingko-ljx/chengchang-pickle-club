@@ -4,6 +4,7 @@ await build({
   entryPoints: {
     "admin-app": "admin-client/index.ts",
     "homepage-media": "homepage-media-client/index.ts",
+    "honor-media": "honor-media-client/index.ts",
     "wechat-entry": "wechat-entry-client/index.ts",
   },
   outdir: "public",

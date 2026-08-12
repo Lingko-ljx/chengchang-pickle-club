@@ -250,6 +250,34 @@ export type AdminHomepageMediaManifest = {
   items: AdminHomepageMediaItem[];
 };
 
+export type AdminHonorMediaItem = {
+  id: string;
+  kind: "image" | "video";
+  mimeType: string;
+  sizeBytes: number;
+  title: string;
+  owner: "liu-qirui" | "tang-yutong" | "coach-team";
+  year: number;
+  awardDescription: string;
+  altText: string;
+  sortOrder: number;
+  status: "uploading" | "draft" | "published" | "deleting";
+  updatedAt: string;
+};
+
+export type AdminHonorMediaManifest = { version: number; items: AdminHonorMediaItem[] };
+export type HonorMediaAction = "edit" | "publish" | "unpublish" | "delete";
+
+export function honorMediaActionsFor(item: Pick<AdminHonorMediaItem, "status">): Array<[HonorMediaAction, string]> {
+  if (item.status === "deleting") return [["delete", "重试删除"]];
+  const actions: Array<[HonorMediaAction, string]> = [];
+  if (item.status === "draft" || item.status === "published") actions.push(["edit", "编辑"]);
+  if (item.status === "draft") actions.push(["publish", "发布"]);
+  if (item.status === "published") actions.push(["unpublish", "下架"]);
+  actions.push(["delete", "删除"]);
+  return actions;
+}
+
 type HomepageMediaAction = "publish" | "unpublish" | "pin" | "unpin" | "delete";
 
 export function homepageMediaActionsFor(
@@ -685,6 +713,42 @@ export function renderHomepageMediaAdmin(
     const actions = document.createElement("div");
     actions.className = "admin-media-actions";
     for (const [action, label] of homepageMediaActionsFor(item)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => onAction(action, item));
+      actions.append(button);
+    }
+    card.append(icon, copy, actions);
+    container.append(card);
+  }
+}
+
+export function renderHonorMediaAdmin(
+  container: Element,
+  manifest: AdminHonorMediaManifest,
+  onAction: (action: HonorMediaAction, item: AdminHonorMediaItem) => void,
+) {
+  empty(container);
+  if (!manifest.items.length) {
+    container.append(text("p", "还没有荣誉图片或视频，上传后可随时编辑、排序和上下架。", "admin-empty"));
+    return;
+  }
+  const owners = { "liu-qirui": "刘栖睿", "tang-yutong": "唐语彤", "coach-team": "教练团队" };
+  for (const item of [...manifest.items].sort((a, b) => a.sortOrder - b.sortOrder || b.year - a.year)) {
+    const card = document.createElement("article");
+    card.className = "admin-media-item";
+    const icon = text("span", item.kind === "video" ? "VIDEO" : "IMAGE", "admin-media-kind");
+    const copy = document.createElement("div");
+    copy.className = "admin-media-item-copy";
+    copy.append(
+      text("strong", item.title),
+      text("span", `${owners[item.owner]} · ${item.year} · 排序 ${item.sortOrder} · ${item.status === "published" ? "已发布" : item.status === "draft" ? "草稿" : "处理中"}`),
+      text("p", item.awardDescription),
+    );
+    const actions = document.createElement("div");
+    actions.className = "admin-media-actions";
+    for (const [action, label] of honorMediaActionsFor(item)) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;

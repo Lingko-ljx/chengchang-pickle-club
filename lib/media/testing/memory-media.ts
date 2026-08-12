@@ -31,6 +31,7 @@ export class MemoryHomepageMediaRepository implements HomepageMediaRepository {
 export class MemoryHomepageMediaStorage implements HomepageMediaStorage {
   readonly createdIntents: Array<{ storagePath: string; mimeType: string; sizeBytes: number; expiresAt: string }> = [];
   readonly deletedFileIds: string[] = [];
+  readonly publicUrlRequests: string[][] = [];
   private readonly files = new Map<string, StoredMediaInfo>();
 
   async createUpload(input: { storagePath: string; mimeType: string; sizeBytes: number; expiresAt: string }): Promise<SignedMediaUpload> {
@@ -56,6 +57,7 @@ export class MemoryHomepageMediaStorage implements HomepageMediaStorage {
   }
 
   async publicUrls(fileIds: readonly string[]): Promise<Record<string, string>> {
+    this.publicUrlRequests.push([...fileIds]);
     return Object.fromEntries(
       fileIds.map((fileId) => [fileId, `https://media.test/${fileId.replace(/^cloud:\/\//u, "")}`]),
     );

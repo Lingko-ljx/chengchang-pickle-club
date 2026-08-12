@@ -202,5 +202,16 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
         `/v1/admin/homepage-media/${encodeURIComponent(itemId)}/delete`,
         json("POST", { expectedManifestVersion }),
       ),
+    getHonorMedia: () => request("/v1/admin/honor-media"),
+    createHonorMediaUploadIntent: (body: Record<string, unknown>) =>
+      request("/v1/admin/honor-media/upload-intents", json("POST", body)),
+    finalizeHonorMediaUpload: (itemId: string, expectedManifestVersion: number, publish: boolean) =>
+      request(`/v1/admin/honor-media/${encodeURIComponent(itemId)}/finalize`, json("POST", { expectedManifestVersion, publish })),
+    updateHonorMedia: (itemId: string, body: Record<string, unknown>) =>
+      request(`/v1/admin/honor-media/${encodeURIComponent(itemId)}`, json("PUT", body)),
+    setHonorMediaPublished: (itemId: string, published: boolean, expectedManifestVersion: number) =>
+      request(`/v1/admin/honor-media/${encodeURIComponent(itemId)}/publication`, json("PUT", { published, expectedManifestVersion })),
+    deleteHonorMedia: (itemId: string, expectedManifestVersion: number) =>
+      request(`/v1/admin/honor-media/${encodeURIComponent(itemId)}`, json("DELETE", { expectedManifestVersion })),
   };
 }

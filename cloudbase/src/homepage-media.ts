@@ -6,6 +6,7 @@ import type {
   HomepageMediaManifest,
   MediaUploadRequest,
   PublicHomepageMediaItem,
+  PublicHomepageMediaArchive,
 } from "../../lib/media/types.ts";
 import { MediaError } from "../../lib/media/errors.ts";
 import { jsonResponse, type HttpResponse } from "./http/response.ts";
@@ -15,6 +16,7 @@ import { CloudBaseHomepageMediaStorage } from "./storage/cloudbase-media-storage
 export interface HomepageMediaApiService {
   listAdmin(): Promise<HomepageMediaManifest>;
   listPublished(): Promise<PublicHomepageMediaItem[]>;
+  listPublicArchive(input?: { date?: string; now?: Date }): Promise<PublicHomepageMediaArchive>;
   createUploadIntent(input: MediaUploadRequest, actorId: string): Promise<unknown>;
   finalizeUpload(command: { itemId: string; expectedManifestVersion: number; publish: boolean }, actorId: string): Promise<HomepageMediaItem>;
   setPublished(command: { itemId: string; expectedManifestVersion: number; published: boolean }, actorId: string): Promise<HomepageMediaItem>;
@@ -57,9 +59,14 @@ export async function handlePublicHomepageMedia(
   method: string,
   path: string,
   service: HomepageMediaApiService,
+  date?: string,
+  now?: Date,
 ): Promise<HttpResponse | null> {
   if (method !== "GET" || path !== "/v1/homepage-media") return null;
-  return jsonResponse(200, { items: await service.listPublished() });
+  if (typeof service.listPublicArchive !== "function") {
+    return jsonResponse(200, { items: await service.listPublished() }, { "Cache-Control": "no-store" });
+  }
+  return jsonResponse(200, await service.listPublicArchive({ ...(date ? { date } : {}), ...(now ? { now } : {}) }), { "Cache-Control": "no-store" });
 }
 
 export async function handleAdminHomepageMedia(input: {
@@ -82,6 +89,7 @@ export async function handleAdminHomepageMedia(input: {
       title: requiredString(body, "title"),
       ...(typeof body.caption === "string" ? { caption: body.caption } : {}),
       altText: requiredString(body, "altText"),
+      ...(typeof body.mediaDate === "string" ? { mediaDate: body.mediaDate } : {}),
       expectedManifestVersion: integer(body, "expectedManifestVersion"),
     };
     return jsonResponse(201, await service.createUploadIntent(request, actorId));

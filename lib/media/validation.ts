@@ -32,6 +32,17 @@ function optionalText(value: unknown, maximum: number): string | undefined {
   return requiredText(value, maximum);
 }
 
+export function validateMediaDate(value: unknown): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    throw new MediaError("INVALID_MEDIA_INPUT");
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new MediaError("INVALID_MEDIA_INPUT");
+  }
+  return value;
+}
+
 export function validateMediaUpload(input: MediaUploadRequest): Omit<MediaUploadRequest, "expectedManifestVersion"> & { extension: string } {
   if (input.kind !== "image" && input.kind !== "video") {
     throw new MediaError("INVALID_MEDIA_INPUT");
@@ -55,6 +66,7 @@ export function validateMediaUpload(input: MediaUploadRequest): Omit<MediaUpload
     title: requiredText(input.title, 60),
     caption: optionalText(input.caption, 200),
     altText: requiredText(input.altText, 120),
+    ...(input.mediaDate === undefined ? {} : { mediaDate: validateMediaDate(input.mediaDate) }),
     extension: EXTENSIONS[input.mimeType],
   };
 }

@@ -75,6 +75,7 @@ test("deployed page smoke requires real public/admin configuration and only appr
           data-availability-url="${configuration.apiBaseUrl}/v1/availability/windows"></form>
         <script data-booking-form-client src="/booking-form.js"></script>
         <script data-homepage-media-client src="/homepage-media.js"></script>
+        <script data-honor-media-client src="/honor-media.js"></script>
         <script data-public-schedule-client src="/public-schedule.js"></script>`);
     }
     return htmlResponse(`<!doctype html>
@@ -158,6 +159,16 @@ test("public API smoke requires ready v2 windows, media and bounded retries", as
           },
         });
       }
+      if (url.endsWith("/v1/honor-media")) {
+        return new Response(JSON.stringify({ data: { items: [] } }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "https://booking-staging.example",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
       if (url.endsWith("/v1/public-schedule?date=2099-01-01")) {
         return new Response(JSON.stringify({
           data: {
@@ -208,6 +219,7 @@ test("public API smoke requires ready v2 windows, media and bounded retries", as
     "https://booking-api.example/v1/admin/court-time-blocks/smoke-block",
     "https://booking-api.example/v1/availability/windows?date=2099-01-01",
     "https://booking-api.example/v1/homepage-media",
+    "https://booking-api.example/v1/honor-media",
     "https://booking-api.example/v1/public-schedule?date=2099-01-01",
   ]);
   assert.deepEqual(requests[0].init.headers, {

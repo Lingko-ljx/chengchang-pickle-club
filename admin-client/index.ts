@@ -5,7 +5,7 @@ import {
   readAdminConfig,
 } from "./config.ts";
 import { runAdminLoginFlow } from "./login-flow.ts";
-import { uploadHomepageMedia } from "./media-upload.ts";
+import { uploadHomepageMedia, uploadHonorMedia } from "./media-upload.ts";
 import {
   bookingActionsFor,
   bookingRecordActionsFor,
@@ -17,6 +17,7 @@ import {
   renderCourtMatrix,
   renderCustomerHistory,
   renderHomepageMediaAdmin,
+  renderHonorMediaAdmin,
   renderPendingQueue,
   recordDateRange,
   retainSelectedBooking,
@@ -26,6 +27,8 @@ import {
   type AdminCourtTimeBlock,
   type AdminHomepageMediaItem,
   type AdminHomepageMediaManifest,
+  type AdminHonorMediaItem,
+  type AdminHonorMediaManifest,
   type AvailabilitySlot,
   type BookingRecordView,
 } from "./render.ts";
@@ -130,6 +133,9 @@ function startAdmin() {
   let savingCourts = false;
   let mediaManifest: AdminHomepageMediaManifest = { version: 0, items: [] };
   let mediaBusy = false;
+  let honorManifest: AdminHonorMediaManifest = { version: 0, items: [] };
+  let honorBusy = false;
+  let editingHonor: AdminHonorMediaItem | null = null;
   const selectedDate = required<HTMLInputElement>("admin-filter-date");
   selectedDate.value = selectedDashboard.date;
   const staffReservationDate = required<HTMLInputElement>("admin-staff-reservation-date");
@@ -241,10 +247,19 @@ function startAdmin() {
 
   const mediaStatus = required<HTMLElement>("admin-media-form-status");
   const mediaUploadButton = required<HTMLButtonElement>("admin-media-upload");
+  const honorSubmit = required<HTMLButtonElement>("admin-honor-submit");
+  const honorCancelEdit = required<HTMLButtonElement>("admin-honor-cancel-edit");
   const showMediaStatus = (value: string, error = false) => {
     mediaStatus.textContent = value;
     mediaStatus.classList.toggle("is-error", error);
     setHidden(mediaStatus, !value);
+  };
+  required<HTMLInputElement>("admin-media-date").value = shanghaiDate();
+  const showHonorStatus = (value: string, error = false) => {
+    const status = required("admin-honor-status");
+    status.textContent = value;
+    status.classList.toggle("is-error", error);
+    setHidden(status, !value);
   };
   const shanghaiTime = (instant: string) => new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Shanghai",
@@ -378,6 +393,89 @@ function startAdmin() {
     }
   };
 
+  const resetHonorForm = () => {
+    editingHonor = null;
+    required<HTMLFormElement>("admin-honor-upload-form").reset();
+    required<HTMLInputElement>("admin-honor-year").value = shanghaiDate().slice(0, 4);
+    required<HTMLInputElement>("admin-honor-sort").value = String(honorManifest.items.length + 1);
+    required<HTMLInputElement>("admin-honor-file").required = true;
+    required("admin-honor-form-title").textContent = "新增荣誉素材";
+    honorSubmit.textContent = "上传并发布";
+    honorCancelEdit.hidden = true;
+  };
+  const editHonor = (item: AdminHonorMediaItem) => {
+    editingHonor = item;
+    required<HTMLInputElement>("admin-honor-file").required = false;
+    required<HTMLInputElement>("admin-honor-title").value = item.title;
+    required<HTMLSelectElement>("admin-honor-owner").value = item.owner;
+    required<HTMLInputElement>("admin-honor-year").value = String(item.year);
+    required<HTMLTextAreaElement>("admin-honor-description").value = item.awardDescription;
+    required<HTMLInputElement>("admin-honor-alt").value = item.altText;
+    required<HTMLInputElement>("admin-honor-sort").value = String(item.sortOrder);
+    required("admin-honor-form-title").textContent = "编辑荣誉信息";
+    honorSubmit.textContent = "保存修改";
+    honorCancelEdit.hidden = false;
+    required("admin-honor-upload-form").scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  const renderHonors = () => {
+    required("admin-honor-count").textContent = `${honorManifest.items.length} 条`;
+    renderHonorMediaAdmin(required("admin-honor-list"), honorManifest, (action, item) => {
+      if (action === "edit") { editHonor(item); return; }
+      runHonorAction(action, item).catch((error) => showHonorStatus(mediaErrorMessage(error), true));
+    });
+  };
+  const refreshHonors = async () => {
+    try {
+      honorManifest = await api.getHonorMedia() as AdminHonorMediaManifest;
+      renderHonors();
+    } catch (error) {
+      renderHonorMediaAdmin(required("admin-honor-list"), { version: 0, items: [] }, () => undefined);
+      showHonorStatus(mediaErrorMessage(error), true);
+    }
+  };
+  async function runHonorAction(action: "publish" | "unpublish" | "delete", item: AdminHonorMediaItem) {
+    if (honorBusy) return;
+    const label = action === "publish" ? "发布" : action === "unpublish" ? "下架" : "删除";
+    if (!window.confirm(`${label}“${item.title}”？`)) return;
+    honorBusy = true;
+    try {
+      if (action === "delete") await api.deleteHonorMedia(item.id, honorManifest.version);
+      else await api.setHonorMediaPublished(item.id, action === "publish", honorManifest.version);
+      await refreshHonors();
+      showHonorStatus(`${label}成功。`);
+    } finally { honorBusy = false; }
+  }
+  const honorFields = () => ({
+    title: required<HTMLInputElement>("admin-honor-title").value.trim(),
+    owner: required<HTMLSelectElement>("admin-honor-owner").value as AdminHonorMediaItem["owner"],
+    year: Number(required<HTMLInputElement>("admin-honor-year").value),
+    awardDescription: required<HTMLTextAreaElement>("admin-honor-description").value.trim(),
+    altText: required<HTMLInputElement>("admin-honor-alt").value.trim(),
+    sortOrder: Number(required<HTMLInputElement>("admin-honor-sort").value),
+  });
+  async function submitHonor() {
+    if (honorBusy) return;
+    honorBusy = true;
+    honorSubmit.disabled = true;
+    const wasEditing = Boolean(editingHonor);
+    try {
+      const fields = honorFields();
+      if (editingHonor) {
+        await api.updateHonorMedia(editingHonor.id, { ...fields, expectedManifestVersion: honorManifest.version });
+      } else {
+        const file = required<HTMLInputElement>("admin-honor-file").files?.[0];
+        if (!file) throw new Error("INVALID_MEDIA_INPUT");
+        await uploadHonorMedia({ api, file, ...fields, expectedManifestVersion: honorManifest.version, publish: true });
+      }
+      await refreshHonors();
+      resetHonorForm();
+      showHonorStatus(wasEditing ? "修改成功。" : "上传成功，荣誉已发布。" );
+    } catch (error) {
+      await refreshHonors().catch(() => undefined);
+      throw error;
+    } finally { honorBusy = false; honorSubmit.disabled = false; }
+  }
+
   async function runMediaAction(
     action: "publish" | "unpublish" | "pin" | "unpin" | "delete",
     item: AdminHomepageMediaItem,
@@ -413,6 +511,7 @@ function startAdmin() {
     const fileInput = required<HTMLInputElement>("admin-media-file");
     const file = fileInput.files?.[0];
     const title = required<HTMLInputElement>("admin-media-title").value.trim();
+    const mediaDate = required<HTMLInputElement>("admin-media-date").value;
     const caption = required<HTMLTextAreaElement>("admin-media-caption").value.trim();
     const altText = required<HTMLInputElement>("admin-media-alt").value.trim() || title;
     if (!file || !title) throw new Error("INVALID_MEDIA_INPUT");
@@ -426,10 +525,12 @@ function startAdmin() {
         title,
         ...(caption ? { caption } : {}),
         altText,
+        mediaDate,
         expectedManifestVersion: mediaManifest.version,
         publish: true,
       });
       required<HTMLFormElement>("admin-media-upload-form").reset();
+      required<HTMLInputElement>("admin-media-date").value = shanghaiDate();
       await refreshMedia();
       showMediaStatus("上传成功，内容已经显示在首页。");
     } catch (error) {
@@ -671,7 +772,7 @@ function startAdmin() {
     settings = bootstrap.settings;
     courtDraft = {};
     renderAll();
-    await Promise.all([refreshMedia(), refreshRecords()]);
+    await Promise.all([refreshMedia(), refreshHonors(), refreshRecords()]);
     if (selected) await Promise.all([loadSelectedAudits(), loadSelectedCustomerHistory()]);
   };
 
@@ -986,6 +1087,11 @@ function startAdmin() {
       showMediaStatus(mediaErrorMessage(error), true);
     });
   });
+  required<HTMLFormElement>("admin-honor-upload-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitHonor().catch((error) => showHonorStatus(mediaErrorMessage(error), true));
+  });
+  honorCancelEdit.addEventListener("click", resetHonorForm);
   required<HTMLButtonElement>("admin-enable-all-courts").addEventListener("click", () => {
     setAllCourtDraft(true);
   });
