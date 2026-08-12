@@ -6,6 +6,8 @@ export type BookingStatus =
   | "cancelled"
   | "completed";
 
+export const currentPublicScheduleConsentVersion = 1;
+
 export type AllocationMode = "empty" | BookingMode;
 
 export interface CourtAllocation {
@@ -35,11 +37,69 @@ export interface CourtDayCell {
   bookingIds: string[];
 }
 
+export interface CourtTimeBlock {
+  id: string;
+  date: string;
+  courtId: string;
+  startTime: string;
+  endTime: string;
+  cellKeys: string[];
+  reason?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  version: number;
+}
+
+export interface CourtTimeBlockDay {
+  items: CourtTimeBlock[];
+  /** Current per-court inventory versions used for optimistic closure writes. */
+  inventoryVersions: Record<string, number>;
+}
+
+export interface CreateCourtTimeBlocksCommand {
+  date: string;
+  courtIds: string[];
+  startTime: string;
+  endTime: string;
+  reason?: string;
+  expectedVersions: Record<string, number>;
+  actorId: string;
+}
+
+export interface UpdateCourtTimeBlockCommand {
+  blockId: string;
+  date: string;
+  courtId: string;
+  startTime: string;
+  endTime: string;
+  reason?: string;
+  expectedVersion: number;
+  actorId: string;
+}
+
+export interface RestoreCourtTimeBlockCommand {
+  blockId: string;
+  date: string;
+  courtId: string;
+  expectedVersion: number;
+  actorId: string;
+}
+
+export interface CourtBlockedCell {
+  blockId: string;
+  reason?: string;
+}
+
 export interface CourtDayInventory {
   id: string;
   date: string;
   courtId: string;
   cells: Record<string, CourtDayCell>;
+  /** Staff closures live beside booking cells so conflict checks and writes share one transaction. */
+  blockedCells?: Record<string, CourtBlockedCell>;
+  timeBlocks?: Record<string, CourtTimeBlock>;
   version: number;
 }
 
@@ -58,11 +118,17 @@ export interface CreateBookingCommand {
   email?: string;
   note?: string;
   privacyConsent: true;
+  /** Versioned opt-in to showing a masked name in the public daily schedule. */
+  publicScheduleConsentVersion?: typeof currentPublicScheduleConsentVersion;
 }
 
 export interface BookingRecord {
   id: string;
   code: string;
+  /** Missing on legacy records and therefore treated as a customer booking. */
+  bookingKind?: "customer" | "staff_reservation";
+  /** Public-safe operational title. Staff reservations never store contact details. */
+  staffReservationTitle?: string;
   idempotencyKeyHash?: string;
   sessionId: string;
   date: string;
@@ -83,7 +149,11 @@ export interface BookingRecord {
   phoneHash?: string;
   email?: string;
   note?: string;
-  privacyConsentAt: string;
+  /** Customer consent timestamp. Staff-created inventory reservations do not collect consent. */
+  privacyConsentAt?: string;
+  /** Explicit, versioned consent to the public masked schedule disclosure. */
+  publicScheduleConsentVersion?: number;
+  publicScheduleConsentAt?: string;
   canCancelUntil: string;
   createdAt: string;
   updatedAt: string;

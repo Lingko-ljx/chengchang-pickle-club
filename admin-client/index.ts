@@ -11,6 +11,7 @@ import {
   bookingRecordActionsFor,
   confirmationMessage,
   normalizeBookingPage,
+  nextAdminSchedulingWindow,
   renderBookingDetail,
   renderBookingList,
   renderCourtMatrix,
@@ -22,6 +23,7 @@ import {
   summarizeBookings,
   type AdminAuditLog,
   type AdminBooking,
+  type AdminCourtTimeBlock,
   type AdminHomepageMediaItem,
   type AdminHomepageMediaManifest,
   type AvailabilitySlot,
@@ -55,7 +57,11 @@ type Bootstrap = {
   todayDashboard: Dashboard;
   selectedDashboard: Dashboard;
   bookings: AdminBooking[];
-  matrixBookings: AdminBooking[];
+  matrixBookings: AdminBooking[] | {
+    bookings: AdminBooking[];
+    timeBlocks?: AdminCourtTimeBlock[];
+    inventoryVersions?: Record<string, number>;
+  };
   settings: Settings;
 };
 
@@ -113,6 +119,12 @@ function startAdmin() {
   let recordHasMore = false;
   let recordLoading = false;
   let matrixBookings: AdminBooking[] = [];
+  let timeBlocks: AdminCourtTimeBlock[] = [];
+  let inventoryVersions: Record<string, number> = {};
+  let editingStaffReservation: AdminBooking | null = null;
+  let savingStaffReservation = false;
+  let editingTimeBlock: AdminCourtTimeBlock | null = null;
+  let savingTimeBlock = false;
   let settings: Settings = { courts: [], sessionTemplates: [] };
   let courtDraft: Record<string, boolean> = {};
   let savingCourts = false;
@@ -120,6 +132,51 @@ function startAdmin() {
   let mediaBusy = false;
   const selectedDate = required<HTMLInputElement>("admin-filter-date");
   selectedDate.value = selectedDashboard.date;
+  const staffReservationDate = required<HTMLInputElement>("admin-staff-reservation-date");
+  const staffReservationStart = required<HTMLSelectElement>("admin-staff-reservation-start");
+  const staffReservationEnd = required<HTMLSelectElement>("admin-staff-reservation-end");
+  const staffReservationCourt = required<HTMLSelectElement>("admin-staff-reservation-court");
+  const staffReservationSubmit = required<HTMLButtonElement>("admin-staff-reservation-submit");
+  const staffReservationCancelEdit = required<HTMLButtonElement>("admin-staff-reservation-cancel-edit");
+  const timeBlockDate = required<HTMLInputElement>("admin-time-block-date");
+  const timeBlockStart = required<HTMLSelectElement>("admin-time-block-start");
+  const timeBlockEnd = required<HTMLSelectElement>("admin-time-block-end");
+  const timeBlockCourt = required<HTMLSelectElement>("admin-time-block-court");
+  const timeBlockReason = required<HTMLSelectElement>("admin-time-block-reason");
+  const timeBlockSubmit = required<HTMLButtonElement>("admin-time-block-submit");
+  const timeBlockCancelEdit = required<HTMLButtonElement>("admin-time-block-cancel-edit");
+  const staffTimes = Array.from({ length: 27 }, (_, index) => {
+    const minutes = 9 * 60 + index * 30;
+    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  });
+  const setSelectOptions = (
+    select: HTMLSelectElement,
+    values: readonly string[],
+    label: (value: string) => string = (value) => value,
+  ) => {
+    select.replaceChildren(...values.map((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label(value);
+      return option;
+    }));
+  };
+  setSelectOptions(staffReservationStart, staffTimes.slice(0, -1));
+  setSelectOptions(staffReservationEnd, staffTimes.slice(1));
+  setSelectOptions(staffReservationCourt, Array.from({ length: 11 }, (_, index) => String(index + 1).padStart(2, "0")), (id) => `场地 ${id}`);
+  setSelectOptions(timeBlockStart, staffTimes.slice(0, -1));
+  setSelectOptions(timeBlockEnd, staffTimes.slice(1));
+  setSelectOptions(timeBlockCourt, Array.from({ length: 11 }, (_, index) => String(index + 1).padStart(2, "0")), (id) => `场地 ${id}`);
+  const initialStaffWindow = nextAdminSchedulingWindow(new Date(), 60, selectedDashboard.date);
+  const initialTimeBlockWindow = nextAdminSchedulingWindow(new Date(), 30, selectedDashboard.date);
+  staffReservationDate.value = initialStaffWindow.date;
+  staffReservationStart.value = initialStaffWindow.startTime;
+  staffReservationEnd.value = initialStaffWindow.endTime;
+  staffReservationCourt.value = "01";
+  timeBlockDate.value = initialTimeBlockWindow.date;
+  timeBlockStart.value = initialTimeBlockWindow.startTime;
+  timeBlockEnd.value = initialTimeBlockWindow.endTime;
+  timeBlockCourt.value = "01";
   const recordFrom = required<HTMLInputElement>("admin-filter-from");
   const recordTo = required<HTMLInputElement>("admin-filter-to");
   const applyRecordRange = (preset: "today" | "7" | "30" | "all") => {
@@ -188,6 +245,108 @@ function startAdmin() {
     mediaStatus.textContent = value;
     mediaStatus.classList.toggle("is-error", error);
     setHidden(mediaStatus, !value);
+  };
+  const shanghaiTime = (instant: string) => new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(instant));
+  const resetStaffReservationForm = () => {
+    editingStaffReservation = null;
+    required<HTMLFormElement>("admin-staff-reservation-form").reset();
+    required("admin-staff-reservation-form-title").textContent = "新增单位占场";
+    staffReservationSubmit.textContent = "保存占场";
+    staffReservationCancelEdit.hidden = true;
+    const window = nextAdminSchedulingWindow(new Date(), 60, selectedDate.value || shanghaiDate());
+    staffReservationDate.value = window.date;
+    staffReservationStart.value = window.startTime;
+    staffReservationEnd.value = window.endTime;
+    staffReservationCourt.value = "01";
+  };
+  const editStaffReservation = (booking: AdminBooking) => {
+    if (booking.bookingKind !== "staff_reservation") return;
+    editingStaffReservation = booking;
+    required<HTMLInputElement>("admin-staff-reservation-title").value = booking.staffReservationTitle ?? "";
+    staffReservationDate.value = booking.date;
+    staffReservationStart.value = shanghaiTime(booking.startAt);
+    staffReservationEnd.value = shanghaiTime(booking.endAt);
+    staffReservationCourt.value = booking.courtId ?? "01";
+    required("admin-staff-reservation-form-title").textContent = "修改单位占场";
+    staffReservationSubmit.textContent = "保存修改";
+    staffReservationCancelEdit.hidden = false;
+    required("admin-staff-reservation-form").scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  const resetTimeBlockForm = () => {
+    editingTimeBlock = null;
+    required<HTMLFormElement>("admin-time-block-form").reset();
+    required("admin-time-block-form-title").textContent = "临时关闭时段";
+    timeBlockSubmit.textContent = "关闭时段";
+    timeBlockCancelEdit.hidden = true;
+    const window = nextAdminSchedulingWindow(new Date(), 30, selectedDate.value || shanghaiDate());
+    timeBlockDate.value = window.date;
+    timeBlockStart.value = window.startTime;
+    timeBlockEnd.value = window.endTime;
+    timeBlockCourt.value = "01";
+    timeBlockDate.disabled = false;
+    timeBlockCourt.disabled = false;
+  };
+  const editTimeBlock = (block: AdminCourtTimeBlock) => {
+    editingTimeBlock = block;
+    timeBlockDate.value = block.date;
+    timeBlockCourt.value = block.courtId;
+    timeBlockStart.value = block.startTime;
+    timeBlockEnd.value = block.endTime;
+    timeBlockReason.value = block.reason ?? "";
+    timeBlockDate.disabled = true;
+    timeBlockCourt.disabled = true;
+    required("admin-time-block-form-title").textContent = "修改关闭时段";
+    timeBlockSubmit.textContent = "保存修改";
+    timeBlockCancelEdit.hidden = false;
+    required("admin-time-block-form").scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  const renderTimeBlockList = () => {
+    const container = required("admin-time-block-list");
+    container.replaceChildren();
+    if (!timeBlocks.length) {
+      const empty = document.createElement("p");
+      empty.className = "admin-empty";
+      empty.textContent = "这一天没有临时关闭时段。";
+      container.append(empty);
+      return;
+    }
+    for (const block of timeBlocks) {
+      const row = document.createElement("article");
+      const label = document.createElement("strong");
+      label.textContent = `场地 ${block.courtId} · ${block.startTime}–${block.endTime}`;
+      const reason = document.createElement("span");
+      reason.textContent = block.reason || "临时停用";
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.textContent = "修改";
+      edit.disabled = savingTimeBlock;
+      edit.addEventListener("click", () => editTimeBlock(block));
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.textContent = "恢复开放";
+      restore.disabled = savingTimeBlock;
+      restore.addEventListener("click", () => {
+        if (!window.confirm(`恢复场地 ${block.courtId} ${block.startTime}–${block.endTime} 开放吗？`)) return;
+        savingTimeBlock = true;
+        api.restoreCourtTimeBlock(block.id, {
+          date: block.date,
+          courtId: block.courtId,
+          expectedVersion: inventoryVersions[block.courtId] ?? block.version,
+        }).then(async () => {
+          resetTimeBlockForm();
+          await refresh();
+          showMessage("该时段已恢复开放。");
+        }).catch((error) => showMessage(`恢复失败：${String(error)}`, true))
+          .finally(() => { savingTimeBlock = false; renderTimeBlockList(); });
+      });
+      row.append(label, reason, edit, restore);
+      container.append(row);
+    }
   };
   const mediaErrorMessage = (error: unknown) => {
     const code = error instanceof Error ? error.message : "";
@@ -324,6 +483,9 @@ function startAdmin() {
     loadSelectedAudits()
       .catch((error) => showMessage(String(error), true));
     loadSelectedCustomerHistory().catch(() => undefined);
+    if (booking.bookingKind === "staff_reservation") {
+      renderCustomerHistory(required("admin-customer-history"), null, []);
+    }
   };
 
   const renderSettings = () => {
@@ -422,7 +584,15 @@ function startAdmin() {
     required("admin-pending-count").textContent = String(todayDashboard.pending.length);
     renderPendingQueue(required("admin-pending-list"), todayDashboard.pending, onSelect);
     renderBookingList(required("admin-booking-list"), bookings, onSelect, selected?.id);
-    renderCourtMatrix(required("admin-court-matrix"), selectedDashboard.date, matrixBookings, onSelect);
+    renderCourtMatrix(
+      required("admin-court-matrix"),
+      selectedDashboard.date,
+      matrixBookings,
+      onSelect,
+      timeBlocks,
+      editTimeBlock,
+    );
+    renderTimeBlockList();
     if (selected) {
       selected = retainSelectedBooking(
         selected,
@@ -489,7 +659,15 @@ function startAdmin() {
     }) as Bootstrap;
     todayDashboard = bootstrap.todayDashboard;
     selectedDashboard = bootstrap.selectedDashboard;
-    matrixBookings = bootstrap.matrixBookings;
+    matrixBookings = Array.isArray(bootstrap.matrixBookings)
+      ? bootstrap.matrixBookings
+      : bootstrap.matrixBookings?.bookings ?? [];
+    timeBlocks = Array.isArray(bootstrap.matrixBookings)
+      ? []
+      : bootstrap.matrixBookings?.timeBlocks ?? [];
+    inventoryVersions = Array.isArray(bootstrap.matrixBookings)
+      ? {}
+      : bootstrap.matrixBookings?.inventoryVersions ?? {};
     settings = bootstrap.settings;
     courtDraft = {};
     renderAll();
@@ -547,6 +725,103 @@ function startAdmin() {
     }
   }
 
+  async function saveStaffReservation() {
+    if (savingStaffReservation) return;
+    const title = required<HTMLInputElement>("admin-staff-reservation-title").value.trim();
+    const date = staffReservationDate.value;
+    const startTime = staffReservationStart.value;
+    const endTime = staffReservationEnd.value;
+    const courtId = staffReservationCourt.value;
+    if (!title || !date || !startTime || !endTime || !courtId || endTime <= startTime) {
+      showMessage("请填写名称、日期、场地，并确保结束时间晚于开始时间。", true);
+      return;
+    }
+    const editing = editingStaffReservation;
+    savingStaffReservation = true;
+    staffReservationSubmit.disabled = true;
+    staffReservationCancelEdit.disabled = true;
+    staffReservationSubmit.textContent = editing ? "正在保存修改…" : "正在锁定场地…";
+    try {
+      const body = { title, date, startTime, endTime, courtId };
+      const updated = editing
+        ? await api.updateStaffReservation(editing.id, {
+            ...body,
+            expectedVersion: editing.version,
+          })
+        : await api.createStaffReservation(body);
+      selectedDate.value = date;
+      resetStaffReservationForm();
+      selected = updated as AdminBooking;
+      await refresh();
+      showMessage(editing ? "单位占场已修改，旧时段已释放。" : "单位占场已保存并锁定。", false);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : String(error);
+      showMessage(
+        /SESSION_FULL/.test(code)
+          ? "该场地与已有预约或关闭时段冲突，请换时间或场地。"
+          : /CONFLICT/.test(code)
+            ? "这条占场刚被其他人修改，请刷新后再试。"
+            : `占场未保存：${code}`,
+        true,
+      );
+    } finally {
+      savingStaffReservation = false;
+      staffReservationSubmit.disabled = false;
+      staffReservationCancelEdit.disabled = false;
+      staffReservationSubmit.textContent = editingStaffReservation ? "保存修改" : "保存占场";
+    }
+  }
+
+  async function saveTimeBlock() {
+    if (savingTimeBlock) return;
+    const date = timeBlockDate.value;
+    const courtId = timeBlockCourt.value;
+    const startTime = timeBlockStart.value;
+    const endTime = timeBlockEnd.value;
+    const reason = timeBlockReason.value;
+    if (!date || !courtId || !startTime || !endTime || endTime <= startTime) {
+      showMessage("请选择日期、场地，并确保结束时间晚于开始时间。", true);
+      return;
+    }
+    const editing = editingTimeBlock;
+    savingTimeBlock = true;
+    timeBlockSubmit.disabled = true;
+    timeBlockCancelEdit.disabled = true;
+    try {
+      if (editing) {
+        await api.updateCourtTimeBlock(editing.id, {
+          date, courtId, startTime, endTime, ...(reason ? { reason } : {}),
+          expectedVersion: inventoryVersions[editing.courtId] ?? editing.version,
+        });
+      } else {
+        await api.createCourtTimeBlocks({
+          date, courtIds: [courtId], startTime, endTime, ...(reason ? { reason } : {}),
+          expectedVersions: { [courtId]: inventoryVersions[courtId] ?? 0 },
+        });
+      }
+      selectedDate.value = date;
+      resetTimeBlockForm();
+      await refresh();
+      showMessage(editing ? "关闭时段已修改。" : "时段已关闭，预约页会立即排除该场地。", false);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : String(error);
+      showMessage(
+        /CONFLICT/.test(code)
+          ? "该时段已有预约、候选改期或刚被其他管理员修改，请刷新后重选。"
+          : /SESSION_CLOSED/.test(code)
+            ? "场地库存尚未准备好，请稍后刷新重试。"
+            : `关闭时段未保存：${code}`,
+        true,
+      );
+    } finally {
+      savingTimeBlock = false;
+      timeBlockSubmit.disabled = false;
+      timeBlockCancelEdit.disabled = false;
+      timeBlockSubmit.textContent = editingTimeBlock ? "保存修改" : "关闭时段";
+      renderTimeBlockList();
+    }
+  }
+
   function renderActions() {
     const detail = required("admin-booking-detail");
     detail.querySelector(".admin-detail-actions")?.remove();
@@ -558,6 +833,19 @@ function startAdmin() {
       ...(selectedView === "active" ? bookingActionsFor(selected) : []),
       ...bookingRecordActionsFor(selected),
     ];
+    if (
+      selectedView === "active" &&
+      selected.bookingKind === "staff_reservation" &&
+      selected.status === "confirmed"
+    ) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.disabled = activeAction !== null || savingStaffReservation;
+      editButton.dataset.adminAction = "edit-staff-reservation";
+      editButton.textContent = "修改占场";
+      editButton.addEventListener("click", () => editStaffReservation(selected as AdminBooking));
+      actions.append(editButton);
+    }
     for (const [action, label] of definitions) {
       const button = document.createElement("button");
       button.type = "button";
@@ -627,6 +915,22 @@ function startAdmin() {
   required<HTMLFormElement>("admin-matrix-form").addEventListener("submit", (event) => {
     event.preventDefault();
     refresh().catch((error) => showMessage(String(error), true));
+  });
+  required<HTMLFormElement>("admin-staff-reservation-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveStaffReservation().catch((error) => showMessage(String(error), true));
+  });
+  required<HTMLFormElement>("admin-time-block-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveTimeBlock().catch((error) => showMessage(String(error), true));
+  });
+  timeBlockCancelEdit.addEventListener("click", resetTimeBlockForm);
+  timeBlockDate.addEventListener("change", () => {
+    if (!editingTimeBlock) selectedDate.value = timeBlockDate.value;
+  });
+  staffReservationCancelEdit.addEventListener("click", resetStaffReservationForm);
+  staffReservationDate.addEventListener("change", () => {
+    if (!editingStaffReservation) selectedDate.value = staffReservationDate.value;
   });
   required<HTMLButtonElement>("admin-load-more").addEventListener("click", () => {
     refreshRecords(true).catch((error) => showMessage(String(error), true));

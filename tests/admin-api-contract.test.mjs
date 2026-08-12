@@ -70,6 +70,17 @@ function fakeService(trace = []) {
     return result;
   };
   return {
+    createStaffReservation: invoke("createStaffReservation", booking({
+      bookingKind: "staff_reservation",
+      staffReservationTitle: "单位包场",
+      status: "confirmed",
+    })),
+    updateStaffReservation: invoke("updateStaffReservation", booking({
+      bookingKind: "staff_reservation",
+      staffReservationTitle: "单位包场（已改）",
+      status: "confirmed",
+      version: 4,
+    })),
     confirm: invoke("confirm", booking({ status: "confirmed", version: 4 })),
     proposeReschedule: invoke(
       "proposeReschedule",
@@ -93,6 +104,21 @@ function fakeService(trace = []) {
       proposedCourtId: "02",
       status: "reschedule_proposed",
     })]),
+    listCourtTimeBlockDay: invoke("listCourtTimeBlockDay", {
+      items: [], inventoryVersions: { "01": 0 },
+    }),
+    createCourtTimeBlocks: invoke("createCourtTimeBlocks", [{
+      id: "block-1", date: DATE, courtId: "01", startTime: "09:00", endTime: "09:30",
+      cellKeys: ["0900"], reason: "维护", createdAt: "2098-12-01T00:00:00.000Z",
+      createdBy: TRUSTED_UID, updatedAt: "2098-12-01T00:00:00.000Z", updatedBy: TRUSTED_UID,
+      version: 1,
+    }]),
+    updateCourtTimeBlock: invoke("updateCourtTimeBlock", {
+      id: "block-1", date: DATE, courtId: "01", startTime: "09:30", endTime: "10:00",
+      cellKeys: ["0930"], createdAt: "2098-12-01T00:00:00.000Z", createdBy: TRUSTED_UID,
+      updatedAt: "2098-12-02T00:00:00.000Z", updatedBy: TRUSTED_UID, version: 2,
+    }),
+    restoreCourtTimeBlock: invoke("restoreCourtTimeBlock", undefined),
     listCourts: invoke("listCourts", [{ id: "01", enabled: false, version: 7 }]),
     listSessionTemplates: invoke("listSessionTemplates", [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }]),
     listAuditLogs: invoke("listAuditLogs", [{ id: "audit-1", bookingId: record.id, action: "confirmed", actorType: "staff", actorId: "private-staff-id", at: "2098-12-02T00:00:00.000Z", metadata: { phone: "13800138000" } }]),
@@ -368,13 +394,15 @@ test("dashboard, matrix and booking-list routes use their exact scheduling reads
   assert.equal(dashboard.statusCode, 200);
   assert.deepEqual(responseBody(dashboard).data.date, DATE);
   assert.equal(matrix.statusCode, 200);
-  assert.equal(responseBody(matrix).data[0].proposedDate, DATE);
+  assert.equal(responseBody(matrix).data.bookings[0].proposedDate, DATE);
+  assert.deepEqual(responseBody(matrix).data.inventoryVersions, { "01": 0 });
   assert.equal(listing.statusCode, 200);
   const calls = trace.filter((entry) => entry.type === "service");
   assert.deepEqual(calls.map((entry) => [entry.name, entry.args]), [
     ["listPendingBookings", [DATE]],
     ["listAvailability", [DATE]],
     ["listMatrixBookings", [DATE]],
+    ["listCourtTimeBlockDay", [DATE]],
     ["listBookings", [{ date: DATE, status: "pending", mode: "private", query: "Ada", archive: "active", limit: 51 }]],
   ]);
   assert.equal(listing.body.includes("internal-phone-hash"), false);
@@ -492,6 +520,81 @@ test("booking mutations reject unknown fields and duplicate aliases before servi
   }
 });
 
+test("court time block API lists, creates, edits and restores strict non-PII closures", async () => {
+  const trace = [];
+  const handler = handlerFor(fakeService(trace), { trace });
+  const listed = await handler(event("GET", "/v1/admin/court-time-blocks", undefined, {
+    query: { date: DATE },
+  }));
+  const created = await handler(event("POST", "/v1/admin/court-time-blocks", {
+    date: DATE,
+    courtIds: ["01"],
+    startTime: "09:00",
+    endTime: "09:30",
+    reason: "维护",
+    expectedVersions: { "01": 0 },
+  }));
+  const updated = await handler(event("PUT", "/v1/admin/court-time-blocks/block-1", {
+    date: DATE,
+    courtId: "01",
+    startTime: "09:30",
+    endTime: "10:00",
+    expectedVersion: 1,
+  }));
+  const restored = await handler(event("DELETE", "/v1/admin/court-time-blocks/block-1", {
+    date: DATE,
+    courtId: "01",
+    expectedVersion: 2,
+  }));
+  assert.equal(listed.statusCode, 200);
+  assert.equal(created.statusCode, 201);
+  assert.equal(updated.statusCode, 200);
+  assert.equal(restored.statusCode, 200);
+  assert.deepEqual(
+    trace.filter(({ name }) => /CourtTimeBlock/.test(name)).map(({ name, args }) => [name, args]),
+    [
+      ["listCourtTimeBlockDay", [DATE]],
+      ["createCourtTimeBlocks", [{
+        date: DATE, courtIds: ["01"], startTime: "09:00", endTime: "09:30", reason: "维护",
+        expectedVersions: { "01": 0 }, actorId: TRUSTED_UID,
+      }]],
+      ["updateCourtTimeBlock", [{
+        blockId: "block-1", date: DATE, courtId: "01", startTime: "09:30", endTime: "10:00",
+        expectedVersion: 1, actorId: TRUSTED_UID,
+      }]],
+      ["restoreCourtTimeBlock", [{
+        blockId: "block-1", date: DATE, courtId: "01", expectedVersion: 2, actorId: TRUSTED_UID,
+      }]],
+    ],
+  );
+  assert.equal(created.body.includes(TRUSTED_UID), false);
+});
+
+test("court time block API rejects unknown, forged and malformed fields before service work", async () => {
+  for (const [method, path, body, query] of [
+    ["GET", "/v1/admin/court-time-blocks", undefined, { date: DATE, extra: "x" }],
+    ["POST", "/v1/admin/court-time-blocks", {
+      date: DATE, courtIds: ["01"], startTime: "09:00", endTime: "09:30",
+      expectedVersions: { "01": 0 }, actorId: "attacker",
+    }],
+    ["POST", "/v1/admin/court-time-blocks", {
+      date: DATE, courtIds: ["01"], startTime: "09:00", endTime: "09:30",
+      expectedVersions: { "01": "0" },
+    }],
+    ["PUT", "/v1/admin/court-time-blocks/block-1", {
+      date: DATE, courtId: "01", startTime: "09:00", endTime: "09:30",
+      expectedVersion: 1, expected_version: 1,
+    }],
+  ]) {
+    const trace = [];
+    const response = await handlerFor(fakeService(trace), { trace })(
+      event(method, path, body, query ? { query } : {}),
+    );
+    assert.equal(response.statusCode, 400, `${method} ${path}`);
+    assert.equal(trace.some(({ type }) => type === "service"), false);
+  }
+});
+
 test("bootstrap authenticates once, runs all same-day reads concurrently, and reuses the dashboard", async () => {
   const trace = [];
   const service = fakeService(trace);
@@ -500,6 +603,7 @@ test("bootstrap authenticates once, runs all same-day reads concurrently, and re
     "listAvailability",
     "listBookings",
     "listMatrixBookings",
+    "listCourtTimeBlockDay",
     "listCourts",
     "listSessionTemplates",
   ];
@@ -530,6 +634,7 @@ test("bootstrap authenticates once, runs all same-day reads concurrently, and re
       ["listAvailability", [DATE]],
       ["listBookings", [{ date: DATE, status: "pending", mode: "private", query: "Ada", limit: 100 }]],
       ["listMatrixBookings", [DATE]],
+      ["listCourtTimeBlockDay", [DATE]],
       ["listCourts", []],
       ["listSessionTemplates", []],
     ],
@@ -538,7 +643,8 @@ test("bootstrap authenticates once, runs all same-day reads concurrently, and re
   assert.equal(data.todayDashboard.date, DATE);
   assert.deepEqual(data.selectedDashboard, data.todayDashboard);
   assert.equal(data.bookings[0].code, "ADMINCODE1");
-  assert.equal(data.matrixBookings[0].proposedDate, DATE);
+  assert.equal(data.matrixBookings.bookings[0].proposedDate, DATE);
+  assert.deepEqual(data.matrixBookings.inventoryVersions, { "01": 0 });
   assert.deepEqual(data.settings, {
     courts: [{ id: "01", enabled: false, version: 7 }],
     sessionTemplates: [{ id: "slot-0700", startTime: "07:00", endTime: "08:00", enabled: true, version: 4 }],
@@ -595,6 +701,7 @@ test("bootstrap preserves distinct today and selected-date semantics", async () 
       ["listAvailability", [selectedDate]],
       ["listBookings", [{ date: selectedDate, limit: 100 }]],
       ["listMatrixBookings", [selectedDate]],
+      ["listCourtTimeBlockDay", [selectedDate]],
       ["listCourts", []],
       ["listSessionTemplates", []],
     ],
@@ -784,6 +891,33 @@ test("manual admin redaction is not exposed and leaves personal data untouched",
     (await repository.listAuditLogs()).some((entry) => entry.action === "personal_data_redacted"),
     false,
   );
+});
+
+test("CSV describes staff reservations as full-court occupancy with an unknown headcount", async () => {
+  const service = fakeService();
+  service.listBookings = async () => [booking({
+    bookingKind: "staff_reservation",
+    staffReservationTitle: "周三企业活动",
+    partySize: 4,
+    name: undefined,
+    phone: undefined,
+    email: undefined,
+    privacyConsentAt: undefined,
+  })];
+  const response = await handlerFor(service)(event(
+    "GET",
+    "/v1/admin/export.csv",
+    undefined,
+    { query: { from: DATE, to: DATE } },
+  ));
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /"booking_kind"/);
+  assert.match(response.body, /"staff_reservation"/);
+  assert.match(response.body, /"整场占用"/);
+  assert.match(response.body, /"人数未登记"/);
+  assert.match(response.body, /"周三企业活动"/);
+  assert.doesNotMatch(response.body, /,"4",/);
 });
 
 test("manual admin redaction remains unavailable regardless of supplied version", async () => {

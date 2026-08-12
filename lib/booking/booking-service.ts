@@ -7,11 +7,13 @@ import {
 } from "./allocation.ts";
 import {
   bookingWindowSessionId,
+  clockMinutes,
   courtDayInventoryId,
   defaultBookingPolicy,
   inventoryCellKeys,
   listBookingWindows,
   parseBookingWindowSessionId,
+  validateCourtTimeBlockWindow,
   validateBookingWindow,
   type ValidatedBookingWindow,
 } from "./booking-window.ts";
@@ -37,11 +39,17 @@ import type {
   CourtAllocation,
   CourtDayInventory,
   CourtRecord,
+  CourtTimeBlock,
+  CourtTimeBlockDay,
+  CreateCourtTimeBlocksCommand,
   NotificationEvent,
   NotificationKind,
   SessionRecord,
   SessionTemplateRecord,
+  RestoreCourtTimeBlockCommand,
+  UpdateCourtTimeBlockCommand,
 } from "./types.ts";
+import { currentPublicScheduleConsentVersion } from "./types.ts";
 import { validateCreateBooking } from "./validation.ts";
 
 export const courtIds = Array.from({ length: 11 }, (_, index) =>
@@ -157,6 +165,20 @@ export interface ReassignBookingCommand extends StaffMutationCommand {
   courtId: string;
 }
 
+export interface CreateStaffReservationCommand {
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  courtId: string;
+  actorId: string;
+}
+
+export interface UpdateStaffReservationCommand extends CreateStaffReservationCommand {
+  bookingId: string;
+  expectedVersion: number;
+}
+
 interface PreparedSession {
   session: SessionRecord;
   currentCourts: CourtRecord[];
@@ -217,6 +239,25 @@ function inventoryContainsBooking(
   return cellKeys.some((key) => inventory.cells[key]?.bookingIds.includes(bookingId));
 }
 
+function normalizeTimeBlockReason(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new BookingError("INVALID_INPUT");
+  const reason = value.trim();
+  if (
+    !reason ||
+    Array.from(reason).length > 100 ||
+    /[\u0000-\u001f\u007f]/u.test(reason) ||
+    /(?:1\d{10}|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,})/u.test(reason)
+  ) throw new BookingError("INVALID_INPUT");
+  return reason;
+}
+
+function requireInventoryVersion(inventory: CourtDayInventory, expected: unknown): void {
+  if (!Number.isInteger(expected) || expected !== inventory.version) {
+    throw new BookingError("CONFLICT");
+  }
+}
+
 function reserveAllocation(allocation: CourtAllocation, booking: BookingRecord): CourtAllocation {
   return {
     ...allocation,
@@ -257,6 +298,51 @@ function clearProposal(booking: BookingRecord): BookingRecord {
   delete updated.proposedEndAt;
   delete updated.proposalPreviousStatus;
   return updated;
+}
+
+interface ValidatedStaffReservationWindow {
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  courtId: string;
+  cellKeys: string[];
+}
+
+function validateStaffReservationWindow(
+  command: CreateStaffReservationCommand,
+): ValidatedStaffReservationWindow {
+  const title = typeof command.title === "string" ? command.title.trim() : "";
+  if (
+    !title ||
+    Array.from(title).length > 40 ||
+    /[\u0000-\u001f\u007f]/u.test(title) ||
+    !courtIds.includes(command.courtId)
+  ) {
+    throw new BookingError("INVALID_INPUT");
+  }
+  const date = requireCalendarDate(command.date);
+  const opening = clockMinutes(defaultBookingPolicy.openingTime);
+  const closing = clockMinutes(defaultBookingPolicy.closingTime);
+  const start = clockMinutes(command.startTime);
+  const end = clockMinutes(command.endTime);
+  if (
+    start < opening ||
+    end > closing ||
+    end <= start ||
+    start % 30 !== 0 ||
+    end % 30 !== 0
+  ) {
+    throw new BookingError("INVALID_INPUT");
+  }
+  return {
+    title,
+    date,
+    startTime: command.startTime,
+    endTime: command.endTime,
+    courtId: command.courtId,
+    cellKeys: inventoryCellKeys(command.startTime, command.endTime),
+  };
 }
 
 export class BookingService {
@@ -407,13 +493,19 @@ export class BookingService {
         courtId: selectedCourtId,
         mode: command.mode,
         partySize: command.partySize,
-        status: "pending",
+        status: "confirmed",
         name: command.name.trim(),
         phone,
         phoneHash,
         ...(email ? { email } : {}),
         ...(command.note === undefined ? {} : { note: command.note.trim() }),
         privacyConsentAt: now,
+        ...(command.publicScheduleConsentVersion === currentPublicScheduleConsentVersion
+          ? {
+              publicScheduleConsentVersion: currentPublicScheduleConsentVersion,
+              publicScheduleConsentAt: now,
+            }
+          : {}),
         canCancelUntil: startAt,
         createdAt: now,
         updatedAt: now,
@@ -437,7 +529,7 @@ export class BookingService {
       await transaction.putBookingCode(codeHash, booking.id);
       await transaction.putIdempotency(idempotencyKeyHash, booking.id);
       await transaction.appendAudit(
-        this.audit(auditId, booking, "created", "system", now, undefined, "pending"),
+        this.audit(auditId, booking, "created", "system", now, undefined, "confirmed"),
       );
       await transaction.enqueueNotification(
         this.notification(staffNotificationId, booking.id, booking.version, "created", "staff", now),
@@ -471,7 +563,45 @@ export class BookingService {
   }
 
   confirm(command: StaffMutationCommand): Promise<BookingRecord> {
-    return this.changeStatus(command, "confirmed", "confirmed", "pending");
+    return this.repository.runTransaction(async (transaction) => {
+      const booking = requireBooking(await transaction.getBooking(command.bookingId));
+      requireVersion(booking, command.expectedVersion);
+      if (booking.status === "confirmed") return booking;
+      if (booking.status !== "pending") throw new BookingError("INVALID_TRANSITION");
+      const now = this.clock.now().toISOString();
+      const updated: BookingRecord = {
+        ...booking,
+        status: "confirmed",
+        updatedAt: now,
+        version: booking.version + 1,
+      };
+      await transaction.putBooking(updated);
+      await transaction.appendAudit(
+        this.audit(
+          this.ids.eventId(),
+          booking,
+          "confirmed",
+          "staff",
+          now,
+          "pending",
+          "confirmed",
+          command.actorId,
+        ),
+      );
+      if (hasNotificationEmail(booking)) {
+        await transaction.enqueueNotification(
+          this.notification(
+            this.ids.eventId(),
+            booking.id,
+            updated.version,
+            "confirmed",
+            "customer",
+            now,
+          ),
+        );
+      }
+      return updated;
+    });
   }
 
   async proposeReschedule(command: ProposeRescheduleCommand): Promise<BookingRecord> {
@@ -868,6 +998,160 @@ export class BookingService {
     return this.repository.redactBooking(bookingId, actorId, expectedVersion, actorType);
   }
 
+  async createStaffReservation(
+    command: CreateStaffReservationCommand,
+  ): Promise<BookingRecord> {
+    const window = validateStaffReservationWindow(command);
+    const now = this.clock.now().toISOString();
+    if (shanghaiInstant(window.date, window.startTime) <= now) {
+      throw new BookingError("SESSION_CLOSED");
+    }
+    const bookingId = this.ids.bookingId();
+    const auditId = this.ids.eventId();
+    return this.repository.runTransaction(async (transaction) => {
+      if (!(await transaction.isBookingInventoryV2Ready())) {
+        throw new BookingError("SESSION_CLOSED");
+      }
+      const [court] = await transaction.getCourts([window.courtId]);
+      if (!court?.enabled) throw new BookingError("SESSION_CLOSED");
+      const [inventory] = await this.readCourtDayInventories(
+        transaction,
+        window.date,
+        [window.courtId],
+      );
+      if (!chooseCourtDayInventory("private", 4, window.cellKeys, [inventory])) {
+        throw new BookingError("SESSION_FULL");
+      }
+      const startAt = shanghaiInstant(window.date, window.startTime);
+      const endAt = shanghaiInstant(window.date, window.endTime);
+      const booking: BookingRecord = {
+        id: bookingId,
+        code: `STAFF-${bookingId}`,
+        bookingKind: "staff_reservation",
+        staffReservationTitle: window.title,
+        sessionId: `${window.date}__staff-${bookingId}`,
+        date: window.date,
+        startAt,
+        endAt,
+        courtId: window.courtId,
+        mode: "private",
+        partySize: 4,
+        status: "confirmed",
+        canCancelUntil: startAt,
+        createdAt: now,
+        updatedAt: now,
+        version: 0,
+      };
+      await transaction.putCourtDayInventory(
+        reserveCourtDayInventory(
+          inventory,
+          booking.mode,
+          booking.partySize,
+          booking.id,
+          window.cellKeys,
+        ),
+      );
+      await transaction.putBooking(booking);
+      await transaction.appendAudit(
+        this.audit(
+          auditId,
+          booking,
+          "staff_reservation_created",
+          "staff",
+          now,
+          undefined,
+          "confirmed",
+          command.actorId,
+        ),
+      );
+      return booking;
+    });
+  }
+
+  async updateStaffReservation(
+    command: UpdateStaffReservationCommand,
+  ): Promise<BookingRecord> {
+    const window = validateStaffReservationWindow(command);
+    const now = this.clock.now().toISOString();
+    if (shanghaiInstant(window.date, window.startTime) <= now) {
+      throw new BookingError("SESSION_CLOSED");
+    }
+    const auditId = this.ids.eventId();
+    return this.repository.runTransaction(async (transaction) => {
+      if (!(await transaction.isBookingInventoryV2Ready())) {
+        throw new BookingError("SESSION_CLOSED");
+      }
+      const booking = requireBooking(await transaction.getBooking(command.bookingId));
+      requireVersion(booking, command.expectedVersion);
+      if (
+        booking.bookingKind !== "staff_reservation" ||
+        booking.status !== "confirmed" ||
+        booking.archivedAt
+      ) {
+        throw new BookingError("INVALID_TRANSITION");
+      }
+      const [court] = await transaction.getCourts([window.courtId]);
+      if (!court?.enabled) throw new BookingError("SESSION_CLOSED");
+      const [targetInventory] = await this.readCourtDayInventories(
+        transaction,
+        window.date,
+        [window.courtId],
+      );
+      const targetWithoutSelf = releaseCourtDayInventory(
+        targetInventory,
+        booking.partySize,
+        booking.id,
+        booking.date === window.date && booking.courtId === window.courtId
+          ? bookingCellKeys(booking)
+          : [],
+      );
+      if (!chooseCourtDayInventory("private", 4, window.cellKeys, [targetWithoutSelf])) {
+        throw new BookingError("SESSION_FULL");
+      }
+      await this.releaseBookingInventories(transaction, booking);
+      const refreshedTarget = booking.date === window.date && booking.courtId === window.courtId
+        ? targetWithoutSelf
+        : targetInventory;
+      const startAt = shanghaiInstant(window.date, window.startTime);
+      const endAt = shanghaiInstant(window.date, window.endTime);
+      const updated: BookingRecord = {
+        ...booking,
+        staffReservationTitle: window.title,
+        sessionId: `${window.date}__staff-${booking.id}`,
+        date: window.date,
+        startAt,
+        endAt,
+        courtId: window.courtId,
+        canCancelUntil: startAt,
+        updatedAt: now,
+        version: booking.version + 1,
+      };
+      await transaction.putCourtDayInventory(
+        reserveCourtDayInventory(
+          refreshedTarget,
+          updated.mode,
+          updated.partySize,
+          updated.id,
+          window.cellKeys,
+        ),
+      );
+      await transaction.putBooking(updated);
+      await transaction.appendAudit(
+        this.audit(
+          auditId,
+          booking,
+          "staff_reservation_updated",
+          "staff",
+          now,
+          booking.status,
+          updated.status,
+          command.actorId,
+        ),
+      );
+      return updated;
+    });
+  }
+
   archiveBooking(
     bookingId: string,
     actorId: string,
@@ -887,11 +1171,12 @@ export class BookingService {
   async listAvailability(date: string): Promise<AvailabilitySlot[]> {
     const calendarDate = requireCalendarDate(date);
     const now = this.clock.now().toISOString();
-    const [storedAvailability, storedSessions, templates, courts] = await Promise.all([
+    const [storedAvailability, storedSessions, templates, courts, storedInventories] = await Promise.all([
       this.repository.listAvailability(calendarDate),
       this.repository.listSessions(calendarDate),
       this.repository.listSessionTemplates(),
       this.repository.listCourts(),
+      this.repository.listCourtDayInventories(calendarDate),
     ]);
     const materializedSessionIds = new Set([
       ...storedSessions.map((session) => session.id),
@@ -925,7 +1210,32 @@ export class BookingService {
 
     const bySessionId = new Map(synthetic.map((slot) => [slot.sessionId, slot]));
     for (const slot of storedAvailability) bySessionId.set(slot.sessionId, slot);
+    const inventoryByCourt = new Map(
+      storedInventories.map((inventory) => [inventory.courtId, inventory]),
+    );
     return Array.from(bySessionId.values())
+      .map((slot): AvailabilitySlot => {
+        const keys = inventoryCellKeys(slot.startTime, slot.endTime);
+        const closedCourts = courts.filter(
+          (court) => court.enabled && keys.some(
+            (key) => Boolean(inventoryByCourt.get(court.id)?.blockedCells?.[key]),
+          ),
+        ).length;
+        if (closedCourts === 0) return slot;
+        const openCapacity = Math.max(0, slot.openCapacity - closedCourts * 4);
+        const privateCourtCount = Math.max(0, slot.privateCourtCount - closedCourts);
+        const acceptsOpenPartySizes = slot.acceptsOpenPartySizes.filter(
+          (partySize) => partySize <= openCapacity,
+        );
+        return {
+          ...slot,
+          openCapacity,
+          acceptsOpenPartySizes,
+          privateCourtCount,
+          acceptsOpen: acceptsOpenPartySizes.length > 0,
+          acceptsPrivate: privateCourtCount > 0,
+        };
+      })
       .filter((slot) => shanghaiInstant(slot.date, slot.startTime) > now)
       .sort(
         (left, right) =>
@@ -961,12 +1271,15 @@ export class BookingService {
       .filter((window) => shanghaiInstant(calendarDate, window.startTime) > now)
       .map((window): BookingWindowAvailability => {
         const privateCourtCount = inventories.filter((inventory) =>
-          window.cellKeys.every((key) => !inventory.cells[key]),
+          window.cellKeys.every(
+            (key) => !inventory.cells[key] && !inventory.blockedCells?.[key],
+          ),
         ).length;
         const openCapacity = inventories.reduce((total, inventory) => {
           const capacity = Math.min(
             ...window.cellKeys.map((key) => {
               const cell = inventory.cells[key];
+              if (inventory.blockedCells?.[key]) return 0;
               if (!cell) return 4;
               return cell.mode === "open" ? Math.max(0, 4 - cell.occupiedPlayers) : 0;
             }),
@@ -1003,6 +1316,218 @@ export class BookingService {
     return { policy: defaultBookingPolicy, windows };
   }
 
+  async listCourtTimeBlocks(date: string): Promise<CourtTimeBlock[]> {
+    return (await this.listCourtTimeBlockDay(date)).items;
+  }
+
+  async listCourtTimeBlockDay(date: string): Promise<CourtTimeBlockDay> {
+    const calendarDate = requireCalendarDate(date);
+    const inventories = await this.repository.listCourtDayInventories(calendarDate);
+    const inventoryByCourt = new Map(inventories.map((inventory) => [inventory.courtId, inventory]));
+    const inventoryVersions = Object.fromEntries(
+      courtIds.map((courtId) => [courtId, inventoryByCourt.get(courtId)?.version ?? 0]),
+    );
+    const items = inventories
+      .flatMap((inventory) => Object.values(inventory.timeBlocks ?? {}).map((block) => ({
+        ...block,
+        version: inventory.version,
+      })))
+      .sort(
+        (left, right) =>
+          left.startTime.localeCompare(right.startTime) ||
+          left.courtId.localeCompare(right.courtId) ||
+          left.id.localeCompare(right.id),
+      );
+    return { items, inventoryVersions };
+  }
+
+  async createCourtTimeBlocks(
+    command: CreateCourtTimeBlocksCommand,
+  ): Promise<CourtTimeBlock[]> {
+    const window = validateCourtTimeBlockWindow(command.date, command.startTime, command.endTime);
+    const reason = normalizeTimeBlockReason(command.reason);
+    const requestedCourtIds = Array.isArray(command.courtIds) ? command.courtIds : [];
+    if (
+      requestedCourtIds.length === 0 ||
+      requestedCourtIds.length > 2 ||
+      new Set(requestedCourtIds).size !== requestedCourtIds.length ||
+      requestedCourtIds.some((courtId) => !courtIds.includes(courtId)) ||
+      !command.expectedVersions ||
+      typeof command.expectedVersions !== "object" ||
+      !command.actorId?.trim()
+    ) throw new BookingError("INVALID_INPUT");
+    const now = this.clock.now().toISOString();
+    if (shanghaiInstant(window.date, window.startTime) <= now) {
+      throw new BookingError("SESSION_CLOSED");
+    }
+    return this.repository.runTransaction(async (transaction) => {
+      if (!(await transaction.isBookingInventoryV2Ready())) {
+        throw new BookingError("SESSION_CLOSED");
+      }
+      const courts = await transaction.getCourts(requestedCourtIds);
+      if (courts.length !== requestedCourtIds.length) throw new BookingError("SESSION_NOT_FOUND");
+      const inventories = await this.readCourtDayInventories(
+        transaction,
+        window.date,
+        requestedCourtIds,
+      );
+      for (const inventory of inventories) {
+        requireInventoryVersion(inventory, command.expectedVersions[inventory.courtId]);
+        if (
+          window.cellKeys.some(
+            (key) => inventory.cells[key] || inventory.blockedCells?.[key],
+          )
+        ) throw new BookingError("CONFLICT");
+      }
+
+      const blocks: CourtTimeBlock[] = [];
+      for (const inventory of inventories) {
+        const version = inventory.version + 1;
+        const id = `block-${this.ids.eventId()}`;
+        const block: CourtTimeBlock = {
+          id,
+          date: window.date,
+          courtId: inventory.courtId,
+          startTime: window.startTime,
+          endTime: window.endTime,
+          cellKeys: [...window.cellKeys],
+          ...(reason ? { reason } : {}),
+          createdAt: now,
+          createdBy: command.actorId,
+          updatedAt: now,
+          updatedBy: command.actorId,
+          version,
+        };
+        const blockedCells = { ...(inventory.blockedCells ?? {}) };
+        for (const key of window.cellKeys) {
+          blockedCells[key] = { blockId: id, ...(reason ? { reason } : {}) };
+        }
+        await transaction.putCourtDayInventory({
+          ...inventory,
+          blockedCells,
+          timeBlocks: { ...(inventory.timeBlocks ?? {}), [id]: block },
+          version,
+        });
+        await transaction.appendAudit(this.timeBlockAudit(
+          `court-time-block-created-${encodeURIComponent(id)}-v${version}`,
+          "court_time_block_created",
+          block,
+          command.actorId,
+          now,
+        ));
+        blocks.push(block);
+      }
+      return blocks;
+    });
+  }
+
+  async updateCourtTimeBlock(
+    command: UpdateCourtTimeBlockCommand,
+  ): Promise<CourtTimeBlock> {
+    const window = validateCourtTimeBlockWindow(command.date, command.startTime, command.endTime);
+    const reason = normalizeTimeBlockReason(command.reason);
+    if (!courtIds.includes(command.courtId) || !command.blockId?.trim() || !command.actorId?.trim()) {
+      throw new BookingError("INVALID_INPUT");
+    }
+    const now = this.clock.now().toISOString();
+    if (shanghaiInstant(window.date, window.startTime) <= now) {
+      throw new BookingError("SESSION_CLOSED");
+    }
+    return this.repository.runTransaction(async (transaction) => {
+      if (!(await transaction.isBookingInventoryV2Ready())) {
+        throw new BookingError("SESSION_CLOSED");
+      }
+      const [inventory] = await this.readCourtDayInventories(
+        transaction,
+        window.date,
+        [command.courtId],
+      );
+      requireInventoryVersion(inventory, command.expectedVersion);
+      const previous = inventory.timeBlocks?.[command.blockId];
+      if (!previous || previous.date !== window.date || previous.courtId !== command.courtId) {
+        throw new BookingError("SESSION_NOT_FOUND");
+      }
+      if (
+        window.cellKeys.some((key) => {
+          const existingBlock = inventory.blockedCells?.[key];
+          return Boolean(inventory.cells[key] || (existingBlock && existingBlock.blockId !== command.blockId));
+        })
+      ) throw new BookingError("CONFLICT");
+      const version = inventory.version + 1;
+      const updated: CourtTimeBlock = {
+        ...previous,
+        startTime: window.startTime,
+        endTime: window.endTime,
+        cellKeys: [...window.cellKeys],
+        ...(reason ? { reason } : {}),
+        updatedAt: now,
+        updatedBy: command.actorId,
+        version,
+      };
+      if (!reason) delete updated.reason;
+      const blockedCells = { ...(inventory.blockedCells ?? {}) };
+      for (const [key, value] of Object.entries(blockedCells)) {
+        if (value.blockId === command.blockId) delete blockedCells[key];
+      }
+      for (const key of window.cellKeys) {
+        blockedCells[key] = { blockId: command.blockId, ...(reason ? { reason } : {}) };
+      }
+      await transaction.putCourtDayInventory({
+        ...inventory,
+        blockedCells,
+        timeBlocks: { ...(inventory.timeBlocks ?? {}), [command.blockId]: updated },
+        version,
+      });
+      await transaction.appendAudit(this.timeBlockAudit(
+        `court-time-block-updated-${encodeURIComponent(command.blockId)}-v${version}`,
+        "court_time_block_updated",
+        updated,
+        command.actorId,
+        now,
+      ));
+      return updated;
+    });
+  }
+
+  async restoreCourtTimeBlock(command: RestoreCourtTimeBlockCommand): Promise<void> {
+    const date = requireCalendarDate(command.date);
+    if (!courtIds.includes(command.courtId) || !command.blockId?.trim() || !command.actorId?.trim()) {
+      throw new BookingError("INVALID_INPUT");
+    }
+    const now = this.clock.now().toISOString();
+    await this.repository.runTransaction(async (transaction) => {
+      if (!(await transaction.isBookingInventoryV2Ready())) {
+        throw new BookingError("SESSION_CLOSED");
+      }
+      const [inventory] = await this.readCourtDayInventories(transaction, date, [command.courtId]);
+      requireInventoryVersion(inventory, command.expectedVersion);
+      const block = inventory.timeBlocks?.[command.blockId];
+      if (!block || block.date !== date || block.courtId !== command.courtId) {
+        throw new BookingError("SESSION_NOT_FOUND");
+      }
+      const blockedCells = { ...(inventory.blockedCells ?? {}) };
+      for (const [key, value] of Object.entries(blockedCells)) {
+        if (value.blockId === command.blockId) delete blockedCells[key];
+      }
+      const timeBlocks = { ...(inventory.timeBlocks ?? {}) };
+      delete timeBlocks[command.blockId];
+      const version = inventory.version + 1;
+      await transaction.putCourtDayInventory({
+        ...inventory,
+        blockedCells,
+        timeBlocks,
+        version,
+      });
+      await transaction.appendAudit(this.timeBlockAudit(
+        `court-time-block-restored-${encodeURIComponent(command.blockId)}-v${version}`,
+        "court_time_block_restored",
+        { ...block, version },
+        command.actorId,
+        now,
+      ));
+    });
+  }
+
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {
     return this.repository.listBookings(filter);
   }
@@ -1021,6 +1546,10 @@ export class BookingService {
 
   listMatrixBookings(date: string): Promise<BookingRecord[]> {
     return this.repository.listMatrixBookings(date);
+  }
+
+  listPublicSchedule(date: string): Promise<BookingRecord[]> {
+    return this.repository.listPublicSchedule(requireCalendarDate(date), 100);
   }
 
   listCourts(): Promise<CourtRecord[]> {
@@ -1238,7 +1767,7 @@ export class BookingService {
     } = booking,
   ): Promise<void> {
     const windowSession = parseBookingWindowSessionId(location.sessionId);
-    if (!windowSession) {
+    if (!windowSession && booking.bookingKind !== "staff_reservation") {
       const allocation = await this.readAllocation(
         transaction,
         location.sessionId,
@@ -1258,7 +1787,7 @@ export class BookingService {
     // A v2 booking is born in this inventory. Missing ownership indicates corrupted or
     // partially migrated data and must not be hidden by a successful lifecycle mutation.
     if (
-      windowSession &&
+      (windowSession || booking.bookingKind === "staff_reservation") &&
       keys.some((key) => !inventory.cells[key]?.bookingIds.includes(booking.id))
     ) {
       throw new BookingError("CONFLICT");
@@ -1354,6 +1883,33 @@ export class BookingService {
       ...(toStatus ? { toStatus } : {}),
       at,
       metadata: {},
+    };
+  }
+
+  private timeBlockAudit(
+    id: string,
+    action: "court_time_block_created" | "court_time_block_updated" | "court_time_block_restored",
+    block: CourtTimeBlock,
+    actorId: string,
+    at: string,
+  ): AuditLog {
+    return {
+      id,
+      bookingId: `court-time-block:${block.id}`,
+      action,
+      actorType: "staff",
+      actorId,
+      at,
+      metadata: {
+        entity: "court-time-block",
+        id: block.id,
+        date: block.date,
+        courtId: block.courtId,
+        startTime: block.startTime,
+        endTime: block.endTime,
+        ...(block.reason ? { reason: block.reason } : {}),
+        version: block.version,
+      },
     };
   }
 

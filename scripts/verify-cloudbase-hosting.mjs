@@ -110,6 +110,7 @@ function verifyRootHtml(body, configuration) {
     ) ||
     !/\bdata-booking-form-client(?:\s|=|>)/i.test(body) ||
     !/\bdata-homepage-media-client(?:\s|=|>)/i.test(body) ||
+    !/\bdata-public-schedule-client(?:\s|=|>)/i.test(body) ||
     forbiddenStaticContent.test(body)
   ) {
     throw new Error("INVALID_ROOT_HTML");
@@ -207,6 +208,7 @@ export async function verifyCloudBaseApi(configuration, options = {}) {
         ["/v1/admin/dashboard", "GET"],
         ["/v1/admin/bookings/smoke-booking/confirm", "POST"],
         ["/v1/admin/courts/01", "PUT"],
+        ["/v1/admin/court-time-blocks/smoke-block", "DELETE"],
       ]) {
         await verifyPreflight({
           fetchImpl,
@@ -272,6 +274,36 @@ export async function verifyCloudBaseApi(configuration, options = {}) {
         !mediaBody.data ||
         typeof mediaBody.data !== "object" ||
         !Array.isArray(mediaBody.data.items)
+      ) {
+        throw new Error("INVALID_API_RESPONSE");
+      }
+      const publicScheduleResponse = await fetchImpl(
+        `${configuration.apiBaseUrl}/v1/public-schedule?date=${smokeDate}`,
+        {
+          headers: { Accept: "application/json", Origin: siteOrigin },
+          redirect: "error",
+          signal: requestSignal(requestTimeoutMs),
+        },
+      );
+      if (
+        !publicScheduleResponse.ok ||
+        !/^application\/json\b/i.test(publicScheduleResponse.headers.get("content-type") ?? "") ||
+        publicScheduleResponse.headers.get("access-control-allow-origin") !== siteOrigin
+        || !/\bno-store\b/i.test(publicScheduleResponse.headers.get("cache-control") ?? "")
+      ) {
+        throw new Error("INVALID_API_RESPONSE");
+      }
+      const publicScheduleBody = await publicScheduleResponse.json();
+      const publicSchedule = publicScheduleBody?.data;
+      if (
+        !publicSchedule ||
+        typeof publicSchedule !== "object" ||
+        Array.isArray(publicSchedule) ||
+        publicSchedule.date !== smokeDate ||
+        !Number.isInteger(publicSchedule.bookingCount) ||
+        !Number.isInteger(publicSchedule.participantCount) ||
+        !Number.isInteger(publicSchedule.staffReservationCount) ||
+        !Array.isArray(publicSchedule.items)
       ) {
         throw new Error("INVALID_API_RESPONSE");
       }

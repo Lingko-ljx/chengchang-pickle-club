@@ -829,14 +829,192 @@ textarea:focus-visible {
   align-items: end;
 }
 
-.coach-grid {
+.coach-feature-grid {
   display: grid;
-  gap: 18px;
-  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.coach-card {
+.coach-feature-card {
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(230px, 0.92fr);
   min-width: 0;
+  overflow: hidden;
+}
+
+.coach-feature-photo {
+  min-height: 590px;
+  overflow: hidden;
+  position: relative;
+}
+
+.coach-feature-photo::after {
+  background: linear-gradient(180deg, rgba(14, 41, 43, 0.08), rgba(14, 41, 43, 0.62));
+  bottom: 0;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.coach-feature-photo img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.coach-feature-index,
+.coach-feature-role {
+  color: var(--paper-light);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  position: absolute;
+  z-index: 1;
+}
+
+.coach-feature-index {
+  left: 20px;
+  top: 20px;
+}
+
+.coach-feature-role {
+  bottom: 20px;
+  left: 20px;
+}
+
+.coach-feature-copy {
+  align-content: end;
+  display: grid;
+  gap: 18px;
+  padding: 30px;
+}
+
+.coach-feature-copy > p:first-child,
+.coach-support-heading > div > p,
+.coach-gallery-heading > div > p {
+  color: var(--sage);
+  font-family: Arial, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+  margin: 0;
+}
+
+.coach-feature-copy > div {
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding-bottom: 14px;
+}
+
+.coach-feature-copy h3 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 34px;
+  font-weight: 400;
+  margin: 0;
+}
+
+.coach-feature-copy > div > span,
+.coach-feature-copy > p,
+.coach-feature-copy li {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.coach-feature-copy > p {
+  margin: 0;
+}
+
+.coach-feature-copy ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.coach-feature-copy li {
+  border-left: 3px solid var(--lime-dark);
+  padding-left: 11px;
+}
+
+.coach-support-heading,
+.coach-gallery-heading {
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 28px;
+  justify-content: space-between;
+  margin-top: 58px;
+  padding-bottom: 18px;
+}
+
+.coach-support-heading h3,
+.coach-gallery-heading h2 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 30px;
+  font-weight: 400;
+  margin: 8px 0 0;
+}
+
+.coach-support-heading > p,
+.coach-gallery-heading > p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 0;
+  max-width: 450px;
+}
+
+.coach-support-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1px;
+}
+
+.coach-support-card {
+  align-items: center;
+  background: var(--paper-light);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto 1fr auto;
+  min-width: 0;
+  padding: 20px;
+}
+
+.coach-support-card > span,
+.coach-support-card > strong,
+.coach-support-card p {
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+.coach-support-card h3,
+.coach-support-card p {
+  margin: 0;
+}
+
+.coach-support-card h3 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 21px;
+  font-weight: 400;
+}
+
+.coach-support-card p {
+  margin-top: 5px;
 }
 
 .coach-portrait {
@@ -1066,6 +1244,90 @@ textarea:focus-visible {
 .honor-list .demo-note {
   color: var(--muted);
   margin-left: 0;
+}
+
+.coach-gallery-heading {
+  margin-top: 92px;
+}
+
+.coach-gallery {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  margin-top: 24px;
+}
+
+.coach-gallery-item {
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  grid-column: span 6;
+  margin: 0;
+  overflow: hidden;
+}
+
+.coach-gallery-item.is-portrait {
+  grid-column: span 4;
+}
+
+.coach-gallery-item.is-portrait + .coach-gallery-item.is-portrait {
+  grid-column: span 8;
+}
+
+.coach-gallery-frame {
+  aspect-ratio: 3 / 2;
+  background: var(--paper-deep);
+  overflow: hidden;
+}
+
+.coach-gallery-item.is-portrait .coach-gallery-frame {
+  aspect-ratio: 4 / 5;
+}
+
+.coach-gallery-frame img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.coach-gallery-item.is-portrait .coach-gallery-frame img {
+  object-fit: contain;
+}
+
+[data-coach-media-slot="liu-singles-certificate"] .coach-gallery-frame img {
+  height: auto;
+  left: 50%;
+  max-height: none;
+  max-width: none;
+  position: relative;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(90deg);
+  width: 125%;
+}
+
+.coach-gallery-item figcaption {
+  padding: 18px 20px 20px;
+}
+
+.coach-gallery-item figcaption > span {
+  color: var(--sage);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.coach-gallery-item h3 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 22px;
+  font-weight: 400;
+  margin: 8px 0 5px;
+}
+
+.coach-gallery-item p {
+  color: var(--muted);
+  font-size: 10px;
+  margin: 0;
 }
 
 .booking-section {
@@ -1714,6 +1976,72 @@ textarea:focus-visible {
   }
 }
 
+.public-schedule {
+  margin-top: 2rem;
+  padding: 1.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.public-schedule-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.public-schedule-heading span,
+.public-schedule > p {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.public-schedule-heading h3 {
+  margin-top: 0.3rem;
+  font-size: 1.2rem;
+}
+
+.public-schedule-heading > strong {
+  color: var(--accent);
+  font-size: 0.86rem;
+}
+
+.public-schedule-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.public-schedule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.public-schedule-item span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .public-schedule-heading,
+  .public-schedule-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .public-schedule-item span {
+    text-align: left;
+  }
+}
+
 @media (max-width: 860px) {
   .section-shell {
     width: calc(100% - 40px);
@@ -1781,6 +2109,19 @@ textarea:focus-visible {
 
   .venue-board {
     aspect-ratio: 1.35;
+  }
+
+  .coach-feature-card {
+    grid-template-columns: 1fr;
+  }
+
+  .coach-feature-photo {
+    min-height: auto;
+    aspect-ratio: 4 / 5;
+  }
+
+  .coach-support-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .coach-grid {
@@ -2643,6 +2984,109 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+.admin-staff-reservation-form,
+.admin-time-block-form {
+  align-items: end;
+  background: rgba(169, 207, 69, 0.12);
+  border: 1px solid rgba(32, 71, 69, 0.24);
+  border-radius: 0.9rem;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(210px, 1.6fr) repeat(4, minmax(125px, 0.75fr));
+  margin-bottom: 18px;
+  padding: 18px;
+}
+
+.admin-time-block-form {
+  background: rgba(226, 151, 86, 0.11);
+  border-color: rgba(160, 92, 44, 0.28);
+}
+
+.admin-staff-reservation-heading {
+  align-items: start;
+  display: flex;
+  gap: 18px;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+}
+
+.admin-staff-reservation-heading span {
+  color: var(--sage);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.admin-staff-reservation-heading h3,
+.admin-staff-reservation-heading p {
+  margin: 4px 0 0;
+}
+
+.admin-staff-reservation-heading p,
+.admin-staff-reservation-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.admin-staff-reservation-form label,
+.admin-time-block-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-staff-reservation-form label > span,
+.admin-time-block-form label > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-staff-reservation-form input,
+.admin-staff-reservation-form select,
+.admin-time-block-form input,
+.admin-time-block-form select {
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: var(--ink);
+  min-height: 46px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.admin-time-block-list {
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.admin-time-block-list article {
+  align-items: center;
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(210px, 1fr) minmax(100px, 0.6fr) auto auto;
+  padding: 10px 12px;
+}
+
+.admin-time-block-list span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-staff-reservation-actions {
+  display: flex;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.admin-staff-reservation-note {
+  grid-column: 1 / -1;
+  margin: -4px 0 0;
+}
+
 .admin-record-summary {
   display: grid;
   gap: 10px;
@@ -2760,6 +3204,30 @@ textarea:focus-visible {
 .admin-court-empty {
   color: var(--muted);
   font-size: 11px;
+}
+
+.admin-court-closed {
+  background: rgba(190, 96, 62, 0.09);
+}
+
+.admin-time-block-card {
+  background: rgba(190, 96, 62, 0.15);
+  border: 1px solid rgba(160, 77, 49, 0.32);
+  border-radius: 0.55rem;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 9px;
+  text-align: left;
+  width: 100%;
+}
+
+.admin-time-block-continuation {
+  background: rgba(190, 96, 62, 0.08);
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .admin-booking-proposal {
@@ -3262,6 +3730,35 @@ textarea:focus-visible {
 }
 
 @media (max-width: 760px) {
+  .coach-feature-grid,
+  .coach-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .coach-feature-copy {
+    padding: 24px;
+  }
+
+  .coach-support-heading,
+  .coach-gallery-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .coach-gallery {
+    grid-template-columns: 1fr;
+  }
+
+  .coach-gallery-item,
+  .coach-gallery-item.is-portrait,
+  .coach-gallery-item.is-portrait + .coach-gallery-item.is-portrait {
+    grid-column: 1;
+  }
+
+  .coach-gallery-item.is-portrait .coach-gallery-frame {
+    aspect-ratio: 4 / 4.8;
+  }
+
   .admin-page {
     padding: 14px;
   }
@@ -3317,6 +3814,31 @@ textarea:focus-visible {
 
   .admin-record-workspace {
     display: flex;
+  }
+
+  .admin-staff-reservation-form,
+  .admin-time-block-form {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-staff-reservation-heading {
+    display: grid;
+  }
+
+  .admin-staff-reservation-form > *,
+  .admin-time-block-form > *,
+  .admin-staff-reservation-actions,
+  .admin-staff-reservation-note {
+    grid-column: 1;
+  }
+
+  .admin-staff-reservation-actions {
+    display: grid;
+  }
+
+  .admin-time-block-list article {
+    grid-template-columns: 1fr;
   }
 
   .admin-record-results .admin-booking-list {

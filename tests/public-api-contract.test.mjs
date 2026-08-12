@@ -98,6 +98,7 @@ function createPayload(overrides = {}) {
     email: "ada@example.com",
     note: "Near the net",
     privacy_consent: true,
+    public_schedule_consent_version: 1,
     ...overrides,
   };
 }
@@ -333,7 +334,7 @@ test("JSON creation returns a sanitized 201 envelope and requires client idempot
   assert.deepEqual(responseBody(created), {
     data: {
       code: "PUBLIC00000000000000000000000001",
-      status: "pending",
+      status: "confirmed",
       date: DATE,
       startTime: "09:00",
       endTime: "10:00",
@@ -355,6 +356,58 @@ test("JSON creation returns a sanitized 201 envelope and requires client idempot
   );
   assert.equal(missingKey.statusCode, 400);
   assert.equal(responseBody(missingKey).error.code, "INVALID_INPUT");
+});
+
+test("public schedule disclosure consent is independent, optional, and strictly versioned", async () => {
+  const captured = [];
+  const service = {
+    async create(command) {
+      captured.push(command);
+      return {
+        code: `CONSENT${captured.length}`,
+        status: "confirmed",
+        date: DATE,
+        startAt: "2099-01-01T01:00:00.000Z",
+        endAt: "2099-01-01T02:00:00.000Z",
+        mode: command.mode,
+        partySize: command.partySize,
+        name: command.name,
+        phone: command.phone,
+        version: 1,
+        canCancelUntil: "2099-01-01T01:00:00.000Z",
+      };
+    },
+  };
+  const handler = handlerFor(service);
+  const legacyPayload = createPayload();
+  delete legacyPayload.public_schedule_consent_version;
+
+  const legacy = await handler(jsonEvent("POST", "/v1/bookings", legacyPayload));
+  const current = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+    idempotency_key: "request-with-current-consent",
+  })));
+  const unknown = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+    idempotency_key: "request-with-unknown-consent",
+    public_schedule_consent_version: 2,
+  })));
+
+  assert.equal(legacy.statusCode, 201);
+  assert.equal(captured[0].publicScheduleConsentVersion, undefined);
+  assert.equal(current.statusCode, 201);
+  assert.equal(captured[1].publicScheduleConsentVersion, 1);
+  assert.equal(unknown.statusCode, 400);
+  assert.equal(responseBody(unknown).error.code, "INVALID_INPUT");
+  assert.equal(captured.length, 2);
+  assert.notEqual(captured[0].idempotencyKey, captured[1].idempotencyKey);
+
+  for (const ambiguousVersion of ["01", "1.0", true]) {
+    const response = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+      idempotency_key: `ambiguous-consent-${String(ambiguousVersion)}`,
+      public_schedule_consent_version: ambiguousVersion,
+    })));
+    assert.equal(response.statusCode, 400);
+  }
+  assert.equal(captured.length, 2);
 });
 
 test("v2 creation passes an explicit Beijing-time window and fingerprints the end time", async () => {
@@ -418,6 +471,7 @@ test("v2 creation passes an explicit Beijing-time window and fingerprints the en
       "ada@example.com",
       "Near the net",
       true,
+      1,
     ]))
     .digest("hex");
   assert.equal(captured[0].idempotencyKey, expected);
@@ -468,6 +522,7 @@ test("base64 native forms derive the exact canonical hourly HMAC and redirect sa
     name: "  Grace Hopper  ",
     phone: "139 0013 9000",
     privacy_consent: "on",
+    public_schedule_consent_version: "1",
     idempotency_key: "",
   });
   const event = {
@@ -494,6 +549,7 @@ test("base64 native forms derive the exact canonical hourly HMAC and redirect sa
   assert.equal(captured[0].sessionId, MORNING);
   assert.equal(captured[0].partySize, 4);
   assert.equal(captured[0].privacyConsent, true);
+  assert.equal(captured[0].publicScheduleConsentVersion, 1);
   const expected = createHmac("sha256", "test-idempotency-salt")
     .update(JSON.stringify([
       MORNING,
@@ -504,6 +560,7 @@ test("base64 native forms derive the exact canonical hourly HMAC and redirect sa
       "",
       "",
       true,
+      1,
       "2098-12-01T10",
     ]))
     .digest("hex");
@@ -553,6 +610,7 @@ test("client idempotency keys are HMAC-fingerprinted by canonical request and re
       "ada@example.com",
       "Near the net",
       true,
+      1,
     ]))
     .digest("hex");
   assert.equal(captured[0].idempotencyKey, expected);

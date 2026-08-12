@@ -96,6 +96,40 @@ test("migration fails closed on mixed private/open use or over-capacity", () => 
   });
 });
 
+test("migration preserves staff closures and rejects an active booking that overlaps one", () => {
+  const block = {
+    id: "block-1",
+    date: "2026-08-12",
+    courtId: "01",
+    startTime: "09:30",
+    endTime: "10:00",
+    cellKeys: ["0930"],
+    reason: "maintenance",
+    createdAt: "2026-08-11T00:00:00.000Z",
+    createdBy: "staff-1",
+    updatedAt: "2026-08-11T00:00:00.000Z",
+    updatedBy: "staff-1",
+    version: 3,
+  };
+  const inventory = {
+    id: "2026-08-12__court-01",
+    date: "2026-08-12",
+    courtId: "01",
+    cells: {},
+    blockedCells: { "0930": { blockId: block.id, reason: block.reason } },
+    timeBlocks: { [block.id]: block },
+    version: 3,
+  };
+
+  const emptyPlan = planBookingInventoryMigration([], [inventory]);
+  assert.deepEqual(emptyPlan.allInventories[0].blockedCells, inventory.blockedCells);
+  assert.deepEqual(emptyPlan.allInventories[0].timeBlocks, inventory.timeBlocks);
+  const conflict = planBookingInventoryMigration([activeBooking()], [inventory]);
+  assert.ok(conflict.conflicts.some((value) =>
+    value === "INVENTORY_BLOCKED:2026-08-12__court-01/0930:booking-1:current",
+  ));
+});
+
 test("migration rejects bookings that cannot map exactly to Beijing half-hour cells", () => {
   assert.throws(
     () => planBookingInventoryMigration([

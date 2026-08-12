@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { BookingService } from "../../lib/booking/booking-service.ts";
 import { requireCalendarDate } from "../../lib/booking/calendar-date.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
+import { currentPublicScheduleConsentVersion } from "../../lib/booking/types.ts";
 import type { BookingRecord } from "../../lib/booking/types.ts";
 import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-repository.ts";
 import {
@@ -40,6 +41,7 @@ interface PublicBookingService {
   }): Promise<BookingRecord>;
   listAvailability(date: string): Promise<unknown[]>;
   listWindowAvailability(query: { date: string }): Promise<unknown>;
+  listPublicSchedule(date: string): Promise<BookingRecord[]>;
 }
 
 export interface PublicApiDependencies {
@@ -162,6 +164,7 @@ function canonicalBookingFields(command: Record<string, unknown>): unknown[] {
     command.email ?? "",
     command.note ?? "",
     command.privacyConsent,
+    command.publicScheduleConsentVersion ?? "",
   ];
 }
 
@@ -243,6 +246,33 @@ function publicBooking(booking: BookingRecord, now: Date): Record<string, unknow
   return result;
 }
 
+function publicScheduleName(booking: BookingRecord): string {
+  if (booking.bookingKind === "staff_reservation") return "单位包场";
+  if (
+    booking.publicScheduleConsentVersion !== currentPublicScheduleConsentVersion ||
+    !booking.publicScheduleConsentAt
+  ) {
+    return "匿名球友";
+  }
+  const raw = booking.name?.trim();
+  if (!raw) return "球友**";
+  const first = Array.from(raw)[0];
+  return first ? `${first}**` : "球友**";
+}
+
+function publicScheduleItem(booking: BookingRecord): Record<string, unknown> {
+  const isStaffReservation = booking.bookingKind === "staff_reservation";
+  return {
+    name: publicScheduleName(booking),
+    startTime: formatShanghaiTime(booking.startAt),
+    endTime: formatShanghaiTime(booking.endAt),
+    kind: isStaffReservation ? "staff_reservation" : "customer",
+    ...(isStaffReservation ? {} : { partySize: booking.partySize }),
+    mode: isStaffReservation ? "private" : booking.mode,
+    status: "active",
+  };
+}
+
 function corsHeaders(event: CloudBaseHttpEvent, allowedOrigins: Set<string>): Record<string, string> {
   const origin = requestHeader(event, "origin");
   if (!origin || !allowedOrigins.has(origin)) return {};
@@ -269,6 +299,21 @@ function createCommand(
 ): Record<string, unknown> {
   const partySize = integerField(body, "party_size", "partySize");
   const privacyConsent = booleanField(body, "privacy_consent", "privacyConsent");
+  const suppliedPublicScheduleConsent = field(
+    body,
+    "public_schedule_consent_version",
+    "publicScheduleConsentVersion",
+  );
+  if (
+    suppliedPublicScheduleConsent !== undefined &&
+    suppliedPublicScheduleConsent !== currentPublicScheduleConsentVersion &&
+    suppliedPublicScheduleConsent !== String(currentPublicScheduleConsentVersion)
+  ) {
+    throw new BookingError("INVALID_INPUT");
+  }
+  const publicScheduleConsentVersion = suppliedPublicScheduleConsent === undefined
+    ? undefined
+    : currentPublicScheduleConsentVersion;
   const endTime = stringField(body, "end_time", "endTime");
   const timing: Record<string, unknown> = {};
   if (endTime) {
@@ -293,6 +338,9 @@ function createCommand(
     name: stringField(body, "name"),
     phone: completePhone(field(body, "phone")),
     privacyConsent,
+    ...(publicScheduleConsentVersion === currentPublicScheduleConsentVersion
+      ? { publicScheduleConsentVersion: currentPublicScheduleConsentVersion }
+      : {}),
   };
   const email = stringField(body, "email");
   const note = stringField(body, "note");
@@ -377,6 +425,49 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
         const date = requireCalendarDate(queryParameter(event, "date")?.trim() ?? "");
         const windows = await dependencies.service.listWindowAvailability({ date });
         return jsonResponse(200, windows, headers);
+      }
+
+      if (method === "GET" && path === "/v1/public-schedule") {
+        const date = requireCalendarDate(queryParameter(event, "date")?.trim() ?? "");
+        const address = trustedClientAddress(event);
+        await enforce(
+          dependencies.rateLimiter,
+          "public-schedule-ip",
+          address ?? "anonymous",
+          60,
+        );
+        const bookings = (await dependencies.service.listPublicSchedule(date))
+          .filter(
+            (booking) =>
+              !booking.archivedAt &&
+              booking.date === date &&
+              (booking.status === "confirmed" || booking.status === "reschedule_proposed"),
+          )
+          .sort(
+            (left, right) =>
+              left.startAt.localeCompare(right.startAt) ||
+              left.endAt.localeCompare(right.endAt) ||
+              left.id.localeCompare(right.id),
+          );
+        return jsonResponse(
+          200,
+          {
+            date,
+            bookingCount: bookings.length,
+            participantCount: bookings.reduce(
+              (total, booking) =>
+                booking.bookingKind === "staff_reservation"
+                  ? total
+                  : total + booking.partySize,
+              0,
+            ),
+            staffReservationCount: bookings.filter(
+              (booking) => booking.bookingKind === "staff_reservation",
+            ).length,
+            items: bookings.map(publicScheduleItem),
+          },
+          { ...headers, "Cache-Control": "no-store" },
+        );
       }
 
       if (method === "POST" && path === "/v1/bookings") {

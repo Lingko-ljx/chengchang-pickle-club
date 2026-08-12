@@ -1,6 +1,7 @@
 type BookingFormProps = {
   apiBaseUrl: string;
   formEndpoint: string;
+  publicScheduleScriptSrc: string;
   resultPath: string;
   scriptSrc: string;
   statusPath: string;
@@ -38,6 +39,7 @@ const partySizes = [1, 2, 3, 4];
 export function BookingForm({
   apiBaseUrl,
   formEndpoint,
+  publicScheduleScriptSrc,
   resultPath,
   scriptSrc,
   statusPath,
@@ -67,6 +69,25 @@ export function BookingForm({
             <p>按实际整小时计费</p>
           </div>
         </div>
+        {configured ? (
+          <section
+            className="public-schedule"
+            data-public-schedule-url={`${apiBaseUrl.replace(/\/+$/, "")}/v1/public-schedule`}
+            id="public-schedule"
+          >
+            <div className="public-schedule-heading">
+              <div>
+              <span>WHO IS PLAYING</span>
+                <h3>这一天，谁来打球</h3>
+              </div>
+              <strong id="public-schedule-summary">正在读取预约热度…</strong>
+            </div>
+            <div className="public-schedule-list" id="public-schedule-list" />
+            <p aria-live="polite" id="public-schedule-status">
+              仅展示脱敏称呼与打球时间，联系方式始终保密。
+            </p>
+          </section>
+        ) : null}
       </div>
 
       <div>
@@ -206,11 +227,24 @@ export function BookingForm({
                   type="checkbox"
                   value="yes"
                 />
-                <span>我同意睿安成仅使用以上信息处理预约并与我联系。</span>
+                <span>
+                  我同意睿安成使用以上信息处理预约并与我联系。
+                </span>
+              </label>
+
+              <label className="privacy-consent public-schedule-consent">
+                <input
+                  name="public_schedule_consent_version"
+                  type="checkbox"
+                  value="1"
+                />
+                <span>
+                  （选填）我同意首页公开姓名首字加 **、预约时段、人数和散客/包场性质，不公开手机号、邮箱、预约号或备注。不勾选也可预约，首页将匿名显示。
+                </span>
               </label>
 
               <p className="booking-disclaimer">
-                所有时间均为北京时间。提交后等待工作人员确认；提交成功不等于场次已确认。
+                所有时间均为北京时间。余位校验通过后，提交成功后系统将自动确认并锁定场地；如需调整，工作人员会电话联系。
               </p>
               <p id="booking-error" className="field-error" hidden role="alert" />
               <button className="primary-button" type="submit">
@@ -219,6 +253,7 @@ export function BookingForm({
               </button>
             </form>
             <script data-booking-form-client defer src={scriptSrc} />
+            <script data-public-schedule-client defer src={publicScheduleScriptSrc} />
           </>
         ) : (
           <div className="booking-unavailable" role="status">

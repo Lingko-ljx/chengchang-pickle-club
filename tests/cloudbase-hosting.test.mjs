@@ -74,7 +74,8 @@ test("deployed page smoke requires real public/admin configuration and only appr
         <form action="${configuration.apiBaseUrl}/v1/bookings"
           data-availability-url="${configuration.apiBaseUrl}/v1/availability/windows"></form>
         <script data-booking-form-client src="/booking-form.js"></script>
-        <script data-homepage-media-client src="/homepage-media.js"></script>`);
+        <script data-homepage-media-client src="/homepage-media.js"></script>
+        <script data-public-schedule-client src="/public-schedule.js"></script>`);
     }
     return htmlResponse(`<!doctype html>
       <link rel="stylesheet" href="/_next/static/chunks/site.css">
@@ -153,6 +154,25 @@ test("public API smoke requires ready v2 windows, media and bounded retries", as
           headers: {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "https://booking-staging.example",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      if (url.endsWith("/v1/public-schedule?date=2099-01-01")) {
+        return new Response(JSON.stringify({
+          data: {
+            date: "2099-01-01",
+            bookingCount: 0,
+            participantCount: 0,
+            staffReservationCount: 0,
+            items: [],
+          },
+        }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "https://booking-staging.example",
+            "Cache-Control": "no-store",
           },
         });
       }
@@ -185,15 +205,17 @@ test("public API smoke requires ready v2 windows, media and bounded retries", as
     "https://booking-api.example/v1/admin/dashboard",
     "https://booking-api.example/v1/admin/bookings/smoke-booking/confirm",
     "https://booking-api.example/v1/admin/courts/01",
+    "https://booking-api.example/v1/admin/court-time-blocks/smoke-block",
     "https://booking-api.example/v1/availability/windows?date=2099-01-01",
     "https://booking-api.example/v1/homepage-media",
+    "https://booking-api.example/v1/public-schedule?date=2099-01-01",
   ]);
   assert.deepEqual(requests[0].init.headers, {
     Origin: "https://booking-staging.example",
     "Access-Control-Request-Method": "POST",
     "Access-Control-Request-Headers": "content-type,idempotency-key",
   });
-  for (const [index, requestedMethod] of ["GET", "POST", "PUT"].entries()) {
+  for (const [index, requestedMethod] of ["GET", "POST", "PUT", "DELETE"].entries()) {
     assert.deepEqual(requests[index + 1].init.headers, {
       Origin: "https://booking-staging.example",
       "Access-Control-Request-Method": requestedMethod,
@@ -222,7 +244,7 @@ test("public API smoke requires ready v2 windows, media and bounded retries", as
               status: 204,
               headers: {
                 "Access-Control-Allow-Origin": "https://booking-staging.example",
-                "Access-Control-Allow-Methods": "GET, POST, PUT",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE",
                 "Access-Control-Allow-Headers": "Authorization, Content-Type",
               },
             });

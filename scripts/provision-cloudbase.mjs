@@ -20,6 +20,7 @@ const indexDefinitions = [
   ["bookings", "bookings_sessionId_status", ["sessionId", "status"]],
   ["bookings", "bookings_date_createdAt_id", ["date", "createdAt", "id"]],
   ["bookings", "bookings_date_status_createdAt_id", ["date", "status", "createdAt", "id"]],
+  ["bookings", "bookings_date_status_startAt_endAt_id", ["date", "status", "startAt", "endAt", "id"]],
   ["bookings", "bookings_date_mode_createdAt_id", ["date", "mode", "createdAt", "id"]],
   ["bookings", "bookings_date_status_mode_createdAt_id", ["date", "status", "mode", "createdAt", "id"]],
   ["bookings", "bookings_proposedDate_status_createdAt_id", ["proposedDate", "status", "createdAt", "id"]],

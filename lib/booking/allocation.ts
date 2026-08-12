@@ -33,6 +33,7 @@ function acceptsWindow(
   inventory: CourtDayInventory,
 ): boolean {
   return cellKeys.every((key) => {
+    if (inventory.blockedCells?.[key]) return false;
     const cell = inventory.cells[key];
     if (!cell) return true;
     if (mode === "private") return false;

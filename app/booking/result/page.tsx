@@ -13,10 +13,10 @@ export default function BookingResultPage() {
         data-site-base-path={basePath}
         id="booking-result-shell"
       >
-        <p className="booking-flow-kicker">BOOKING RECEIVED</p>
-        <h1>预约申请已收到</h1>
+        <p className="booking-flow-kicker">BOOKING CONFIRMED</p>
+        <h1>预约已自动确认</h1>
         <p className="booking-flow-lead">
-          工作人员确认前，场次仍显示为待确认。请保存下面的预约编号，用于随时查询进度。
+          场地已经为你锁定。请保存下面的预约编号，用于随时查询或取消预约。
         </p>
         <div className="booking-code-panel">
           <span>预约编号</span>
@@ -41,7 +41,7 @@ export default function BookingResultPage() {
           </a>
         </div>
         <p className="booking-flow-note">
-          提交成功不等于场次已确认；如需取消或回应改期，请在状态页完成。
+          如球馆需要调整时间，工作人员会通过预约电话与你联系。
         </p>
       </section>
       <script

@@ -638,6 +638,43 @@ test("v2 availability uses one non-transaction inventory query", async () => {
   );
 });
 
+test("CloudBase multi-court time block stays serial and within a twelve-operation transaction budget", async () => {
+  const database = new FakeCloudBaseDatabase({
+    system_state: {
+      "booking-inventory-v2-migration": {
+        id: "booking-inventory-v2-migration", status: "ready", schemaVersion: 2,
+      },
+    },
+    courts: {
+      "01": { id: "01", enabled: true, version: 1 },
+      "02": { id: "02", enabled: true, version: 1 },
+    },
+  });
+  const service = serviceFor(database);
+
+  const blocks = await service.createCourtTimeBlocks({
+    date: "2026-08-10",
+    courtIds: ["01", "02"],
+    startTime: "09:00",
+    endTime: "10:00",
+    reason: "maintenance",
+    expectedVersions: { "01": 0, "02": 0 },
+    actorId: "staff-1",
+  });
+
+  assert.equal(blocks.length, 2);
+  assert.equal(database.maxTransactionInFlight, 1);
+  assert.equal(database.transactionBusyErrors, 0);
+  assert.equal(database.transactionOperationCount, 9);
+  assert.deepEqual(
+    database.value("court_day_allocations", "2026-08-10__court-01").blockedCells,
+    {
+      "0900": { blockId: blocks[0].id, reason: "maintenance" },
+      "0930": { blockId: blocks[0].id, reason: "maintenance" },
+    },
+  );
+});
+
 test("v2 reschedule proposal stays within a stable eight-operation transaction budget", async () => {
   const database = new FakeCloudBaseDatabase({
     courts: Object.fromEntries(
@@ -987,7 +1024,7 @@ test("booking lifecycle read-modify-write never persists CloudBase _id", async (
   });
 
   assert.equal(confirmed.status, "confirmed");
-  assert.equal(confirmed.version, 2);
+  assert.equal(confirmed.version, created.version);
   assert.equal(Object.hasOwn(confirmed, "_id"), false);
   assert.equal(Object.hasOwn(database.value("bookings", created.id), "_id"), false);
   assert.equal(
@@ -1369,6 +1406,49 @@ test("CloudBase matrix merges every current and cross-date proposal page without
   assert.deepEqual(trace[0].orders, [["createdAt", "asc"], ["id", "asc"]]);
 });
 
+test("CloudBase public schedule uses two bounded indexed reads and never follows proposedDate", async () => {
+  const targetDate = "2026-08-10";
+  const rows = [
+    {
+      id: "confirmed-current",
+      date: targetDate,
+      status: "confirmed",
+      startAt: "2026-08-10T01:00:00.000Z",
+      endAt: "2026-08-10T02:00:00.000Z",
+    },
+    {
+      id: "proposal-current",
+      date: targetDate,
+      status: "reschedule_proposed",
+      startAt: "2026-08-10T02:00:00.000Z",
+      endAt: "2026-08-10T03:00:00.000Z",
+    },
+    {
+      id: "proposal-other-date",
+      date: "2026-08-09",
+      proposedDate: targetDate,
+      status: "reschedule_proposed",
+      startAt: "2026-08-09T01:00:00.000Z",
+      endAt: "2026-08-09T02:00:00.000Z",
+    },
+  ];
+  const trace = [];
+  const repository = new CloudBaseBookingRepository(pagedBookingDatabase(rows, trace));
+
+  const result = await repository.listPublicSchedule(targetDate, 100);
+
+  assert.deepEqual(result.map(({ id }) => id), ["confirmed-current", "proposal-current"]);
+  assert.equal(trace.length, 2);
+  assert.deepEqual(trace.map(({ condition }) => condition), [
+    { date: targetDate, status: "confirmed" },
+    { date: targetDate, status: "reschedule_proposed" },
+  ]);
+  assert.ok(trace.every(({ pageSize, offset }) => pageSize === 100 && offset === 0));
+  assert.ok(trace.every(({ orders }) => JSON.stringify(orders) === JSON.stringify([
+    ["startAt", "asc"], ["endAt", "asc"], ["id", "asc"],
+  ])));
+});
+
 test("Task 10 provisions every stable scheduling and audit query index", async () => {
   const plan = await readFile(
     new URL("../docs/superpowers/plans/2026-08-04-booking-core.md", import.meta.url),
@@ -1377,6 +1457,7 @@ test("Task 10 provisions every stable scheduling and audit query index", async (
   for (const index of [
     "(date,createdAt,id)",
     "(date,status,createdAt,id)",
+    "(date,status,startAt,endAt,id)",
     "(date,mode,createdAt,id)",
     "(date,status,mode,createdAt,id)",
     "(proposedDate,status,createdAt,id)",

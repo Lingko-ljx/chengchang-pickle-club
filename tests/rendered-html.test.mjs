@@ -63,7 +63,19 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /name="phone"/);
   assert.doesNotMatch(html, /name="email"|电子邮箱/i);
   assert.match(html, /<textarea(?=[^>]*name="note")(?![^>]*required)[^>]*>/i);
-  assert.match(html, /name="privacy_consent"/);
+  assert.match(
+    html,
+    /<input(?=[^>]*name="privacy_consent")(?=[^>]*type="checkbox")(?=[^>]*required)[^>]*>/i,
+  );
+  assert.match(
+    html,
+    /<input(?=[^>]*name="public_schedule_consent_version")(?=[^>]*type="checkbox")(?=[^>]*value="1")[^>]*>/i,
+  );
+  const publicScheduleConsentTag = html.match(
+    /<input(?=[^>]*name="public_schedule_consent_version")[^>]*>/i,
+  )?.[0];
+  assert.ok(publicScheduleConsentTag);
+  assert.doesNotMatch(publicScheduleConsentTag, /\brequired\b/i);
   assert.match(
     html,
     /<input(?=[^>]*name="idempotency_key")(?=[^>]*type="hidden")[^>]*>/i,
@@ -75,7 +87,15 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /整小时计费/);
   assert.match(html, /09:00 — 22:00/);
   assert.match(html, /11 片/);
-  assert.match(html, /提交后等待工作人员确认/);
+  assert.match(html, /提交成功后系统将自动确认并锁定场地/);
+  assert.match(html, /id="public-schedule"/);
+  assert.match(html, new RegExp(`data-public-schedule-url="${apiBaseUrl}/v1/public-schedule"`));
+  assert.match(html, /<script[^>]+data-public-schedule-client[^>]+defer/);
+  assert.match(html, /我同意睿安成使用以上信息处理预约并与我联系。/);
+  assert.match(html, /选填.*首页公开姓名首字加 \*\*、预约时段、人数和散客\/包场性质/);
+  assert.match(html, /不公开手机号、邮箱、预约号或备注/);
+  assert.match(html, /不勾选也可预约，首页将匿名显示/);
+  assert.doesNotMatch(html, /处理预约并与我联系；首页/);
   assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.match(html, /<script[^>]+data-booking-form-client[^>]+defer/);
   assert.match(html, /data-homepage-media(?:="")?/);
@@ -88,9 +108,9 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /DAILY MOMENTS/);
   assert.match(html, /<title>睿安成 PICKLE CLUB/);
   for (const content of [
-    "总教头",
+    "职业教练",
     "刘栖睿",
-    "特约嘉宾",
+    "特邀职业教练",
     "唐语彤",
     "普通教练",
     "曾海鑫",
@@ -104,11 +124,12 @@ test("server renders the real booking form and current venue contract", async ()
     "CPC600 鹤壁浚县站男双冠军",
     "CPC600 河北石家庄站混双冠军",
     "APBA 全球总决赛男单季军",
+    "李宁杯中国匹克球巡回赛呼和浩特站（CPC-1000）公开组男子单打第一名",
   ]) {
     assert.ok(html.includes(content), `rendered page is missing: ${content}`);
   }
-  assert.equal((html.match(/class="honor-row"/g) ?? []).length, 7);
-  for (const index of ["01", "02", "03", "04", "05", "06", "07"]) {
+  assert.equal((html.match(/class="honor-row"/g) ?? []).length, 8);
+  for (const index of ["01", "02", "03", "04", "05", "06", "07", "08"]) {
     assert.match(html, new RegExp(`class="honor-index"[^>]*>${index}<`));
   }
   assert.match(html, /江西省南昌市青山湖区青山湖南大道260号14号楼/);

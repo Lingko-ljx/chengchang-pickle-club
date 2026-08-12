@@ -140,6 +140,13 @@ function loadEnhancement(source, options = {}) {
     type: "checkbox",
     value: "yes",
   });
+  const publicScheduleConsent = eventTarget({
+    checked: options.publicScheduleConsent === true,
+    disabled: false,
+    name: "public_schedule_consent_version",
+    type: "checkbox",
+    value: "1",
+  });
   const idempotencyKey = eventTarget({
     disabled: false,
     name: "idempotency_key",
@@ -160,6 +167,7 @@ function loadEnhancement(source, options = {}) {
     email,
     note,
     consent,
+    publicScheduleConsent,
     idempotencyKey,
     honeypot,
   ];
@@ -276,6 +284,7 @@ function loadEnhancement(source, options = {}) {
       note,
       partySize,
       phone,
+      publicScheduleConsent,
       sessionId,
       startTime,
     },
@@ -560,6 +569,7 @@ test("one persisted idempotency key survives failed submissions and clears only 
   assert.match(first.body, /(?:^|&)party_size=3(?:&|$)/);
   assert.match(first.body, /(?:^|&)name=%E6%9E%97%E6%BE%84(?:&|$)/);
   assert.match(first.body, /(?:^|&)privacy_consent=yes(?:&|$)/);
+  assert.doesNotMatch(first.body, /(?:^|&)public_schedule_consent_version=/);
   assert.match(first.body, new RegExp(`(?:^|&)idempotency_key=${key}(?:&|$)`));
 
   first.respond(409, JSON.stringify({ error: { code: "SESSION_FULL" } }));
@@ -582,6 +592,26 @@ test("one persisted idempotency key survives failed submissions and clears only 
   assert.equal(
     page.location.href,
     "/chengchang-pickle-club/booking/result/?code=BOOK%2F42",
+  );
+});
+
+test("optional public schedule consent is serialized only when the customer checks it", async () => {
+  const source = await readEnhancement();
+  const unchecked = loadEnhancement(source, { date: "2026-08-10" });
+  unchecked.submit();
+  assert.doesNotMatch(
+    unchecked.request().body,
+    /(?:^|&)public_schedule_consent_version=/,
+  );
+
+  const checked = loadEnhancement(source, {
+    date: "2026-08-10",
+    publicScheduleConsent: true,
+  });
+  checked.submit();
+  assert.match(
+    checked.request().body,
+    /(?:^|&)public_schedule_consent_version=1(?:&|$)/,
   );
 });
 

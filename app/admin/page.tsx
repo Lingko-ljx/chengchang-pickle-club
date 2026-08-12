@@ -135,6 +135,80 @@ export default function AdminPage() {
             <div className="admin-section-heading">
               <div><span>COURTS</span><h2>场地排期</h2><p>按日期查看 11 片场地的半小时占用情况。</p></div>
             </div>
+            <form className="admin-staff-reservation-form" id="admin-staff-reservation-form">
+              <div className="admin-staff-reservation-heading">
+                <div>
+                  <span>STAFF RESERVATION</span>
+                  <h3 id="admin-staff-reservation-form-title">新增单位占场</h3>
+                </div>
+                <p>一次安排一片场地，可精确到半小时；保存后立即锁定，并自动显示在排期表中。</p>
+              </div>
+              <label htmlFor="admin-staff-reservation-title">
+                <span>内部排期名称</span>
+                <input autoComplete="off" id="admin-staff-reservation-title" maxLength={40} placeholder="例如：周三企业活动" required type="text" />
+              </label>
+              <label htmlFor="admin-staff-reservation-date">
+                <span>日期</span>
+                <input id="admin-staff-reservation-date" required type="date" />
+              </label>
+              <label htmlFor="admin-staff-reservation-start">
+                <span>开始时间</span>
+                <select id="admin-staff-reservation-start" required />
+              </label>
+              <label htmlFor="admin-staff-reservation-end">
+                <span>结束时间</span>
+                <select id="admin-staff-reservation-end" required />
+              </label>
+              <label htmlFor="admin-staff-reservation-court">
+                <span>场地</span>
+                <select id="admin-staff-reservation-court" required />
+              </label>
+              <div className="admin-staff-reservation-actions">
+                <button className="primary-button" id="admin-staff-reservation-submit" type="submit">保存占场</button>
+                <button hidden id="admin-staff-reservation-cancel-edit" type="button">取消编辑</button>
+              </div>
+              <p className="admin-staff-reservation-note">名称仅在后台排期中显示，首页统一显示“单位包场”；请勿填写联系人或电话。</p>
+            </form>
+            <form className="admin-time-block-form" id="admin-time-block-form">
+              <div className="admin-staff-reservation-heading">
+                <div>
+                  <span>TIME CLOSURE</span>
+                  <h3 id="admin-time-block-form-title">临时关闭时段</h3>
+                </div>
+                <p>选择一片场地和半小时起止时间。与已有预约冲突时系统不会关闭，避免误覆盖客人订单。</p>
+              </div>
+              <label htmlFor="admin-time-block-date">
+                <span>日期</span>
+                <input id="admin-time-block-date" required type="date" />
+              </label>
+              <label htmlFor="admin-time-block-court">
+                <span>场地</span>
+                <select id="admin-time-block-court" required />
+              </label>
+              <label htmlFor="admin-time-block-start">
+                <span>开始时间</span>
+                <select id="admin-time-block-start" required />
+              </label>
+              <label htmlFor="admin-time-block-end">
+                <span>结束时间</span>
+                <select id="admin-time-block-end" required />
+              </label>
+              <label htmlFor="admin-time-block-reason">
+                <span>通用原因（选填）</span>
+                <select id="admin-time-block-reason">
+                  <option value="">临时停用</option>
+                  <option value="场地维护">场地维护</option>
+                  <option value="清洁消毒">清洁消毒</option>
+                  <option value="活动准备">活动准备</option>
+                </select>
+              </label>
+              <div className="admin-staff-reservation-actions">
+                <button className="primary-button" id="admin-time-block-submit" type="submit">关闭时段</button>
+                <button hidden id="admin-time-block-cancel-edit" type="button">取消编辑</button>
+              </div>
+              <p className="admin-staff-reservation-note">这里只保存通用运营原因，请勿填写姓名、电话或其他个人信息。</p>
+              <div className="admin-time-block-list" id="admin-time-block-list" />
+            </form>
             <form className="admin-filters admin-matrix-filter" id="admin-matrix-form">
               <label htmlFor="admin-filter-date"><span>查看日期</span><input id="admin-filter-date" required type="date" /></label>
               <button type="submit">查看场地</button>

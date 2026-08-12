@@ -90,6 +90,56 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
         `/v1/admin/bookings/${encodeURIComponent(bookingId)}/restore`,
         json("POST", { expectedVersion }),
       ),
+    createStaffReservation: (body: {
+      title: string;
+      date: string;
+      startTime: string;
+      endTime: string;
+      courtId: string;
+    }) => request("/v1/admin/staff-reservations", json("POST", body)),
+    updateStaffReservation: (
+      bookingId: string,
+      body: {
+        title: string;
+        date: string;
+        startTime: string;
+        endTime: string;
+        courtId: string;
+        expectedVersion: number;
+      },
+    ) => request(
+      `/v1/admin/staff-reservations/${encodeURIComponent(bookingId)}`,
+      json("PUT", body),
+    ),
+    createCourtTimeBlocks: (body: {
+      date: string;
+      courtIds: string[];
+      startTime: string;
+      endTime: string;
+      reason?: string;
+      expectedVersions: Record<string, number>;
+    }) => request("/v1/admin/court-time-blocks", json("POST", body)),
+    updateCourtTimeBlock: (
+      blockId: string,
+      body: {
+        date: string;
+        courtId: string;
+        startTime: string;
+        endTime: string;
+        reason?: string;
+        expectedVersion: number;
+      },
+    ) => request(
+      `/v1/admin/court-time-blocks/${encodeURIComponent(blockId)}`,
+      json("PUT", body),
+    ),
+    restoreCourtTimeBlock: (
+      blockId: string,
+      body: { date: string; courtId: string; expectedVersion: number },
+    ) => request(
+      `/v1/admin/court-time-blocks/${encodeURIComponent(blockId)}`,
+      json("DELETE", body),
+    ),
     getSettings: () => request("/v1/admin/settings"),
     getAuditLogs: (bookingId: string) =>
       request(`/v1/admin/bookings/${encodeURIComponent(bookingId)}/audit-logs`),

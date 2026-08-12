@@ -9,7 +9,12 @@ import type {
   BookingPage,
   BookingStatus,
   CourtRecord,
+  CourtTimeBlock,
+  CourtTimeBlockDay,
+  CreateCourtTimeBlocksCommand,
+  RestoreCourtTimeBlockCommand,
   SessionTemplateRecord,
+  UpdateCourtTimeBlockCommand,
 } from "../../lib/booking/types.ts";
 import {
   requireAllowedAdminUid,
@@ -33,6 +38,24 @@ import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-rep
 import { readAdminRuntimeConfiguration } from "./runtime-config.ts";
 
 interface AdminBookingService {
+  createStaffReservation(input: {
+    title: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    courtId: string;
+    actorId: string;
+  }): Promise<BookingRecord>;
+  updateStaffReservation(input: {
+    bookingId: string;
+    expectedVersion: number;
+    title: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    courtId: string;
+    actorId: string;
+  }): Promise<BookingRecord>;
   confirm(input: { bookingId: string; expectedVersion: number; actorId: string }): Promise<BookingRecord>;
   proposeReschedule(input: {
     bookingId: string;
@@ -69,6 +92,10 @@ interface AdminBookingService {
   listMatrixBookings(date: string): Promise<BookingRecord[]>;
   listCourts(): Promise<CourtRecord[]>;
   listSessionTemplates(): Promise<SessionTemplateRecord[]>;
+  listCourtTimeBlockDay(date: string): Promise<CourtTimeBlockDay>;
+  createCourtTimeBlocks(command: CreateCourtTimeBlocksCommand): Promise<CourtTimeBlock[]>;
+  updateCourtTimeBlock(command: UpdateCourtTimeBlockCommand): Promise<CourtTimeBlock>;
+  restoreCourtTimeBlock(command: RestoreCourtTimeBlockCommand): Promise<void>;
   listAuditLogs(bookingId: string): Promise<AuditLog[]>;
   setCourtEnabled(
     courtId: string,
@@ -153,9 +180,14 @@ function booleanField(body: Record<string, unknown>, name: string): boolean {
 }
 
 function adminBooking(value: BookingRecord): Record<string, unknown> {
+  const staffReservation = value.bookingKind === "staff_reservation";
   return {
     id: value.id,
     code: value.code,
+    ...(value.bookingKind ? { bookingKind: value.bookingKind } : {}),
+    ...(value.staffReservationTitle
+      ? { staffReservationTitle: value.staffReservationTitle }
+      : {}),
     sessionId: value.sessionId,
     date: value.date,
     startAt: value.startAt,
@@ -167,14 +199,16 @@ function adminBooking(value: BookingRecord): Record<string, unknown> {
     ...(value.proposedStartAt ? { proposedStartAt: value.proposedStartAt } : {}),
     ...(value.proposedEndAt ? { proposedEndAt: value.proposedEndAt } : {}),
     mode: value.mode,
-    partySize: value.partySize,
+    ...(staffReservation
+      ? { occupancyLabel: "整场占用", participantCountLabel: "人数未登记" }
+      : { partySize: value.partySize }),
     status: value.status,
     ...(value.proposalPreviousStatus ? { proposalPreviousStatus: value.proposalPreviousStatus } : {}),
     ...(value.name ? { name: value.name } : {}),
     ...(value.phone ? { phone: value.phone } : {}),
     ...(value.email ? { email: value.email } : {}),
     ...(value.note ? { note: value.note } : {}),
-    privacyConsentAt: value.privacyConsentAt,
+    ...(value.privacyConsentAt ? { privacyConsentAt: value.privacyConsentAt } : {}),
     canCancelUntil: value.canCancelUntil,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -222,6 +256,21 @@ async function settingsDto(service: AdminBookingService) {
   };
 }
 
+function adminCourtTimeBlock(value: CourtTimeBlock): Record<string, unknown> {
+  return {
+    id: value.id,
+    date: value.date,
+    courtId: value.courtId,
+    startTime: value.startTime,
+    endTime: value.endTime,
+    cellKeys: [...value.cellKeys],
+    ...(value.reason ? { reason: value.reason } : {}),
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    version: value.version,
+  };
+}
+
 function exactBody(body: Record<string, unknown>, allowed: string[]): void {
   const keys = Object.keys(body);
   if (keys.some((key) => !allowed.includes(key))) throw new BookingError("INVALID_INPUT");
@@ -239,12 +288,22 @@ function exactBody(body: Record<string, unknown>, allowed: string[]): void {
 
 const csvColumns: Array<[string, (booking: BookingRecord) => unknown]> = [
   ["booking_code", (booking) => booking.code],
+  ["booking_kind", (booking) => booking.bookingKind ?? "customer"],
+  ["staff_reservation_title", (booking) => booking.staffReservationTitle],
   ["date", (booking) => booking.date],
   ["start_at", (booking) => booking.startAt],
   ["end_at", (booking) => booking.endAt],
   ["court_id", (booking) => booking.courtId],
   ["mode", (booking) => booking.mode],
-  ["party_size", (booking) => booking.partySize],
+  ["occupancy", (booking) => booking.bookingKind === "staff_reservation"
+    ? "整场占用"
+    : booking.mode === "private" ? "包场" : "散客"],
+  ["party_size", (booking) => booking.bookingKind === "staff_reservation"
+    ? undefined
+    : booking.partySize],
+  ["participant_count_label", (booking) => booking.bookingKind === "staff_reservation"
+    ? "人数未登记"
+    : `${booking.partySize} 人`],
   ["status", (booking) => booking.status],
   ["name", (booking) => booking.name],
   ["phone", (booking) => booking.phone],
@@ -437,19 +496,24 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
         const selectedDashboardPromise = selectedDate === today
           ? todayDashboardPromise
           : dashboardDto(dependencies.service, selectedDate);
-        const [todayDashboard, selectedDashboard, bookings, matrixBookings, settings] =
+        const [todayDashboard, selectedDashboard, bookings, matrixBookings, timeBlockDay, settings] =
           await Promise.all([
             todayDashboardPromise,
             selectedDashboardPromise,
             dependencies.service.listBookings(filter),
             dependencies.service.listMatrixBookings(selectedDate),
+            dependencies.service.listCourtTimeBlockDay(selectedDate),
             settingsDto(dependencies.service),
           ]);
         return jsonResponse(200, {
           todayDashboard,
           selectedDashboard,
           bookings: bookings.map(adminBooking),
-          matrixBookings: matrixBookings.map(adminBooking),
+          matrixBookings: {
+            bookings: matrixBookings.map(adminBooking),
+            timeBlocks: timeBlockDay.items.map(adminCourtTimeBlock),
+            inventoryVersions: timeBlockDay.inventoryVersions,
+          },
           settings,
         });
       }
@@ -461,8 +525,32 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
 
       if (method === "GET" && path === "/v1/admin/matrix") {
         const date = dateValue(queryParameter(event, "date")?.trim());
-        const bookings = await dependencies.service.listMatrixBookings(date);
-        return jsonResponse(200, bookings.map(adminBooking));
+        const [bookings, timeBlockDay] = await Promise.all([
+          dependencies.service.listMatrixBookings(date),
+          dependencies.service.listCourtTimeBlockDay(date),
+        ]);
+        return jsonResponse(200, {
+          bookings: bookings.map(adminBooking),
+          timeBlocks: timeBlockDay.items.map(adminCourtTimeBlock),
+          inventoryVersions: timeBlockDay.inventoryVersions,
+        });
+      }
+
+      if (method === "GET" && path === "/v1/admin/court-time-blocks") {
+        const parameters = event.queryStringParameters;
+        if (
+          !parameters ||
+          typeof parameters !== "object" ||
+          Object.keys(parameters).length !== 1 ||
+          !Object.prototype.hasOwnProperty.call(parameters, "date") ||
+          typeof (parameters as Record<string, unknown>).date !== "string"
+        ) throw new BookingError("INVALID_INPUT");
+        const date = dateValue(queryParameter(event, "date")?.trim());
+        const day = await dependencies.service.listCourtTimeBlockDay(date);
+        return jsonResponse(200, {
+          items: day.items.map(adminCourtTimeBlock),
+          inventoryVersions: day.inventoryVersions,
+        });
       }
 
       if (method === "GET" && path === "/v1/admin/bookings") {
@@ -532,6 +620,120 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
         return csvResponse(bookings);
       }
 
+      if (method === "POST" && path === "/v1/admin/staff-reservations") {
+        const body = parseRequestBody(event).values;
+        exactBody(body, ["title", "date", "startTime", "endTime", "courtId"]);
+        const title = stringField(body, "title");
+        const date = stringField(body, "date");
+        const startTime = stringField(body, "startTime");
+        const endTime = stringField(body, "endTime");
+        const courtId = stringField(body, "courtId");
+        if (!title || !date || !startTime || !endTime || !courtId) {
+          throw new BookingError("INVALID_INPUT");
+        }
+        const created = await dependencies.service.createStaffReservation({
+          title, date, startTime, endTime, courtId, actorId,
+        });
+        return jsonResponse(201, adminBooking(created));
+      }
+
+      const staffReservation = /^\/v1\/admin\/staff-reservations\/([^/]+)$/.exec(path);
+      if (method === "PUT" && staffReservation) {
+        const body = parseRequestBody(event).values;
+        exactBody(body, [
+          "title", "date", "startTime", "endTime", "courtId",
+          "expectedVersion", "expected_version",
+        ]);
+        const title = stringField(body, "title");
+        const date = stringField(body, "date");
+        const startTime = stringField(body, "startTime");
+        const endTime = stringField(body, "endTime");
+        const courtId = stringField(body, "courtId");
+        if (!title || !date || !startTime || !endTime || !courtId) {
+          throw new BookingError("INVALID_INPUT");
+        }
+        const updated = await dependencies.service.updateStaffReservation({
+          bookingId: decoded(staffReservation[1]),
+          expectedVersion: expectedVersion(body),
+          title, date, startTime, endTime, courtId, actorId,
+        });
+        return jsonResponse(200, adminBooking(updated));
+      }
+
+      if (method === "POST" && path === "/v1/admin/court-time-blocks") {
+        const body = parseRequestBody(event).values;
+        exactBody(body, [
+          "date", "courtIds", "startTime", "endTime", "reason", "expectedVersions",
+        ]);
+        if (
+          typeof body.date !== "string" ||
+          !Array.isArray(body.courtIds) ||
+          body.courtIds.some((value) => typeof value !== "string") ||
+          typeof body.startTime !== "string" ||
+          typeof body.endTime !== "string" ||
+          (body.reason !== undefined && typeof body.reason !== "string") ||
+          !body.expectedVersions ||
+          typeof body.expectedVersions !== "object" ||
+          Array.isArray(body.expectedVersions)
+        ) throw new BookingError("INVALID_INPUT");
+        const expectedVersions = body.expectedVersions as Record<string, unknown>;
+        if (
+          Object.keys(expectedVersions).length !== body.courtIds.length ||
+          body.courtIds.some(
+            (courtId) =>
+              typeof expectedVersions[courtId] !== "number" ||
+              integer(expectedVersions[courtId]) === null ||
+              integer(expectedVersions[courtId])! < 0,
+          )
+        ) throw new BookingError("INVALID_INPUT");
+        const blocks = await dependencies.service.createCourtTimeBlocks({
+          date: body.date,
+          courtIds: body.courtIds,
+          startTime: body.startTime,
+          endTime: body.endTime,
+          ...(body.reason === undefined ? {} : { reason: body.reason }),
+          expectedVersions: Object.fromEntries(
+            body.courtIds.map((courtId) => [courtId, integer(expectedVersions[courtId]) as number]),
+          ),
+          actorId,
+        });
+        return jsonResponse(201, blocks.map(adminCourtTimeBlock));
+      }
+
+      const timeBlock = /^\/v1\/admin\/court-time-blocks\/([^/]+)$/.exec(path);
+      if (method === "PUT" && timeBlock) {
+        const body = parseRequestBody(event).values;
+        exactBody(body, [
+          "date", "courtId", "startTime", "endTime", "reason", "expectedVersion",
+          "expected_version",
+        ]);
+        const date = typeof body.date === "string" ? body.date : "";
+        const courtId = stringField(body, "courtId");
+        const startTime = typeof body.startTime === "string" ? body.startTime : "";
+        const endTime = typeof body.endTime === "string" ? body.endTime : "";
+        if (!date || !courtId || !startTime || !endTime || (body.reason !== undefined && typeof body.reason !== "string")) {
+          throw new BookingError("INVALID_INPUT");
+        }
+        const updated = await dependencies.service.updateCourtTimeBlock({
+          blockId: decoded(timeBlock[1]), date, courtId, startTime, endTime,
+          ...(body.reason === undefined ? {} : { reason: body.reason }),
+          expectedVersion: expectedVersion(body), actorId,
+        });
+        return jsonResponse(200, adminCourtTimeBlock(updated));
+      }
+      if (method === "DELETE" && timeBlock) {
+        const body = parseRequestBody(event).values;
+        exactBody(body, ["date", "courtId", "expectedVersion", "expected_version"]);
+        const date = typeof body.date === "string" ? body.date : "";
+        const courtId = stringField(body, "courtId");
+        if (!date || !courtId) throw new BookingError("INVALID_INPUT");
+        await dependencies.service.restoreCourtTimeBlock({
+          blockId: decoded(timeBlock[1]), date, courtId,
+          expectedVersion: expectedVersion(body), actorId,
+        });
+        return jsonResponse(200, { restored: true });
+      }
+
       const mutation = /^\/v1\/admin\/bookings\/([^/]+)\/(confirm|reschedule|cancel|complete|reassign|archive|restore)$/.exec(path);
       if (method === "POST" && mutation) {
         const bookingId = decoded(mutation[1]);
@@ -569,7 +771,7 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
         if (action === "restore") {
           return jsonResponse(200, adminBooking(await dependencies.service.restoreBooking(bookingId, actorId, version)));
         }
-        throw new BookingError("NOT_FOUND");
+        throw new BookingError("BOOKING_NOT_FOUND");
       }
 
       const court = /^\/v1\/admin\/courts\/([^/]+)$/.exec(path);

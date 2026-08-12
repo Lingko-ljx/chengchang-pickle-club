@@ -1190,7 +1190,7 @@ system_state
 
 Seed courts `01`–`11`. Seed hourly 60-minute templates with deterministic IDs `slot-0700` through `slot-2200`, matching the current displayed 07:00–23:00 opening window; staff can disable any template before production. Canonical session IDs are `${date}__${templateId}` and therefore never require a query inside a booking transaction.
 
-Create indexes for bookings by `(sessionId,status)`, `(date,createdAt,id)`, `(date,status,createdAt,id)`, `(date,mode,createdAt,id)`, `(date,status,mode,createdAt,id)`, `(proposedDate,status,createdAt,id)`, `(phoneHash,createdAt)`, and `(status,terminalAt,personalDataRedactedAt,id)`; `booking_codes` uses `sha256(normalizedCode)` as the deterministic document ID and stores only the booking ID; audit logs by `(bookingId,at,id)`; sessions by `(date,startAt)`; Outbox by `(status,nextAttemptAt,id)`.
+Create indexes for bookings by `(sessionId,status)`, `(date,createdAt,id)`, `(date,status,createdAt,id)`, `(date,status,startAt,endAt,id)`, `(date,mode,createdAt,id)`, `(date,status,mode,createdAt,id)`, `(proposedDate,status,createdAt,id)`, `(phoneHash,createdAt)`, and `(status,terminalAt,personalDataRedactedAt,id)`; `booking_codes` uses `sha256(normalizedCode)` as the deterministic document ID and stores only the booking ID; audit logs by `(bookingId,at,id)`; sessions by `(date,startAt)`; Outbox by `(status,nextAttemptAt,id)`.
 
 - [ ] **Step 3: Lock direct database access**
 

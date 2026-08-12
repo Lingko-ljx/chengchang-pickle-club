@@ -10,6 +10,7 @@ import type {
   CourtAllocation,
   CourtDayInventory,
   CourtRecord,
+  CourtTimeBlock,
   NotificationEvent,
   SessionRecord,
   SessionTemplateRecord,
@@ -299,6 +300,20 @@ export class MemoryBookingRepository implements BookingRepository {
       .map(cloneValue);
   }
 
+  async listCourtTimeBlocks(date: string): Promise<CourtTimeBlock[]> {
+    await this.queue;
+    return Array.from(this.state.courtDayInventories.values())
+      .filter((inventory) => inventory.date === date)
+      .flatMap((inventory) => Object.values(inventory.timeBlocks ?? {}))
+      .sort(
+        (left, right) =>
+          left.startTime.localeCompare(right.startTime) ||
+          left.courtId.localeCompare(right.courtId) ||
+          left.id.localeCompare(right.id),
+      )
+      .map(cloneValue);
+  }
+
   async listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {
     await this.queue;
     const normalizedQuery = filter.query?.trim().toLowerCase();
@@ -442,6 +457,26 @@ export class MemoryBookingRepository implements BookingRepository {
       });
       this.state = next;
     });
+  }
+
+  async listPublicSchedule(date: string, limit: number): Promise<BookingRecord[]> {
+    await this.queue;
+    const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+    return Array.from(this.state.bookings.values())
+      .filter(
+        (booking) =>
+          booking.date === date &&
+          !booking.archivedAt &&
+          (booking.status === "confirmed" || booking.status === "reschedule_proposed"),
+      )
+      .sort(
+        (left, right) =>
+          left.startAt.localeCompare(right.startAt) ||
+          left.endAt.localeCompare(right.endAt) ||
+          left.id.localeCompare(right.id),
+      )
+      .slice(0, boundedLimit)
+      .map(cloneValue);
   }
 
   async listBookingPage(filter: AdminBookingFilter): Promise<BookingPage> {

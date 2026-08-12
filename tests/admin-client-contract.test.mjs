@@ -27,6 +27,9 @@ import {
   homepageMediaActionsFor,
   matrixAssignmentsForCell,
   matrixBookingsForCell,
+  nextAdminSchedulingWindow,
+  timeBlockForCell,
+  renderBookingDetail,
   normalizeBookingPage,
   recordDateRange,
   retainSelectedBooking,
@@ -120,6 +123,17 @@ test("every management request carries the current bearer token", async () => {
   await client.getSettings();
   await client.getAuditLogs("booking-1");
   await client.getMatrixBookings("2026-08-09");
+  await client.createCourtTimeBlocks({
+    date: "2026-08-09", courtIds: ["01"], startTime: "09:00", endTime: "09:30",
+    reason: "场地维护", expectedVersions: { "01": 0 },
+  });
+  await client.updateCourtTimeBlock("block-1", {
+    date: "2026-08-09", courtId: "01", startTime: "09:30", endTime: "10:00",
+    reason: "场地维护", expectedVersion: 1,
+  });
+  await client.restoreCourtTimeBlock("block-1", {
+    date: "2026-08-09", courtId: "01", expectedVersion: 2,
+  });
   await client.exportCsv("2026-08-01", "2026-08-31");
   await client.getHomepageMedia();
   await client.createMediaUploadIntent({
@@ -136,7 +150,7 @@ test("every management request carries the current bearer token", async () => {
   await client.setHomepageMediaPinned("media-1", true, 3);
   await client.deleteHomepageMedia("media-1", 4);
 
-  assert.equal(requests.length, 16);
+  assert.equal(requests.length, 19);
   const bootstrapUrl = new URL(requests[1].url);
   assert.equal(bootstrapUrl.pathname, "/v1/admin/bootstrap");
   assert.deepEqual(Object.fromEntries(bootstrapUrl.searchParams), {
@@ -149,12 +163,12 @@ test("every management request carries the current bearer token", async () => {
   for (const request of requests) {
     assert.equal(request.init.headers.Authorization, "Bearer staff-access-token");
   }
-  assert.equal(new URL(requests[10].url).pathname, "/v1/admin/homepage-media");
-  assert.equal(new URL(requests[11].url).pathname, "/v1/admin/homepage-media/upload-intents");
-  assert.equal(requests[11].init.method, "POST");
-  assert.equal(requests[13].init.method, "PUT");
-  assert.equal(new URL(requests[15].url).pathname, "/v1/admin/homepage-media/media-1/delete");
-  assert.equal(requests[15].init.method, "POST");
+  assert.equal(new URL(requests[13].url).pathname, "/v1/admin/homepage-media");
+  assert.equal(new URL(requests[14].url).pathname, "/v1/admin/homepage-media/upload-intents");
+  assert.equal(requests[14].init.method, "POST");
+  assert.equal(requests[16].init.method, "PUT");
+  assert.equal(new URL(requests[18].url).pathname, "/v1/admin/homepage-media/media-1/delete");
+  assert.equal(requests[18].init.method, "POST");
 });
 
 test("a 401 clears the client session before surfacing the error", async () => {
@@ -373,6 +387,103 @@ test("the half-hour matrix uses interval overlap and excludes terminal bookings"
       },
     ],
   );
+});
+
+test("the half-hour matrix locates a staff closure without exposing staff identity", () => {
+  const block = {
+    id: "block-1", date: "2026-08-12", courtId: "01", startTime: "09:30",
+    endTime: "10:30", cellKeys: ["0930", "1000"], reason: "场地维护", version: 2,
+  };
+  assert.equal(timeBlockForCell([block], "2026-08-12", "10:00", "10:30", "01"), block);
+  assert.equal(timeBlockForCell([block], "2026-08-12", "10:30", "11:00", "01"), undefined);
+});
+
+test("staff reservation detail reports full-court occupancy without inventing four people", () => {
+  const textValues = [];
+  const node = () => ({
+    className: "",
+    textContent: "",
+    append(...children) {
+      for (const child of children) if (child?.textContent) textValues.push(child.textContent);
+    },
+    replaceChildren() {},
+  });
+  const originalDocument = globalThis.document;
+  globalThis.document = { createElement: () => node() };
+  try {
+    renderBookingDetail(node(), {
+      id: "staff-1", code: "STAFF-1", bookingKind: "staff_reservation",
+      staffReservationTitle: "周三企业活动", sessionId: "staff", date: "2026-08-12",
+      startAt: "2026-08-12T01:00:00.000Z", endAt: "2026-08-12T02:00:00.000Z",
+      courtId: "01", mode: "private", status: "confirmed", createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:00:00.000Z", version: 1,
+    });
+  } finally {
+    globalThis.document = originalDocument;
+  }
+  const rendered = textValues.join(" ");
+  assert.match(rendered, /整场占用/);
+  assert.match(rendered, /人数未登记/);
+  assert.doesNotMatch(rendered, /4 人/);
+});
+
+test("admin scheduling defaults use the next valid Beijing half-hour and roll past closing", () => {
+  assert.deepEqual(
+    nextAdminSchedulingWindow(new Date("2026-08-12T00:10:00.000Z"), 60),
+    { date: "2026-08-12", startTime: "09:00", endTime: "10:00" },
+  );
+  assert.deepEqual(
+    nextAdminSchedulingWindow(new Date("2026-08-12T05:01:00.000Z"), 30),
+    { date: "2026-08-12", startTime: "13:30", endTime: "14:00" },
+  );
+  assert.deepEqual(
+    nextAdminSchedulingWindow(new Date("2026-08-12T13:29:00.000Z"), 60),
+    { date: "2026-08-12", startTime: "21:30", endTime: "22:00" },
+  );
+  assert.deepEqual(
+    nextAdminSchedulingWindow(new Date("2026-08-12T13:30:00.000Z"), 30),
+    { date: "2026-08-13", startTime: "09:00", endTime: "09:30" },
+  );
+  assert.deepEqual(
+    nextAdminSchedulingWindow(new Date("2026-08-12T05:01:00.000Z"), 60, "2026-08-14"),
+    { date: "2026-08-14", startTime: "09:00", endTime: "10:00" },
+  );
+  assert.deepEqual(
+    nextAdminSchedulingWindow(new Date("2026-08-12T05:01:00.000Z"), 30, "2026-08-10"),
+    { date: "2026-08-12", startTime: "13:30", endTime: "14:00" },
+  );
+});
+
+test("admin page exposes a simple timed-closure form and restore list", async () => {
+  const html = await renderAdminPage();
+  for (const id of [
+    "admin-time-block-form", "admin-time-block-date", "admin-time-block-court",
+    "admin-time-block-start", "admin-time-block-end", "admin-time-block-reason",
+    "admin-time-block-list",
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /内部排期名称/);
+  assert.match(html, /首页统一显示“单位包场”/);
+  assert.doesNotMatch(html, /公开显示名称/);
+});
+
+test("editing a timed closure locks its date and court until edit mode is cancelled", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  const editStart = source.indexOf("const editTimeBlock =");
+  const editEnd = source.indexOf("const renderTimeBlockList =", editStart);
+  const resetStart = source.indexOf("const resetTimeBlockForm =");
+  const resetEnd = source.indexOf("const editTimeBlock =", resetStart);
+  assert.ok(editStart >= 0 && editEnd > editStart);
+  assert.ok(resetStart >= 0 && resetEnd > resetStart);
+  const editSource = source.slice(editStart, editEnd);
+  const resetSource = source.slice(resetStart, resetEnd);
+  assert.match(editSource, /timeBlockDate\.disabled = true/);
+  assert.match(editSource, /timeBlockCourt\.disabled = true/);
+  assert.match(resetSource, /timeBlockDate\.disabled = false/);
+  assert.match(resetSource, /timeBlockCourt\.disabled = false/);
+  assert.match(resetSource, /nextAdminSchedulingWindow/);
+  const staffResetStart = source.indexOf("const resetStaffReservationForm =");
+  const staffResetEnd = source.indexOf("const editStaffReservation =", staffResetStart);
+  assert.match(source.slice(staffResetStart, staffResetEnd), /nextAdminSchedulingWindow/);
 });
 
 test("booking management API supports range pagination and the recoverable recycle bin", async () => {

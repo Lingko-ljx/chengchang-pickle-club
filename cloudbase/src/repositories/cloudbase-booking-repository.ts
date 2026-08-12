@@ -11,6 +11,7 @@ import type {
   CourtAllocation,
   CourtDayInventory,
   CourtRecord,
+  CourtTimeBlock,
   NotificationEvent,
   SessionRecord,
   SessionTemplateRecord,
@@ -325,6 +326,18 @@ export class CloudBaseBookingRepository implements BookingRepository {
     return this.query<CourtDayInventory>("court_day_allocations", { date }, 100);
   }
 
+  async listCourtTimeBlocks(date: string): Promise<CourtTimeBlock[]> {
+    const inventories = await this.listCourtDayInventories(date);
+    return inventories
+      .flatMap((inventory) => Object.values(inventory.timeBlocks ?? {}))
+      .sort(
+        (left, right) =>
+          left.startTime.localeCompare(right.startTime) ||
+          left.courtId.localeCompare(right.courtId) ||
+          left.id.localeCompare(right.id),
+      );
+  }
+
   async listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {
     const condition: Record<string, unknown> = {};
     if (filter.date) condition.date = filter.date;
@@ -474,6 +487,33 @@ export class CloudBaseBookingRepository implements BookingRepository {
       };
       await transaction.collection("audit_logs").doc(audit.id).set(audit);
     }, 3);
+  }
+
+  async listPublicSchedule(date: string, limit: number): Promise<BookingRecord[]> {
+    const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+    const [confirmed, proposals] = await Promise.all([
+      this.query<BookingRecord>(
+        "bookings",
+        { date, status: "confirmed" },
+        boundedLimit,
+        [["startAt", "asc"], ["endAt", "asc"], ["id", "asc"]],
+      ),
+      this.query<BookingRecord>(
+        "bookings",
+        { date, status: "reschedule_proposed" },
+        boundedLimit,
+        [["startAt", "asc"], ["endAt", "asc"], ["id", "asc"]],
+      ),
+    ]);
+    return [...confirmed, ...proposals]
+      .filter((booking) => !booking.archivedAt)
+      .sort(
+        (left, right) =>
+          left.startAt.localeCompare(right.startAt) ||
+          left.endAt.localeCompare(right.endAt) ||
+          left.id.localeCompare(right.id),
+      )
+      .slice(0, boundedLimit);
   }
 
   async listBookingPage(filter: AdminBookingFilter): Promise<BookingPage> {

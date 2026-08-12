@@ -605,7 +605,6 @@ test("email-bearing lifecycle changes enqueue one customer event per communicabl
       .sort(),
     [
       "cancelled:customer",
-      "confirmed:customer",
       "created:customer",
       "created:staff",
       "reschedule_accepted:customer",
@@ -648,7 +647,6 @@ test("notification events carry only the version produced by their booking mutat
     [
       { kind: "created", recipientType: "staff", bookingVersion: created.version },
       { kind: "created", recipientType: "customer", bookingVersion: created.version },
-      { kind: "confirmed", recipientType: "customer", bookingVersion: confirmed.version },
       {
         kind: "reschedule_proposed",
         recipientType: "customer",
@@ -745,7 +743,6 @@ test("completion and reassignment never enqueue notification events", async () =
     [
       { kind: "created", recipientType: "staff" },
       { kind: "created", recipientType: "customer" },
-      { kind: "confirmed", recipientType: "customer" },
     ],
   );
 });
@@ -889,7 +886,7 @@ test("cross-date reschedule acceptance records and then clears the proposed date
   });
 
   assert.equal(proposal.status, "reschedule_proposed");
-  assert.equal(proposal.proposalPreviousStatus, "pending");
+  assert.equal(proposal.proposalPreviousStatus, "confirmed");
   assert.equal(proposal.proposedDate, NEXT_DATE);
   assert.deepEqual((await getAllocation(repository, MORNING, booking.courtId)).bookingIds, [booking.id]);
   assert.deepEqual(
@@ -1329,7 +1326,7 @@ test("availability and admin listing reflect repository state", async () => {
   const { service } = setup();
   const booking = await service.create(command({ mode: "private" }));
   const slots = await service.listAvailability(FUTURE_DATE);
-  const bookings = await service.listBookings({ date: FUTURE_DATE, status: "pending" });
+  const bookings = await service.listBookings({ date: FUTURE_DATE, status: "confirmed" });
   assert.equal(slots[0].startTime, "07:00");
   assert.equal(slots[0].endTime, "08:00");
   assert.equal(slots[0].privateCourtCount, 10);

@@ -21,6 +21,13 @@ export interface ValidatedBookingWindow {
   cellKeys: string[];
 }
 
+export interface ValidatedCourtTimeBlockWindow {
+  date: string;
+  startTime: string;
+  endTime: string;
+  cellKeys: string[];
+}
+
 export function clockMinutes(value: string): number {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
   if (!match) throw new BookingError("INVALID_INPUT");
@@ -48,6 +55,34 @@ export function inventoryCellKeys(startTime: string, endTime: string): string[] 
     keys.push(timeCellKey(minutesClock(minute)));
   }
   return keys;
+}
+
+export function validateCourtTimeBlockWindow(
+  date: string,
+  startTime: string,
+  endTime: string,
+  policy: BookingPolicy = defaultBookingPolicy,
+): ValidatedCourtTimeBlockWindow {
+  const calendarDate = requireCalendarDate(date);
+  const opening = clockMinutes(policy.openingTime);
+  const closing = clockMinutes(policy.closingTime);
+  const start = clockMinutes(startTime);
+  const end = clockMinutes(endTime);
+  if (
+    start < opening ||
+    end > closing ||
+    end <= start ||
+    (start - opening) % 30 !== 0 ||
+    (end - opening) % 30 !== 0
+  ) throw new BookingError("INVALID_INPUT");
+  const normalizedStart = minutesClock(start);
+  const normalizedEnd = minutesClock(end);
+  return {
+    date: calendarDate,
+    startTime: normalizedStart,
+    endTime: normalizedEnd,
+    cellKeys: inventoryCellKeys(normalizedStart, normalizedEnd),
+  };
 }
 
 export function validateBookingWindow(

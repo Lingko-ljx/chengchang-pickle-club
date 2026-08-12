@@ -27,6 +27,8 @@ export function bookingActionsFor(booking: {
 export type AdminBooking = {
   id: string;
   code: string;
+  bookingKind?: "customer" | "staff_reservation";
+  staffReservationTitle?: string;
   sessionId: string;
   date: string;
   startAt: string;
@@ -38,7 +40,9 @@ export type AdminBooking = {
   proposedStartAt?: string;
   proposedEndAt?: string;
   mode: "private" | "open";
-  partySize: number;
+  partySize?: number;
+  occupancyLabel?: string;
+  participantCountLabel?: string;
   status: string;
   name?: string;
   phone?: string;
@@ -66,6 +70,69 @@ export type AvailabilitySlot = {
   endTime: string;
 };
 
+type AdminSchedulingWindow = {
+  date: string;
+  startTime: string;
+  endTime: string;
+};
+
+function shanghaiClockParts(now: Date): { date: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    date: `${value.year}-${value.month}-${value.day}`,
+    minutes: Number(value.hour) * 60 + Number(value.minute),
+  };
+}
+
+function addCalendarDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const instant = new Date(Date.UTC(year, month - 1, day + days));
+  return instant.toISOString().slice(0, 10);
+}
+
+function clockLabel(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+/** Default an admin form to a future Beijing half-hour, never a stale same-day time. */
+export function nextAdminSchedulingWindow(
+  now: Date,
+  preferredDurationMinutes: 30 | 60,
+  selectedDate?: string,
+): AdminSchedulingWindow {
+  const current = shanghaiClockParts(now);
+  if (selectedDate && selectedDate > current.date) {
+    return {
+      date: selectedDate,
+      startTime: "09:00",
+      endTime: clockLabel(9 * 60 + preferredDurationMinutes),
+    };
+  }
+  const nextHalfHour = Math.ceil((current.minutes + 1) / 30) * 30;
+  const startMinutes = Math.max(9 * 60, nextHalfHour);
+  if (startMinutes > 21 * 60 + 30) {
+    return {
+      date: addCalendarDays(current.date, 1),
+      startTime: "09:00",
+      endTime: clockLabel(9 * 60 + preferredDurationMinutes),
+    };
+  }
+  return {
+    date: current.date,
+    startTime: clockLabel(startMinutes),
+    endTime: clockLabel(Math.min(22 * 60, startMinutes + preferredDurationMinutes)),
+  };
+}
+
 const statusLabels: Record<string, string> = {
   pending: "待确认",
   confirmed: "已确认",
@@ -86,6 +153,17 @@ type ShanghaiInstantParts = {
   time: string;
 };
 
+export type AdminCourtTimeBlock = {
+  id: string;
+  date: string;
+  courtId: string;
+  startTime: string;
+  endTime: string;
+  cellKeys: string[];
+  reason?: string;
+  version: number;
+};
+
 const auditActionLabels: Record<string, string> = {
   created: "创建预约",
   confirmed: "确认预约",
@@ -95,6 +173,8 @@ const auditActionLabels: Record<string, string> = {
   reschedule_accepted: "接受改期",
   reschedule_rejected: "拒绝改期",
   reassigned: "调整场地",
+  staff_reservation_created: "新增人工占场",
+  staff_reservation_updated: "修改人工占场",
   personal_data_redacted: "清理隐私资料",
   booking_archived: "移入回收站",
   booking_restored: "从回收站恢复",
@@ -186,8 +266,10 @@ export function homepageMediaActionsFor(
   return definitions;
 }
 
-export function bookingDisplayName(booking: { name?: string }): string {
-  return booking.name?.trim() || "已脱敏预约";
+export function bookingDisplayName(
+  booking: { name?: string; staffReservationTitle?: string },
+): string {
+  return booking.staffReservationTitle?.trim() || booking.name?.trim() || "已脱敏预约";
 }
 
 export function retainSelectedBooking<T extends { id: string }>(
@@ -283,7 +365,12 @@ function bookingButton(
     text("strong", bookingDisplayName(booking)),
     text("span", `北京时间 ${formatShanghaiBookingSchedule(booking)} · ${bookingDurationLabel(booking)}`),
     text("span", `场地 ${booking.courtId ?? "待分配"}`),
-    text("span", `${statusLabel(booking.status)} · ${booking.partySize} 人`),
+    text(
+      "span",
+      booking.bookingKind === "staff_reservation"
+        ? `${statusLabel(booking.status)} · 单位占场`
+        : `${statusLabel(booking.status)} · ${booking.partySize} 人`,
+    ),
   );
   button.addEventListener("click", () => onSelect(selectedBooking));
   return button;
@@ -388,6 +475,8 @@ export function renderCourtMatrix(
   date: string,
   bookings: AdminBooking[],
   onSelect: (booking: AdminBooking) => void,
+  timeBlocks: AdminCourtTimeBlock[] = [],
+  onTimeBlockSelect: (block: AdminCourtTimeBlock) => void = () => undefined,
 ) {
   empty(container);
   const table = document.createElement("table");
@@ -409,6 +498,22 @@ export function renderCourtMatrix(
     row.append(text("th", `${startTime}–${endTime}`));
     for (const courtId of COURT_IDS) {
       const cell = document.createElement("td");
+      const timeBlock = timeBlockForCell(timeBlocks, date, startTime, endTime, courtId);
+      if (timeBlock) {
+        cell.classList.add("admin-court-closed");
+        const closure = document.createElement("button");
+        closure.type = "button";
+        closure.className = timeBlock.startTime === startTime
+          ? "admin-time-block-card"
+          : "admin-time-block-card admin-time-block-continuation";
+        closure.textContent = timeBlock.startTime === startTime
+          ? `已关闭 · ${timeBlock.reason || "临时停用"}`
+          : "关闭时段持续";
+        closure.addEventListener("click", () => onTimeBlockSelect(timeBlock));
+        cell.append(closure);
+        row.append(cell);
+        continue;
+      }
       const assigned = matrixAssignmentsForCell(bookings, date, startTime, endTime, courtId);
       if (!assigned.length) {
         cell.append(text("span", "空闲", "admin-court-empty"));
@@ -511,6 +616,21 @@ export function matrixAssignmentsForCell<T extends MatrixBooking>(
   return assignments;
 }
 
+export function timeBlockForCell<T extends Pick<AdminCourtTimeBlock, "date" | "courtId" | "startTime" | "endTime">>(
+  blocks: readonly T[],
+  date: string,
+  startTime: string,
+  endTime: string,
+  courtId: string,
+): T | undefined {
+  return blocks.find((block) =>
+    block.date === date &&
+    block.courtId === courtId &&
+    block.startTime < endTime &&
+    block.endTime > startTime
+  );
+}
+
 export function matrixBookingsForCell<T extends MatrixBooking>(
   bookings: T[],
   date: string,
@@ -588,13 +708,20 @@ export function renderBookingDetail(
   }
   container.append(
     text("h3", bookingDisplayName(booking)),
-    text("p", `预约号 ${booking.code}`, "admin-detail-code"),
+    ...(booking.bookingKind === "staff_reservation"
+      ? [text("p", "后台人工占场", "admin-detail-code")]
+      : [text("p", `预约号 ${booking.code}`, "admin-detail-code")]),
     text("p", `状态：${statusLabel(booking.status)}`, "admin-detail-status"),
     text("p", `北京时间 ${formatShanghaiBookingSchedule(booking)} · ${bookingDurationLabel(booking)}`),
-    text("p", `${booking.mode === "private" ? "包场" : "散客"} · ${booking.partySize} 人 · 场地 ${booking.courtId ?? "待分配"}`),
-    text("p", booking.phone ?? "号码已脱敏"),
-    text("p", booking.email ?? "未留邮箱"),
-    text("p", booking.note ?? "无备注"),
+    text(
+      "p",
+      booking.bookingKind === "staff_reservation"
+        ? `${booking.occupancyLabel ?? "整场占用"} · ${booking.participantCountLabel ?? "人数未登记"} · 场地 ${booking.courtId ?? "待分配"}`
+        : `${booking.mode === "private" ? "包场" : "散客"} · ${booking.partySize} 人 · 场地 ${booking.courtId ?? "待分配"}`,
+    ),
+    text("p", booking.bookingKind === "staff_reservation" ? "不公开、不存储内部联系人" : (booking.phone ?? "号码已脱敏")),
+    text("p", booking.bookingKind === "staff_reservation" ? "场地运营录入" : (booking.email ?? "未留邮箱")),
+    text("p", booking.note ?? (booking.bookingKind === "staff_reservation" ? "单位或内部活动占场" : "无备注")),
   );
   if (audits.length) {
     container.append(text("h4", "操作记录", "admin-detail-subheading"));

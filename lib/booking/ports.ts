@@ -7,6 +7,7 @@ import type {
   CourtAllocation,
   CourtDayInventory,
   CourtRecord,
+  CourtTimeBlock,
   NotificationEvent,
   SessionRecord,
   SessionTemplateRecord,
@@ -43,10 +44,12 @@ export interface BookingRepository {
   listAvailability(date: string): Promise<AvailabilitySlot[]>;
   listSessions(date: string): Promise<SessionRecord[]>;
   listCourtDayInventories(date: string): Promise<CourtDayInventory[]>;
+  listCourtTimeBlocks(date: string): Promise<CourtTimeBlock[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
   listBookingPage(filter: AdminBookingFilter): Promise<BookingPage>;
   listPendingBookings(date: string): Promise<BookingRecord[]>;
   listMatrixBookings(date: string): Promise<BookingRecord[]>;
+  listPublicSchedule(date: string, limit: number): Promise<BookingRecord[]>;
   listCourts(): Promise<CourtRecord[]>;
   listSessionTemplates(): Promise<SessionTemplateRecord[]>;
   listAuditLogs(bookingId: string): Promise<AuditLog[]>;

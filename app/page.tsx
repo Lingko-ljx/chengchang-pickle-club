@@ -41,21 +41,38 @@ const values = [
   },
 ];
 
-const coaches = [
+const featuredCoaches = [
   {
     name: "刘栖睿",
-    role: "总教头",
+    role: "职业教练",
     badge: "LQR",
-    style: "portrait-one",
-    detail: "课程安排与训练计划请联系球馆确认",
+    image: "coaches/coach-liu-qirui.jpg",
+    imageAlt: "职业教练刘栖睿在匹克球赛场准备接球",
+    imageHeight: 2160,
+    imageWidth: 1440,
+    detail: "以实战判断、技术拆解与竞赛能力提升为训练重点。",
+    highlights: [
+      "2026 李宁杯中国匹克球巡回赛呼和浩特站（CPC-1000）公开组男子单打第一名",
+      "课程与训练计划请联系球馆确认",
+    ],
   },
   {
     name: "唐语彤",
-    role: "特约嘉宾",
+    role: "特邀职业教练",
     badge: "TYT",
-    style: "portrait-two",
-    detail: "课程安排与训练计划请联系球馆确认",
+    image: "coaches/coach-tang-yutong.jpg",
+    imageAlt: "特邀职业教练唐语彤在匹克球比赛中专注接球",
+    imageHeight: 3200,
+    imageWidth: 2133,
+    detail: "以比赛节奏、双打配合与动作细节为训练重点。",
+    highlights: [
+      "职业赛场经验与双打协作训练",
+      "课程与到馆时间请联系球馆确认",
+    ],
   },
+];
+
+const supportCoaches = [
   {
     name: "曾海鑫",
     role: "普通教练",
@@ -83,6 +100,53 @@ const coaches = [
     badge: "ZHW",
     style: "portrait-six",
     detail: "课程安排与训练计划请联系球馆确认",
+  },
+];
+
+const coachGallery = [
+  {
+    slot: "doubles-match",
+    image: "coaches/coaches-doubles-match.jpg",
+    imageAlt: "刘栖睿和唐语彤搭档参加匹克球双打比赛",
+    imageHeight: 960,
+    imageWidth: 1440,
+    label: "MATCH · 双打赛场",
+    title: "职业教练组合实战",
+    copy: "刘栖睿 · 唐语彤",
+    layout: "wide",
+  },
+  {
+    slot: "hohhot-podium",
+    image: "coaches/liu-hohhot-cpc1000-podium.jpg",
+    imageAlt: "刘栖睿站上呼和浩特站冠军领奖台",
+    imageHeight: 968,
+    imageWidth: 1440,
+    label: "PODIUM · 呼和浩特",
+    title: "CPC-1000 冠军领奖台",
+    copy: "刘栖睿 · 2026",
+    layout: "wide",
+  },
+  {
+    slot: "liu-singles-certificate",
+    image: "coaches/liu-kaihua-cpc1000-singles-second.jpg",
+    imageAlt: "刘栖睿获浙江开化站CPC-1000公开组男子单打第二名证书",
+    imageHeight: 1080,
+    imageWidth: 1919,
+    label: "CERTIFICATE · 男子单打",
+    title: "浙江开化站公开组第二名",
+    copy: "刘栖睿 · CPC-1000",
+    layout: "portrait",
+  },
+  {
+    slot: "liu-tang-mixed-certificate",
+    image: "coaches/liu-tang-hohhot-cpc1000-mixed-second.jpg",
+    imageAlt: "刘栖睿和唐语彤获呼和浩特站CPC-1000公开混合双打第二名证书",
+    imageHeight: 1919,
+    imageWidth: 1080,
+    label: "CERTIFICATE · 混合双打",
+    title: "呼和浩特站公开混合双打第二名",
+    copy: "刘栖睿 · 唐语彤",
+    layout: "portrait",
   },
 ];
 
@@ -114,6 +178,10 @@ const honors = [
   {
     year: "2026",
     title: "APBA 全球总决赛男单季军",
+  },
+  {
+    year: "2026",
+    title: "李宁杯中国匹克球巡回赛呼和浩特站（CPC-1000）公开组男子单打第一名",
   },
 ];
 
@@ -297,25 +365,55 @@ export default function Home() {
           </h2>
           <p>具体课程内容、时间与适合人群，请联系球馆确认。</p>
         </div>
-        <div className="coach-grid">
-          {coaches.map((coach, index) => (
-            <article className="coach-card" key={coach.name}>
-              <div
-                className={`coach-portrait ${coach.style}`}
-                role="img"
-                aria-label={`${coach.name}匹克球主题图形`}
-              >
-                <span className="portrait-index">0{index + 1}</span>
-                <span className="portrait-monogram">{coach.badge}</span>
-                <span className="portrait-orbit" aria-hidden="true" />
+        <div className="coach-feature-grid">
+          {featuredCoaches.map((coach, index) => (
+            <article className="coach-feature-card" key={coach.name}>
+              <div className="coach-feature-photo" data-coach-media-slot={`featured-${coach.badge.toLowerCase()}`}>
+                {/* Static hosts serve the supplied coach photos without an image optimizer. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt={coach.imageAlt}
+                  decoding="async"
+                  height={coach.imageHeight}
+                  loading="lazy"
+                  src={`${basePath}/${coach.image}`}
+                  width={coach.imageWidth}
+                />
+                <span className="coach-feature-index">0{index + 1}</span>
+                <span className="coach-feature-role">{coach.role}</span>
               </div>
-              <div className="coach-meta">
+              <div className="coach-feature-copy">
+                <p>PRO COACH · {coach.badge}</p>
                 <div>
                   <h3>{coach.name}</h3>
                   <span>{coach.role}</span>
                 </div>
                 <p>{coach.detail}</p>
+                <ul>
+                  {coach.highlights.map((highlight) => (
+                    <li key={highlight}>{highlight}</li>
+                  ))}
+                </ul>
               </div>
+            </article>
+          ))}
+        </div>
+        <div className="coach-support-heading">
+          <div>
+            <p>COACHING TEAM</p>
+            <h3>教练阵容</h3>
+          </div>
+          <p>基础入门、日常陪练与专项提升，可按需求联系球馆安排。</p>
+        </div>
+        <div className="coach-support-grid">
+          {supportCoaches.map((coach, index) => (
+            <article className="coach-support-card" key={coach.name}>
+              <span>0{index + 3}</span>
+              <div>
+                <h3>{coach.name}</h3>
+                <p>{coach.role}</p>
+              </div>
+              <strong>{coach.badge}</strong>
             </article>
           ))}
         </div>
@@ -350,6 +448,39 @@ export default function Home() {
             ))}
           </div>
         </div>
+        <div className="coach-gallery-heading">
+          <div>
+            <p>FIELD NOTES</p>
+            <h2>赛场与荣誉影像</h2>
+          </div>
+          <p>将比赛动作、领奖时刻和证书分开呈现，快速看清每位教练的赛场经历。</p>
+        </div>
+        <div className="coach-gallery" aria-label="教练赛场与荣誉照片画廊">
+          {coachGallery.map((item) => (
+            <figure
+              className={`coach-gallery-item is-${item.layout}`}
+              data-coach-media-slot={item.slot}
+              key={item.slot}
+            >
+              <div className="coach-gallery-frame">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt={item.imageAlt}
+                  decoding="async"
+                  height={item.imageHeight}
+                  loading="lazy"
+                  src={`${basePath}/${item.image}`}
+                  width={item.imageWidth}
+                />
+              </div>
+              <figcaption>
+                <span>{item.label}</span>
+                <h3>{item.title}</h3>
+                <p>{item.copy}</p>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
       </section>
 
       <section className="booking-section" id="booking">
@@ -361,6 +492,7 @@ export default function Home() {
           <BookingForm
             apiBaseUrl={bookingApiBaseUrl}
             formEndpoint={formEndpoint}
+            publicScheduleScriptSrc={`${basePath}/public-schedule.js`}
             resultPath={bookingResultPath(basePath)}
             scriptSrc={bookingScriptSrc}
             statusPath={bookingStatusPath(basePath)}

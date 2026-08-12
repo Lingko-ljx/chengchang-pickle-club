@@ -227,6 +227,16 @@ export function planBookingInventoryMigration(bookings, existingInventories) {
     const blockedKeys = item.cellKeys.filter((key) =>
       reservationConflict(inventory.cells[key], item),
     );
+    const closedKeys = item.cellKeys.filter((key) => inventory.blockedCells?.[key]);
+    if (closedKeys.length > 0) {
+      incompleteInventoryIds.add(item.inventoryId);
+      for (const key of closedKeys) {
+        conflicts.push(
+          `INVENTORY_BLOCKED:${item.inventoryId}/${key}:${item.bookingId}:${item.kind}`,
+        );
+      }
+      continue;
+    }
     if (blockedKeys.length > 0) {
       incompleteInventoryIds.add(item.inventoryId);
       for (const key of blockedKeys) {
@@ -463,7 +473,10 @@ export async function applyBookingInventoryMigration(database, bookings, initial
         )[0];
         if (booking) freshBookings.push(booking);
       }
-      const freshDesired = planBookingInventoryMigration(freshBookings, []);
+      const closureSeed = current
+        ? [{ ...current, cells: {} }]
+        : [];
+      const freshDesired = planBookingInventoryMigration(freshBookings, closureSeed);
       if (freshDesired.conflicts.length > 0) throw new MigrationError("INVENTORY_CONFLICT");
       const desired = freshDesired.allInventories.find(({ id }) => id === candidate.id);
       const desiredCells = desired?.cells ?? {};
@@ -473,6 +486,8 @@ export async function applyBookingInventoryMigration(database, bookings, initial
           date: current?.date ?? candidate.date,
           courtId: current?.courtId ?? candidate.courtId,
           cells: desiredCells,
+          ...(current?.blockedCells ? { blockedCells: current.blockedCells } : {}),
+          ...(current?.timeBlocks ? { timeBlocks: current.timeBlocks } : {}),
           version: (current?.version ?? 0) + 1,
         });
       }

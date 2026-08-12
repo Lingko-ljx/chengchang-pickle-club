@@ -1,5 +1,6 @@
 import { BookingError } from "./errors.ts";
 import { validateBookingWindow } from "./booking-window.ts";
+import { currentPublicScheduleConsentVersion } from "./types.ts";
 import type { BookingMode, CreateBookingCommand } from "./types.ts";
 
 function isNonEmptyString(value: unknown): value is string {
@@ -41,6 +42,8 @@ export function validateCreateBooking(input: unknown): CreateBookingCommand {
     !isNonEmptyString(command.name) ||
     !isNonEmptyString(command.phone) ||
     command.privacyConsent !== true ||
+    (command.publicScheduleConsentVersion !== undefined &&
+      command.publicScheduleConsentVersion !== currentPublicScheduleConsentVersion) ||
     (command.email !== undefined && typeof command.email !== "string") ||
     (command.note !== undefined && typeof command.note !== "string")
   ) {
@@ -72,5 +75,8 @@ export function validateCreateBooking(input: unknown): CreateBookingCommand {
     ...(command.email === undefined ? {} : { email: command.email as string }),
     ...(command.note === undefined ? {} : { note: command.note as string }),
     privacyConsent: command.privacyConsent,
+    ...(command.publicScheduleConsentVersion === currentPublicScheduleConsentVersion
+      ? { publicScheduleConsentVersion: currentPublicScheduleConsentVersion }
+      : {}),
   };
 }
