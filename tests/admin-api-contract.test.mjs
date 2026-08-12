@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
 
-import { BookingService, courtIds } from "../lib/booking/booking-service.ts";
+import { BookingService, courtIds, decodeBookingCursor } from "../lib/booking/booking-service.ts";
 import { MemoryBookingRepository } from "../lib/booking/testing/memory-repository.ts";
 import { createAdminApiHandler } from "../cloudbase/src/admin-api.ts";
 
@@ -79,8 +79,12 @@ function fakeService(trace = []) {
     complete: invoke("complete", booking({ status: "completed", version: 4 })),
     reassign: invoke("reassign", booking({ courtId: "02", version: 4 })),
     redactPersonalData: invoke("redactPersonalData", undefined),
+    archiveBooking: invoke("archiveBooking", booking({ status: "cancelled", archivedAt: "2098-12-02T00:00:00.000Z", version: 4 })),
+    restoreBooking: invoke("restoreBooking", booking({ status: "cancelled", version: 5 })),
     listAvailability: invoke("listAvailability", [{ sessionId: MORNING }]),
     listBookings: invoke("listBookings", [record]),
+    listBookingPage: undefined,
+    listCustomerHistory: invoke("listCustomerHistory", [record]),
     listPendingBookings: invoke("listPendingBookings", [record]),
     listMatrixBookings: invoke("listMatrixBookings", [booking({
       id: "booking-proposal",
@@ -273,7 +277,7 @@ test("every admin success, error, and CSV response disables shared caching", asy
   assert.match(responses[2].headers["Content-Type"], /^text\/csv/);
 });
 
-test("trusted runtime UID resolution precedes transactions and is the only audit identity source", async () => {
+test("trusted runtime UID resolution rejects body identity spoofing before service work", async () => {
   const trace = [];
   const service = fakeService(trace);
   const handler = handlerFor(service, { trace });
@@ -289,16 +293,11 @@ test("trusted runtime UID resolution precedes transactions and is the only audit
     context,
   );
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.statusCode, 400);
   assert.deepEqual(trace, [
     {
       type: "auth",
       context,
-    },
-    {
-      type: "service",
-      name: "confirm",
-      args: [{ bookingId: "booking-1", expectedVersion: 3, actorId: TRUSTED_UID }],
     },
   ]);
   assert.equal(response.body.includes("internal-phone-hash"), false);
@@ -312,12 +311,6 @@ test("every booking lifecycle route requires a version and passes the authentica
     ["cancel", "/cancel", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorType: "staff", actorId: TRUSTED_UID }],
     ["complete", "/complete", { expectedVersion: 3 }, { bookingId: "booking-1", expectedVersion: 3, actorId: TRUSTED_UID }],
     ["reassign", "/reassign", { expectedVersion: 3, courtId: "02" }, { bookingId: "booking-1", expectedVersion: 3, courtId: "02", actorId: TRUSTED_UID }],
-    [
-      "redactPersonalData",
-      "/redact",
-      { expectedVersion: 3 },
-      ["booking-1", TRUSTED_UID, 3, "staff"],
-    ],
   ];
 
   for (const [methodName, suffix, body, expected] of cases) {
@@ -382,10 +375,121 @@ test("dashboard, matrix and booking-list routes use their exact scheduling reads
     ["listPendingBookings", [DATE]],
     ["listAvailability", [DATE]],
     ["listMatrixBookings", [DATE]],
-    ["listBookings", [{ date: DATE, status: "pending", mode: "private", query: "Ada", limit: 100 }]],
+    ["listBookings", [{ date: DATE, status: "pending", mode: "private", query: "Ada", archive: "active", limit: 51 }]],
   ]);
   assert.equal(listing.body.includes("internal-phone-hash"), false);
   assert.equal(listing.body.includes("internal-idempotency-hash"), false);
+});
+
+test("booking records expose bounded range pagination and recoverable archive mutations", async () => {
+  const trace = [];
+  const service = fakeService(trace);
+  const rows = Array.from({ length: 3 }, (_, index) => booking({ id: `booking-${index + 1}` }));
+  service.listBookings = async (filter) => {
+    trace.push({ type: "service", name: "listBookings", args: [filter] });
+    return rows;
+  };
+  const handler = handlerFor(service, { trace });
+
+  const listing = await handler(event("GET", "/v1/admin/bookings", undefined, {
+    query: {
+      from: "2098-12-01",
+      to: DATE,
+      archive: "archived",
+      cursor: Buffer.from(JSON.stringify(["2098-12-01", "2098-12-01T00:00:00.000Z", "booking-0"])).toString("base64url"),
+      limit: "2",
+      q: "Ada",
+    },
+  }));
+  assert.equal(listing.statusCode, 200);
+  assert.deepEqual(responseBody(listing).data, {
+    items: rows.slice(0, 2).map((item) => {
+      const projected = structuredClone(item);
+      delete projected.phoneHash;
+      delete projected.idempotencyKeyHash;
+      return projected;
+    }),
+    nextCursor: responseBody(listing).data.nextCursor,
+    hasMore: true,
+  });
+  assert.deepEqual(decodeBookingCursor(responseBody(listing).data.nextCursor), {
+    date: rows[1].date,
+    createdAt: rows[1].createdAt,
+    id: rows[1].id,
+  });
+  assert.deepEqual(trace.find(({ name }) => name === "listBookings").args, [{
+    fromDate: "2098-12-01",
+    toDate: DATE,
+    query: "Ada",
+    archive: "archived",
+    cursor: Buffer.from(JSON.stringify(["2098-12-01", "2098-12-01T00:00:00.000Z", "booking-0"])).toString("base64url"),
+    limit: 3,
+  }]);
+
+  const archived = await handler(event("POST", "/v1/admin/bookings/booking-1/archive", { expectedVersion: 3 }));
+  const restored = await handler(event("POST", "/v1/admin/bookings/booking-1/restore", { expectedVersion: 4 }));
+  assert.equal(archived.statusCode, 200);
+  assert.equal(responseBody(archived).data.archivedAt, "2098-12-02T00:00:00.000Z");
+  assert.equal(restored.statusCode, 200);
+  assert.equal(responseBody(restored).data.archivedAt, undefined);
+  assert.deepEqual(
+    trace.filter(({ name }) => name === "archiveBooking" || name === "restoreBooking").map(({ name, args }) => [name, args]),
+    [
+      ["archiveBooking", ["booking-1", TRUSTED_UID, 3]],
+      ["restoreBooking", ["booking-1", TRUSTED_UID, 4]],
+    ],
+  );
+});
+
+test("customer history is booking-scoped so no phone number enters the URL", async () => {
+  const trace = [];
+  const response = await handlerFor(fakeService(trace), { trace })(
+    event("GET", "/v1/admin/bookings/booking-1/customer-history", undefined, { query: { limit: "25" } }),
+  );
+  assert.equal(response.statusCode, 200);
+  assert.equal(responseBody(response).data.items[0].name, 'Ada, "Ace"\r\nLovelace');
+  assert.deepEqual(
+    trace.find(({ name }) => name === "listCustomerHistory").args,
+    ["booking-1", 25],
+  );
+});
+
+test("booking pagination rejects unsafe or ambiguous filters before service work", async () => {
+  for (const query of [
+    { date: DATE, from: DATE },
+    { from: DATE, to: "2098-12-01" },
+    { archive: "deleted" },
+    { archive: "archived" },
+    { q: "Ada" },
+    { limit: "0" },
+    { limit: "101" },
+    { limit: 50 },
+    { q: " " },
+    { cursor: "bad\u0000cursor" },
+  ]) {
+    const trace = [];
+    const response = await handlerFor(fakeService(trace), { trace })(
+      event("GET", "/v1/admin/bookings", undefined, { query }),
+    );
+    assert.equal(response.statusCode, 400, JSON.stringify(query));
+    assert.equal(trace.some(({ type }) => type === "service"), false);
+  }
+});
+
+test("booking mutations reject unknown fields and duplicate aliases before service work", async () => {
+  for (const [path, body] of [
+    ["/confirm", { expectedVersion: 3, extra: true }],
+    ["/confirm", { expectedVersion: 3, expected_version: 3 }],
+    ["/reschedule", { expectedVersion: 3, sessionId: LATER, session_id: LATER }],
+    ["/reassign", { expectedVersion: 3, courtId: "02", court_id: "02" }],
+  ]) {
+    const trace = [];
+    const response = await handlerFor(fakeService(trace), { trace })(
+      event("POST", `/v1/admin/bookings/booking-1${path}`, body),
+    );
+    assert.equal(response.statusCode, 400, path);
+    assert.equal(trace.some(({ type }) => type === "service"), false);
+  }
 });
 
 test("bootstrap authenticates once, runs all same-day reads concurrently, and reuses the dashboard", async () => {
@@ -544,7 +648,7 @@ test("CSV export uses a strict column allowlist, neutralizes formulas, and escap
     {
       type: "service",
       name: "listBookings",
-      args: [{ fromDate: DATE, toDate: DATE, limit: 500 }],
+      args: [{ fromDate: DATE, toDate: DATE, archive: "all", limit: 500 }],
     },
   );
   for (const forbidden of [
@@ -639,7 +743,7 @@ test("stale admin mutation returns 409 without changing repository state", async
   assert.equal(trace[0].type, "auth");
 });
 
-test("redaction through the handler removes both lookup paths and all personal fields", async () => {
+test("manual admin redaction is not exposed and leaves personal data untouched", async () => {
   const trace = [];
   const { repository, service, handler } = realSetup(trace);
   const created = await service.create({
@@ -665,26 +769,24 @@ test("redaction through the handler removes both lookup paths and all personal f
   );
   const stored = await repository.runTransaction((transaction) => transaction.getBooking(created.id));
 
-  assert.equal(response.statusCode, 200);
-  assert.equal(await service.lookup(created.code, created.phone), null);
-  assert.equal(stored.name, undefined);
-  assert.equal(stored.phone, undefined);
-  assert.equal(stored.phoneHash, undefined);
-  assert.equal(stored.email, undefined);
-  assert.equal(stored.note, undefined);
-  assert.equal(stored.idempotencyKeyHash, undefined);
+  assert.equal(response.statusCode, 404);
+  assert.notEqual(await service.lookup(created.code, created.phone), null);
+  assert.equal(stored.name, cancelled.name);
+  assert.equal(stored.phone, cancelled.phone);
+  assert.equal(stored.phoneHash, cancelled.phoneHash);
+  assert.equal(stored.email, cancelled.email);
+  assert.equal(stored.note, cancelled.note);
+  assert.equal(stored.idempotencyKeyHash, cancelled.idempotencyKeyHash);
   assert.equal(stored.code, created.code);
   assert.equal(stored.courtId, created.courtId);
   assert.equal(stored.status, "cancelled");
-  const audit = (await repository.listAuditLogs()).find(
-    (entry) => entry.action === "personal_data_redacted",
+  assert.equal(
+    (await repository.listAuditLogs()).some((entry) => entry.action === "personal_data_redacted"),
+    false,
   );
-  assert.equal(audit.actorId, TRUSTED_UID);
-  assert.equal(audit.actorType, "staff");
-  assert.deepEqual(audit.metadata, {});
 });
 
-test("stale handler redaction changes neither booking nor audit history", async () => {
+test("manual admin redaction remains unavailable regardless of supplied version", async () => {
   const trace = [];
   const { repository, service, handler } = realSetup(trace);
   const created = await service.create({
@@ -705,7 +807,7 @@ test("stale handler redaction changes neither booking nor audit history", async 
     event("POST", `/v1/admin/bookings/${created.id}/redact`, { expectedVersion: 0 }),
   );
 
-  assert.equal(response.statusCode, 409);
+  assert.equal(response.statusCode, 404);
   assert.deepEqual(
     await repository.runTransaction((transaction) => transaction.getBooking(created.id)),
     before,

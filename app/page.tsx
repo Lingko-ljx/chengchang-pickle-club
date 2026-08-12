@@ -175,14 +175,15 @@ export default function Home() {
           {/* The static hosts serve this generated public asset without an image optimizer. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            alt="蓝绿色匹克球场、球拍与黄色匹克球"
+            alt="睿安成 PICKLE CLUB 南昌匹克球馆主视觉"
             className="hero-visual-image"
+            decoding="async"
+            fetchPriority="high"
+            height={941}
+            loading="eager"
             src={`${basePath}/ruiancheng-court-hero.png`}
+            width={1672}
           />
-          <div className="hero-caption">
-            <span>RUIANCHENG</span>
-            <span>NANCHANG</span>
-          </div>
         </div>
       </section>
 

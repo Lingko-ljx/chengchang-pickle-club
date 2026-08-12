@@ -30,6 +30,8 @@ const INDEXES = [
   ["bookings", "bookings_sessionId_status", ["sessionId", "status"]],
   ["bookings", "bookings_date_createdAt_id", ["date", "createdAt", "id"]],
   ["bookings", "bookings_date_status_createdAt_id", ["date", "status", "createdAt", "id"]],
+  ["bookings", "bookings_date_mode_createdAt_id", ["date", "mode", "createdAt", "id"]],
+  ["bookings", "bookings_date_status_mode_createdAt_id", ["date", "status", "mode", "createdAt", "id"]],
   ["bookings", "bookings_proposedDate_status_createdAt_id", ["proposedDate", "status", "createdAt", "id"]],
   ["bookings", "bookings_phoneHash_createdAt", ["phoneHash", "createdAt"]],
   [
@@ -352,7 +354,7 @@ test("creates booking v2 storage, policy, eleven courts, and preserves sixteen l
   assert.deepEqual(result, {
     createdCollections: 12,
     updatedCollectionAcls: 12,
-    createdIndexes: 10,
+    createdIndexes: 12,
     createdSeeds: 28,
   });
 });
@@ -433,7 +435,7 @@ test("an interrupted ACL hardening run resumes without rewriting completed colle
   assert.deepEqual(result, {
     createdCollections: 6,
     updatedCollectionAcls: 7,
-    createdIndexes: 10,
+    createdIndexes: 12,
     createdSeeds: 28,
   });
 });
@@ -716,7 +718,7 @@ test("retries bounded post-condition reads until created resources are actually 
   assert.deepEqual(result, {
     createdCollections: 12,
     updatedCollectionAcls: 12,
-    createdIndexes: 10,
+    createdIndexes: 12,
     createdSeeds: 28,
   });
 });
@@ -744,7 +746,7 @@ test("retries bounded ACL post-condition reads until ADMINONLY is visible", asyn
   assert.deepEqual(result, {
     createdCollections: 12,
     updatedCollectionAcls: 12,
-    createdIndexes: 10,
+    createdIndexes: 12,
     createdSeeds: 28,
   });
   assert.deepEqual(

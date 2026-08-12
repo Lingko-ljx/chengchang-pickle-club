@@ -3,6 +3,7 @@ import type {
   AuditLog,
   AvailabilitySlot,
   BookingRecord,
+  BookingPage,
   CourtAllocation,
   CourtDayInventory,
   CourtRecord,
@@ -38,10 +39,12 @@ export interface BookingRepository {
   runTransaction<T>(work: (transaction: BookingTransaction) => Promise<T>): Promise<T>;
   isBookingInventoryV2Ready(): Promise<boolean>;
   getBookingById(bookingId: string): Promise<BookingRecord | null>;
+  listCustomerHistory(bookingId: string, limit: number): Promise<BookingRecord[]>;
   listAvailability(date: string): Promise<AvailabilitySlot[]>;
   listSessions(date: string): Promise<SessionRecord[]>;
   listCourtDayInventories(date: string): Promise<CourtDayInventory[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
+  listBookingPage(filter: AdminBookingFilter): Promise<BookingPage>;
   listPendingBookings(date: string): Promise<BookingRecord[]>;
   listMatrixBookings(date: string): Promise<BookingRecord[]>;
   listCourts(): Promise<CourtRecord[]>;
@@ -54,6 +57,12 @@ export interface BookingRepository {
     expectedVersion: number,
     actorType?: "staff" | "system",
   ): Promise<void>;
+  setBookingArchived(
+    bookingId: string,
+    archived: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<BookingRecord>;
   setCourtEnabled(
     courtId: string,
     enabled: boolean,

@@ -18,6 +18,53 @@ function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
 
+const fieldCommandPrototype = {
+  and(...operands) {
+    return Object.assign(Object.create(fieldCommandPrototype), {
+      kind: "field", operator: "and", operands: [this, ...operands],
+    });
+  },
+};
+
+function fieldCommand(operator, value) {
+  return Object.assign(Object.create(fieldCommandPrototype), { kind: "field", operator, value });
+}
+
+function matchesField(actual, expression) {
+  if (!expression || expression.kind !== "field") return actual === expression;
+  if (expression.operator === "and") {
+    return expression.operands.every((operand) => matchesField(actual, operand));
+  }
+  if (expression.operator === "gte") return actual >= expression.value;
+  if (expression.operator === "lte") return actual <= expression.value;
+  if (expression.operator === "lt") return actual < expression.value;
+  if (expression.operator === "exists") return expression.value ? actual !== undefined : actual === undefined;
+  return false;
+}
+
+function matchesCondition(record, condition) {
+  if (!condition) return true;
+  if (condition.kind === "record") {
+    return condition.operator === "and"
+      ? condition.operands.every((operand) => matchesCondition(record, operand))
+      : condition.operands.some((operand) => matchesCondition(record, operand));
+  }
+  return Object.entries(condition).every(([key, value]) => matchesField(record[key], value));
+}
+
+function fakeCommand() {
+  return {
+    removeValue: { removeField: true },
+    remove() { return this.removeValue; },
+    gte(value) { return fieldCommand("gte", value); },
+    lte(value) { return fieldCommand("lte", value); },
+    lt(value) { return fieldCommand("lt", value); },
+    exists(value) { return fieldCommand("exists", value); },
+    and(...operands) { return { kind: "record", operator: "and", operands }; },
+    or(...operands) { return { kind: "record", operator: "or", operands }; },
+  };
+}
+
 class FakeDocument {
   constructor(sdk, state, collectionName, id, transactional) {
     this.sdk = sdk;
@@ -158,9 +205,7 @@ class FakeCollection {
     });
     const values = Array.from(this.state.get(this.name)?.entries() ?? [])
       .map(([id, record]) => ({ ...clone(record), _id: id }))
-      .filter((record) =>
-        Object.entries(this.condition).every(([key, value]) => record[key] === value),
-      )
+      .filter((record) => matchesCondition(record, this.condition))
       .sort((left, right) => {
         for (const [field, direction] of this.orders) {
           const compared = String(left[field]).localeCompare(String(right[field]));
@@ -194,7 +239,7 @@ class FakeCloudBaseDatabase {
     this.maxTransactionInFlight = 0;
     this.transactionBusyErrors = 0;
     this.beforeNextTransaction = undefined;
-    this.command = { removeValue: { removeField: true }, remove: () => this.command.removeValue };
+    this.command = fakeCommand();
   }
 
   collection(name) {
@@ -395,7 +440,7 @@ test("CloudBase availability omits disabled and past templates and excludes disa
 
 function pagedBookingDatabase(records, trace) {
   return {
-    command: {},
+    command: fakeCommand(),
     collection(name) {
       assert.equal(name, "bookings");
       let condition = {};
@@ -408,9 +453,9 @@ function pagedBookingDatabase(records, trace) {
         skip(value) { offset = value; return this; },
         limit(value) { pageSize = value; return this; },
         async get() {
-          trace.push({ condition: clone(condition), orders: clone(orders), offset, pageSize });
+          trace.push({ condition, orders: clone(orders), offset, pageSize });
           const matches = records
-            .filter((record) => Object.entries(condition).every(([key, value]) => record[key] === value))
+            .filter((record) => matchesCondition(record, condition))
             .sort((left, right) => {
               for (const [field, direction] of orders) {
                 const compared = String(left[field]).localeCompare(String(right[field]));
@@ -1062,7 +1107,7 @@ test("CloudBase redaction persists an explicit non-PII staff audit", async () =>
 });
 
 test("CloudBase booking export pushes the inclusive date range down before its hard limit", async () => {
-  const trace = { condition: undefined, orders: [], limit: undefined };
+  const trace = { condition: undefined, orders: [], limit: undefined, skips: [] };
   const query = {
     where(condition) {
       trace.condition = condition;
@@ -1074,6 +1119,10 @@ test("CloudBase booking export pushes the inclusive date range down before its h
     },
     limit(value) {
       trace.limit = value;
+      return this;
+    },
+    skip(value) {
+      trace.skips.push(value);
       return this;
     },
     async get() {
@@ -1127,11 +1176,13 @@ test("CloudBase booking export pushes the inclusive date range down before its h
       ],
     },
   });
-  assert.deepEqual(trace.orders, [
-    ["date", "asc"],
-    ["createdAt", "asc"],
+  assert.deepEqual(trace.orders.slice(0, 3), [
+    ["date", "desc"],
+    ["createdAt", "desc"],
+    ["id", "desc"],
   ]);
-  assert.equal(trace.limit, 500);
+  assert.equal(trace.limit, 100);
+  assert.deepEqual(trace.skips, []);
 });
 
 test("CloudBase audit history reads every ordered page for one booking", async () => {
@@ -1164,6 +1215,97 @@ test("CloudBase audit history reads every ordered page for one booking", async (
   assert.deepEqual(trace.condition, { bookingId: "booking-1" });
   assert.deepEqual(trace.orders.slice(0, 2), [["at", "asc"], ["id", "asc"]]);
   assert.deepEqual(trace.skips, [0, 100]);
+});
+
+test("CloudBase customer history resolves the selected booking then uses the phone-hash index", async () => {
+  const trace = { names: [], conditions: [], orders: [], limits: [] };
+  const selected = bookingCommand({ id: "selected", phoneHash: "stable-phone-hmac" });
+  const history = [
+    bookingCommand({ id: "new", phoneHash: "stable-phone-hmac", createdAt: "2026-08-02T00:00:00.000Z" }),
+    bookingCommand({ id: "old", phoneHash: "stable-phone-hmac", createdAt: "2026-08-01T00:00:00.000Z" }),
+  ];
+  const database = {
+    command: {},
+    collection(name) {
+      trace.names.push(name);
+      return {
+        doc(id) {
+          assert.equal(id, "selected");
+          return { async get() { return { data: [{ ...selected, _id: id }] }; } };
+        },
+        where(condition) { trace.conditions.push(condition); return this; },
+        orderBy(field, direction) { trace.orders.push([field, direction]); return this; },
+        limit(value) { trace.limits.push(value); return this; },
+        async get() { return { data: history }; },
+      };
+    },
+  };
+  const result = await new CloudBaseBookingRepository(database).listCustomerHistory("selected", 25);
+  assert.deepEqual(result.map(({ id }) => id), ["new", "old"]);
+  assert.deepEqual(trace.conditions, [{ phoneHash: "stable-phone-hmac" }]);
+  assert.deepEqual(trace.orders, [["createdAt", "desc"]]);
+  assert.deepEqual(trace.limits, [25]);
+  assert.equal(trace.names.every((name) => name === "bookings"), true);
+});
+
+test("CloudBase admin pages use a bounded opaque keyset cursor without rescanning", async () => {
+  const records = Array.from({ length: 10_000 }, (_, index) => ({
+    ...bookingCommand({
+      id: `booking-${String(index).padStart(5, "0")}`,
+      date: "2026-08-10",
+      createdAt: `2026-08-01T${String(Math.floor(index / 3600) % 24).padStart(2, "0")}:${String(Math.floor(index / 60) % 60).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
+    }),
+    ...(index % 2 === 0 ? { archivedAt: "2026-08-11T00:00:00.000Z" } : {}),
+  }));
+  const trace = [];
+  const repository = new CloudBaseBookingRepository(pagedBookingDatabase(records, trace));
+
+  const first = await repository.listBookingPage({ date: "2026-08-10", archive: "active", limit: 50 });
+  assert.equal(first.items.length, 50);
+  assert.ok(first.nextCursor);
+  assert.equal(trace.length, 1);
+  assert.deepEqual(trace[0], {
+    condition: { date: "2026-08-10" },
+    orders: [["date", "desc"], ["createdAt", "desc"], ["id", "desc"]],
+    offset: 0,
+    pageSize: 100,
+  });
+
+  const second = await repository.listBookingPage({ date: "2026-08-10", archive: "active", cursor: first.nextCursor, limit: 50 });
+  assert.equal(second.items.length, 50);
+  assert.equal(new Set([...first.items, ...second.items].map(({ id }) => id)).size, 100);
+  assert.equal(trace.length, 2);
+  assert.equal(trace[1].offset, 0);
+  assert.equal(trace[1].condition.kind, "record");
+  assert.equal(trace[1].condition.operator, "and");
+  assert.equal(trace[1].condition.operands[1].operator, "or");
+  assert.deepEqual(trace[1].condition.operands[1].operands.map((operand) => Object.keys(operand)), [
+    ["date"],
+    ["date", "createdAt"],
+    ["date", "createdAt", "id"],
+  ]);
+});
+
+test("CloudBase keyset breaks equal-date and equal-createdAt ties by descending id", async () => {
+  const createdAt = "2026-08-01T12:00:00.000Z";
+  const records = ["booking-c", "booking-b", "booking-a"].map((id) =>
+    bookingCommand({ id, date: "2026-08-10", createdAt }),
+  );
+  const trace = [];
+  const repository = new CloudBaseBookingRepository(pagedBookingDatabase(records, trace));
+
+  const first = await repository.listBookingPage({ date: "2026-08-10", limit: 1 });
+  const second = await repository.listBookingPage({ date: "2026-08-10", cursor: first.nextCursor, limit: 1 });
+
+  assert.deepEqual(first.items.map(({ id }) => id), ["booking-c"]);
+  assert.deepEqual(second.items.map(({ id }) => id), ["booking-b"]);
+  assert.equal(trace[1].offset, 0);
+});
+
+test("CloudBase refuses broad post-filter scans without a bounded date range", async () => {
+  const repository = new CloudBaseBookingRepository(pagedBookingDatabase([], []));
+  await assert.rejects(() => repository.listBookingPage({ archive: "archived", limit: 50 }), /INVALID_INPUT/);
+  await assert.rejects(() => repository.listBookingPage({ query: "Ada", limit: 50 }), /INVALID_INPUT/);
 });
 
 test("CloudBase pending scheduling reads beyond the former 500-row cap", async () => {
@@ -1235,6 +1377,8 @@ test("Task 10 provisions every stable scheduling and audit query index", async (
   for (const index of [
     "(date,createdAt,id)",
     "(date,status,createdAt,id)",
+    "(date,mode,createdAt,id)",
+    "(date,status,mode,createdAt,id)",
     "(proposedDate,status,createdAt,id)",
     "(bookingId,at,id)",
     "(status,terminalAt,personalDataRedactedAt,id)",

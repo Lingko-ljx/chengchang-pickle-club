@@ -1,4 +1,4 @@
-import { bookingCodeId } from "../booking-service.ts";
+import { bookingCodeId, decodeBookingCursor, encodeBookingCursor } from "../booking-service.ts";
 import { BookingError } from "../errors.ts";
 import type { BookingRepository, BookingTransaction } from "../ports.ts";
 import type {
@@ -6,6 +6,7 @@ import type {
   AuditLog,
   AvailabilitySlot,
   BookingRecord,
+  BookingPage,
   CourtAllocation,
   CourtDayInventory,
   CourtRecord,
@@ -308,6 +309,10 @@ export class MemoryBookingRepository implements BookingRepository {
       .filter((booking) => !filter.toDate || booking.date <= filter.toDate)
       .filter((booking) => !filter.status || booking.status === filter.status)
       .filter((booking) => !filter.mode || booking.mode === filter.mode)
+      .filter((booking) => {
+        const archive = filter.archive ?? "active";
+        return archive === "all" || (archive === "archived" ? Boolean(booking.archivedAt) : !booking.archivedAt);
+      })
       .filter(
         (booking) =>
           !normalizedQuery ||
@@ -315,13 +320,19 @@ export class MemoryBookingRepository implements BookingRepository {
             .filter((value): value is string => typeof value === "string")
             .some((value) => value.toLowerCase().includes(normalizedQuery)),
       )
-      .filter((booking) => !filter.cursor || booking.id > filter.cursor)
       .sort(
         (left, right) =>
-          left.date.localeCompare(right.date) ||
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.id.localeCompare(right.id),
+          right.date.localeCompare(left.date) ||
+          right.createdAt.localeCompare(left.createdAt) ||
+          right.id.localeCompare(left.id),
       )
+      .filter((booking) => {
+        if (!filter.cursor) return true;
+        const cursor = decodeBookingCursor(filter.cursor);
+        return booking.date < cursor.date ||
+          (booking.date === cursor.date && booking.createdAt < cursor.createdAt) ||
+          (booking.date === cursor.date && booking.createdAt === cursor.createdAt && booking.id < cursor.id);
+      })
       .slice(0, limit)
       .map(cloneValue);
   }
@@ -430,6 +441,74 @@ export class MemoryBookingRepository implements BookingRepository {
         metadata: {},
       });
       this.state = next;
+    });
+  }
+
+  async listBookingPage(filter: AdminBookingFilter): Promise<BookingPage> {
+    const limit = Math.max(1, Math.min(filter.limit ?? 50, 100));
+    const items = await this.listBookings({ ...filter, limit: limit + 1 });
+    const page = items.slice(0, limit);
+    return {
+      items: page,
+      ...(items.length > limit && page.length > 0
+        ? { nextCursor: encodeBookingCursor(page[page.length - 1]) }
+        : {}),
+    };
+  }
+
+  async listCustomerHistory(bookingId: string, limit: number): Promise<BookingRecord[]> {
+    await this.queue;
+    const selected = this.state.bookings.get(bookingId);
+    if (!selected) throw new BookingError("BOOKING_NOT_FOUND");
+    if (!selected.phoneHash) return [];
+    return Array.from(this.state.bookings.values())
+      .filter((booking) => booking.phoneHash === selected.phoneHash)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
+      .slice(0, Math.max(1, Math.min(limit, 100)))
+      .map(cloneValue);
+  }
+
+  setBookingArchived(
+    bookingId: string,
+    archived: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<BookingRecord> {
+    return this.serialized(async () => {
+      const next = cloneState(this.state);
+      const booking = next.bookings.get(bookingId);
+      if (!booking) throw new BookingError("BOOKING_NOT_FOUND");
+      if (booking.version !== expectedVersion) throw new BookingError("CONFLICT");
+      if (booking.status !== "cancelled" && booking.status !== "completed") {
+        throw new BookingError("INVALID_TRANSITION");
+      }
+      if (archived === Boolean(booking.archivedAt)) throw new BookingError("CONFLICT");
+      const at = new Date().toISOString();
+      const updated: BookingRecord = {
+        ...booking,
+        ...(archived ? { archivedAt: at, archivedBy: actorId } : {}),
+        updatedAt: at,
+        version: booking.version + 1,
+      };
+      if (!archived) {
+        delete updated.archivedAt;
+        delete updated.archivedBy;
+      }
+      next.bookings.set(bookingId, updated);
+      const action = archived ? "booking_archived" : "booking_restored";
+      next.auditLogs.set(`${action}-${bookingId}-${updated.version}`, {
+        id: `${action}-${bookingId}-${updated.version}`,
+        bookingId,
+        action,
+        actorType: "staff",
+        actorId,
+        fromStatus: booking.status,
+        toStatus: booking.status,
+        at,
+        metadata: {},
+      });
+      this.state = next;
+      return cloneValue(updated);
     });
   }
 

@@ -89,6 +89,9 @@ export interface BookingRecord {
   updatedAt: string;
   terminalAt?: string;
   personalDataRedactedAt?: string;
+  /** Staff-only soft deletion. Archived bookings retain inventory, lookup and audit history. */
+  archivedAt?: string;
+  archivedBy?: string;
   version: number;
 }
 
@@ -188,6 +191,7 @@ export interface AdminBookingFilter {
   query?: string;
   cursor?: string;
   limit?: number;
+  archive?: "active" | "archived" | "all";
 }
 
 export interface AdminDashboard {
@@ -200,4 +204,10 @@ export interface AdminDashboard {
 export interface BookingPage {
   items: BookingRecord[];
   nextCursor?: string;
+}
+
+export interface BookingCursor {
+  date: string;
+  createdAt: string;
+  id: string;
 }

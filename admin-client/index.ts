@@ -8,18 +8,24 @@ import { runAdminLoginFlow } from "./login-flow.ts";
 import { uploadHomepageMedia } from "./media-upload.ts";
 import {
   bookingActionsFor,
+  bookingRecordActionsFor,
   confirmationMessage,
+  normalizeBookingPage,
   renderBookingDetail,
   renderBookingList,
   renderCourtMatrix,
+  renderCustomerHistory,
   renderHomepageMediaAdmin,
   renderPendingQueue,
+  recordDateRange,
   retainSelectedBooking,
+  summarizeBookings,
   type AdminAuditLog,
   type AdminBooking,
   type AdminHomepageMediaItem,
   type AdminHomepageMediaManifest,
   type AvailabilitySlot,
+  type BookingRecordView,
 } from "./render.ts";
 
 type Dashboard = { date: string; pending: AdminBooking[]; slots: AvailabilitySlot[] };
@@ -97,10 +103,15 @@ function startAdmin() {
   );
   let selected: AdminBooking | null = null;
   let selectedAudits: AdminAuditLog[] = [];
+  let selectedCustomerHistory: AdminBooking[] = [];
   let activeAction: string | null = null;
   let todayDashboard: Dashboard = { date: shanghaiDate(), pending: [], slots: [] };
   let selectedDashboard: Dashboard = { date: shanghaiDate(), pending: [], slots: [] };
   let bookings: AdminBooking[] = [];
+  let recordView: BookingRecordView = "active";
+  let recordNextCursor: string | null = null;
+  let recordHasMore = false;
+  let recordLoading = false;
   let matrixBookings: AdminBooking[] = [];
   let settings: Settings = { courts: [], sessionTemplates: [] };
   let courtDraft: Record<string, boolean> = {};
@@ -109,6 +120,47 @@ function startAdmin() {
   let mediaBusy = false;
   const selectedDate = required<HTMLInputElement>("admin-filter-date");
   selectedDate.value = selectedDashboard.date;
+  const recordFrom = required<HTMLInputElement>("admin-filter-from");
+  const recordTo = required<HTMLInputElement>("admin-filter-to");
+  const applyRecordRange = (preset: "today" | "7" | "30" | "all") => {
+    const range = recordDateRange(shanghaiDate(), preset);
+    recordFrom.value = range.from;
+    recordTo.value = range.to;
+  };
+  applyRecordRange("30");
+
+  const renderRecordSummary = () => {
+    const summary = summarizeBookings(bookings);
+    required("admin-record-count").textContent = String(summary.loaded);
+    required("admin-summary-loaded").textContent = String(summary.loaded);
+    required("admin-summary-pending").textContent = String(summary.pending);
+    required("admin-summary-confirmed").textContent = String(summary.confirmed);
+    required("admin-summary-finished").textContent = String(summary.finished);
+    required("admin-record-results-title").textContent = recordView === "archived"
+      ? "回收站记录"
+      : "预约记录";
+    const loadMore = required<HTMLButtonElement>("admin-load-more");
+    loadMore.hidden = !recordHasMore;
+    loadMore.disabled = recordLoading;
+    loadMore.textContent = recordLoading ? "正在加载…" : "加载更多记录";
+    required("admin-record-loading").textContent = recordLoading
+      ? "正在加载…"
+      : recordHasMore
+        ? `已加载 ${summary.loaded} 条，还有更多`
+        : `已加载 ${summary.loaded} 条`;
+  };
+
+  const renderRecordView = () => {
+    const active = required<HTMLButtonElement>("admin-record-view-active");
+    const archived = required<HTMLButtonElement>("admin-record-view-archived");
+    active.classList.toggle("is-active", recordView === "active");
+    archived.classList.toggle("is-active", recordView === "archived");
+    active.setAttribute("aria-pressed", String(recordView === "active"));
+    archived.setAttribute("aria-pressed", String(recordView === "archived"));
+    required("admin-record-view-help").textContent = recordView === "archived"
+      ? "回收站记录可恢复；隐私保留期内可查看客人资料，过期后仅保留脱敏记录。"
+      : "已取消或已完成的记录可移入回收站；隐私保留期内可恢复查看，过期后仅保留脱敏记录。";
+  };
 
   const showMessage = (value: string, error = false) => {
     message.textContent = value;
@@ -119,6 +171,7 @@ function startAdmin() {
     await session.clear().catch(() => undefined);
     selected = null;
     selectedAudits = [];
+    selectedCustomerHistory = [];
     setHidden(dashboardElement, true);
     setHidden(signOutButton, true);
     setHidden(loginForm, false);
@@ -239,13 +292,38 @@ function startAdmin() {
     renderActions();
   };
 
+  const loadSelectedCustomerHistory = async () => {
+    const bookingId = selected?.id;
+    if (!bookingId) return;
+    selectedCustomerHistory = [];
+    renderCustomerHistory(required("admin-customer-history"), selected, [], "loading");
+    try {
+      const page = normalizeBookingPage(await api.getCustomerHistory(bookingId, 50) as
+        AdminBooking[] | { items?: AdminBooking[]; nextCursor?: string | null });
+      if (selected?.id !== bookingId) return;
+      selectedCustomerHistory = page.items;
+      renderCustomerHistory(
+        required("admin-customer-history"),
+        selected,
+        selectedCustomerHistory,
+      );
+    } catch {
+      if (selected?.id !== bookingId) return;
+      renderCustomerHistory(required("admin-customer-history"), selected, [], "error");
+    }
+  };
+
   const onSelect = (booking: AdminBooking) => {
     selected = booking;
     selectedAudits = [];
+    selectedCustomerHistory = [];
     renderBookingDetail(required("admin-booking-detail"), booking, selectedAudits);
+    renderBookingList(required("admin-booking-list"), bookings, onSelect, booking.id);
+    renderCustomerHistory(required("admin-customer-history"), booking, [], "loading");
     renderActions();
     loadSelectedAudits()
       .catch((error) => showMessage(String(error), true));
+    loadSelectedCustomerHistory().catch(() => undefined);
   };
 
   const renderSettings = () => {
@@ -343,7 +421,7 @@ function startAdmin() {
   const renderAll = () => {
     required("admin-pending-count").textContent = String(todayDashboard.pending.length);
     renderPendingQueue(required("admin-pending-list"), todayDashboard.pending, onSelect);
-    renderBookingList(required("admin-booking-list"), bookings, onSelect);
+    renderBookingList(required("admin-booking-list"), bookings, onSelect, selected?.id);
     renderCourtMatrix(required("admin-court-matrix"), selectedDashboard.date, matrixBookings, onSelect);
     if (selected) {
       selected = retainSelectedBooking(
@@ -352,57 +430,110 @@ function startAdmin() {
       );
     }
     renderBookingDetail(required("admin-booking-detail"), selected, selectedAudits);
+    renderCustomerHistory(required("admin-customer-history"), selected, selectedCustomerHistory);
+    renderRecordView();
+    renderRecordSummary();
     renderActions();
     renderSettings();
   };
 
-  const filters = () => ({
-    date: selectedDate.value,
-    status: required<HTMLSelectElement>("admin-filter-status").value,
-    mode: required<HTMLSelectElement>("admin-filter-mode").value,
-    q: required<HTMLInputElement>("admin-filter-query").value.trim(),
-  });
+  const filters = () => {
+    if (!recordFrom.value || !recordTo.value) applyRecordRange("30");
+    return {
+      from: recordFrom.value,
+      to: recordTo.value,
+      status: required<HTMLSelectElement>("admin-filter-status").value,
+      mode: required<HTMLSelectElement>("admin-filter-mode").value,
+      q: required<HTMLInputElement>("admin-filter-query").value.trim(),
+      archive: recordView,
+    };
+  };
+
+  const refreshRecords = async (append = false) => {
+    if (recordLoading) return;
+    recordLoading = true;
+    renderRecordSummary();
+    try {
+      const page = normalizeBookingPage(await api.listBookings({
+        ...filters(),
+        ...(append && recordNextCursor ? { cursor: recordNextCursor } : {}),
+        limit: 50,
+      }) as AdminBooking[] | {
+        items?: AdminBooking[];
+        nextCursor?: string | null;
+        hasMore?: boolean;
+      });
+      bookings = append
+        ? [...bookings, ...page.items.filter((candidate) =>
+            !bookings.some((booking) => booking.id === candidate.id)
+          )]
+        : page.items;
+      recordNextCursor = page.nextCursor;
+      recordHasMore = page.hasMore;
+      selected = retainSelectedBooking(selected, bookings);
+      renderBookingList(required("admin-booking-list"), bookings, onSelect, selected?.id);
+      renderBookingDetail(required("admin-booking-detail"), selected, selectedAudits);
+      renderCustomerHistory(required("admin-customer-history"), selected, selectedCustomerHistory);
+      renderActions();
+    } finally {
+      recordLoading = false;
+      renderRecordSummary();
+    }
+  };
+
   const refresh = async () => {
     const today = shanghaiDate();
     const date = selectedDate.value || today;
     const bootstrap = await api.getBootstrap(today, {
-      ...filters(),
       date,
     }) as Bootstrap;
     todayDashboard = bootstrap.todayDashboard;
     selectedDashboard = bootstrap.selectedDashboard;
-    bookings = bootstrap.bookings;
     matrixBookings = bootstrap.matrixBookings;
     settings = bootstrap.settings;
     courtDraft = {};
     renderAll();
-    await refreshMedia();
-    if (selected) await loadSelectedAudits();
+    await Promise.all([refreshMedia(), refreshRecords()]);
+    if (selected) await Promise.all([loadSelectedAudits(), loadSelectedCustomerHistory()]);
   };
 
   async function runBookingAction(action: string, label: string) {
     if (!selected || activeAction) return;
     const target = selected;
     const body: Record<string, unknown> = { expectedVersion: target.version };
-    if (!window.confirm(confirmationMessage(target, label))) return;
+    const prompt = action === "archive"
+      ? `删除“${target.name?.trim() || target.code}”的预约记录？\n\n记录将移入回收站，可以恢复；客户历史和操作记录不会丢失。`
+      : action === "restore"
+        ? `恢复“${target.name?.trim() || target.code}”的预约记录？`
+        : confirmationMessage(target, label);
+    if (!window.confirm(prompt)) return;
     activeAction = action;
     renderActions();
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      required("admin-booking-detail").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     try {
-      const updated = await api.mutateBooking(target.id, action, body);
+      const updated = action === "archive"
+        ? await api.archiveBooking(target.id, target.version)
+        : action === "restore"
+          ? await api.restoreBooking(target.id, target.version)
+          : await api.mutateBooking(target.id, action, body);
+      if (action === "archive" || action === "restore") {
+        bookings = bookings.filter((booking) => booking.id !== target.id);
+        recordHasMore = Boolean(recordNextCursor) || recordHasMore;
+      }
       if (selected?.id === target.id) {
-        selected = action === "redact"
-          ? {
-              ...target,
-              name: undefined,
-              phone: undefined,
-              email: undefined,
-              note: undefined,
-              personalDataRedactedAt: new Date().toISOString(),
-              version: target.version + 1,
-            }
+        selected = action === "archive" || action === "restore"
+          ? null
           : updated as AdminBooking;
         selectedAudits = [];
+        if (action === "archive" || action === "restore") selectedCustomerHistory = [];
         renderBookingDetail(required("admin-booking-detail"), selected, selectedAudits);
+        renderCustomerHistory(required("admin-customer-history"), selected, selectedCustomerHistory);
+      }
+      if (action === "archive" || action === "restore") {
+        renderBookingList(required("admin-booking-list"), bookings, onSelect);
+        renderRecordSummary();
       }
       showMessage(`${label}成功。`);
       try {
@@ -422,15 +553,39 @@ function startAdmin() {
     if (!selected) return;
     const actions = document.createElement("div");
     actions.className = "admin-detail-actions";
-    for (const [action, label] of bookingActionsFor(selected)) {
+    const selectedView: BookingRecordView = selected.archivedAt ? "archived" : "active";
+    const definitions = [
+      ...(selectedView === "active" ? bookingActionsFor(selected) : []),
+      ...bookingRecordActionsFor(selected),
+    ];
+    for (const [action, label] of definitions) {
       const button = document.createElement("button");
       button.type = "button";
       button.disabled = activeAction !== null;
+      button.dataset.adminAction = action;
+      if (action === "archive") button.classList.add("admin-danger-button");
       button.textContent = activeAction === action ? `${label}处理中…` : label;
       button.addEventListener("click", () => {
         runBookingAction(action, label).catch((error) => showMessage(String(error), true));
       });
       actions.append(button);
+    }
+    if (
+      selectedView === "active" &&
+      selected.status !== "cancelled" &&
+      selected.status !== "completed"
+    ) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.disabled = true;
+      deleteButton.className = "admin-danger-button";
+      deleteButton.textContent = "删除记录";
+      deleteButton.title = "请先取消或完结当前预约";
+      actions.append(deleteButton);
+      const hint = document.createElement("p");
+      hint.className = "admin-detail-action-help";
+      hint.textContent = "当前预约需先取消或完结，之后才能删除到可恢复的回收站。";
+      actions.append(hint);
     }
     detail.append(actions);
   }
@@ -466,7 +621,43 @@ function startAdmin() {
   });
   required<HTMLFormElement>("admin-filter-form").addEventListener("submit", (event) => {
     event.preventDefault();
+    recordNextCursor = null;
+    refreshRecords().catch((error) => showMessage(String(error), true));
+  });
+  required<HTMLFormElement>("admin-matrix-form").addEventListener("submit", (event) => {
+    event.preventDefault();
     refresh().catch((error) => showMessage(String(error), true));
+  });
+  required<HTMLButtonElement>("admin-load-more").addEventListener("click", () => {
+    refreshRecords(true).catch((error) => showMessage(String(error), true));
+  });
+  const setRecordView = (view: BookingRecordView) => {
+    if (recordView === view || recordLoading) return;
+    recordView = view;
+    selected = null;
+    selectedAudits = [];
+    selectedCustomerHistory = [];
+    recordNextCursor = null;
+    bookings = [];
+    recordHasMore = false;
+    renderAll();
+    refreshRecords().catch((error) => showMessage(String(error), true));
+  };
+  required<HTMLButtonElement>("admin-record-view-active").addEventListener("click", () => setRecordView("active"));
+  required<HTMLButtonElement>("admin-record-view-archived").addEventListener("click", () => setRecordView("archived"));
+  required<HTMLButtonElement>("admin-filter-reset").addEventListener("click", () => {
+    required<HTMLFormElement>("admin-filter-form").reset();
+    applyRecordRange("30");
+    recordNextCursor = null;
+    refreshRecords().catch((error) => showMessage(String(error), true));
+  });
+  const setRange = (days: string) => {
+    applyRecordRange(days as "today" | "7" | "30" | "all");
+    recordNextCursor = null;
+    refreshRecords().catch((error) => showMessage(String(error), true));
+  };
+  document.querySelectorAll<HTMLButtonElement>("[data-record-range]").forEach((button) => {
+    button.addEventListener("click", () => setRange(button.dataset.recordRange ?? "all"));
   });
   required<HTMLFormElement>("admin-export-form").addEventListener("submit", (event) => {
     event.preventDefault();

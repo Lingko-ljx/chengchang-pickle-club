@@ -11,23 +11,16 @@ export const BOOKING_ACTIONS = [
   ["confirm", "确认预约"],
   ["cancel", "取消预约"],
   ["complete", "完结预约"],
-  ["redact", "提前脱敏"],
 ] as const;
 
 export function bookingActionsFor(booking: {
   status: string;
   personalDataRedactedAt?: string;
 }): Array<(typeof BOOKING_ACTIONS)[number]> {
-  const [confirm, cancel, complete, redact] = BOOKING_ACTIONS;
+  const [confirm, cancel, complete] = BOOKING_ACTIONS;
   if (booking.status === "pending") return [confirm, cancel];
   if (booking.status === "confirmed") return [complete, cancel];
   if (booking.status === "reschedule_proposed") return [cancel];
-  if (
-    (booking.status === "cancelled" || booking.status === "completed") &&
-    !booking.personalDataRedactedAt
-  ) {
-    return [redact];
-  }
   return [];
 }
 
@@ -54,6 +47,7 @@ export type AdminBooking = {
   createdAt: string;
   updatedAt: string;
   personalDataRedactedAt?: string;
+  archivedAt?: string;
   version: number;
 };
 
@@ -91,6 +85,69 @@ type ShanghaiInstantParts = {
   date: string;
   time: string;
 };
+
+const auditActionLabels: Record<string, string> = {
+  created: "创建预约",
+  confirmed: "确认预约",
+  cancelled: "取消预约",
+  completed: "完结预约",
+  reschedule_proposed: "提出改期",
+  reschedule_accepted: "接受改期",
+  reschedule_rejected: "拒绝改期",
+  reassigned: "调整场地",
+  personal_data_redacted: "清理隐私资料",
+  booking_archived: "移入回收站",
+  booking_restored: "从回收站恢复",
+};
+
+export function statusLabel(status: string): string {
+  return statusLabels[status] ?? "未知状态";
+}
+
+export type BookingRecordView = "active" | "archived";
+export type BookingPage<T> = {
+  items: T[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export function normalizeBookingPage<T>(value: T[] | {
+  items?: T[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
+}): BookingPage<T> {
+  if (Array.isArray(value)) return { items: value, nextCursor: null, hasMore: false };
+  const nextCursor = typeof value?.nextCursor === "string" && value.nextCursor
+    ? value.nextCursor
+    : null;
+  return {
+    items: Array.isArray(value?.items) ? value.items : [],
+    nextCursor,
+    hasMore: typeof value?.hasMore === "boolean" ? value.hasMore : Boolean(nextCursor),
+  };
+}
+
+export function recordDateRange(
+  today: string,
+  preset: "today" | "7" | "30" | "all" | string,
+): { from: string; to: string } {
+  if (preset === "all") return { from: "2026-01-01", to: today };
+  if (preset === "today") return { from: today, to: today };
+  const days = Math.max(1, Number.parseInt(preset, 10) || 30);
+  const from = new Date(`${today}T12:00:00.000Z`);
+  from.setUTCDate(from.getUTCDate() - days + 1);
+  return { from: from.toISOString().slice(0, 10), to: today };
+}
+
+export function bookingRecordActionsFor(
+  booking: Pick<AdminBooking, "status" | "archivedAt">,
+): Array<["archive" | "restore", string]> {
+  if (booking.archivedAt) return [["restore", "恢复记录"]];
+  if (booking.status === "cancelled" || booking.status === "completed") {
+    return [["archive", "删除记录"]];
+  }
+  return [];
+}
 
 export type AdminHomepageMediaItem = {
   id: string;
@@ -226,7 +283,7 @@ function bookingButton(
     text("strong", bookingDisplayName(booking)),
     text("span", `北京时间 ${formatShanghaiBookingSchedule(booking)} · ${bookingDurationLabel(booking)}`),
     text("span", `场地 ${booking.courtId ?? "待分配"}`),
-    text("span", `${statusLabels[booking.status] ?? booking.status} · ${booking.partySize} 人`),
+    text("span", `${statusLabel(booking.status)} · ${booking.partySize} 人`),
   );
   button.addEventListener("click", () => onSelect(selectedBooking));
   return button;
@@ -249,13 +306,81 @@ export function renderBookingList(
   container: Element,
   bookings: AdminBooking[],
   onSelect: (booking: AdminBooking) => void,
+  selectedId?: string,
 ) {
   empty(container);
   if (!bookings.length) {
     container.append(text("p", "没有符合筛选条件的预约。", "admin-empty"));
     return;
   }
-  for (const booking of bookings) container.append(bookingButton(booking, onSelect));
+  for (const booking of bookings) {
+    const button = bookingButton(booking, onSelect);
+    if (booking.id === selectedId) {
+      button.classList.add("is-selected");
+      button.setAttribute("aria-current", "true");
+    }
+    container.append(button);
+  }
+}
+
+export function summarizeBookings(bookings: AdminBooking[]) {
+  return {
+    loaded: bookings.length,
+    pending: bookings.filter((booking) => booking.status === "pending").length,
+    confirmed: bookings.filter((booking) => booking.status === "confirmed").length,
+    finished: bookings.filter((booking) =>
+      booking.status === "cancelled" || booking.status === "completed"
+    ).length,
+  };
+}
+
+export function renderCustomerHistory(
+  container: Element,
+  selected: AdminBooking | null,
+  bookings: AdminBooking[] = [],
+  state: "ready" | "loading" | "error" = "ready",
+) {
+  empty(container);
+  container.append(text("h3", "客人过往预约"));
+  if (!selected) {
+    container.append(text("p", "选择一条预约后，这里会显示该客人的过往记录和备注。", "admin-empty"));
+    return;
+  }
+  if (state === "loading") {
+    container.append(text("p", "正在读取该客人的历史记录…", "admin-empty"));
+    return;
+  }
+  if (state === "error") {
+    container.append(text("p", "历史记录暂时未能加载，不影响当前预约的查看和操作。", "admin-empty"));
+    return;
+  }
+  const matches = [...bookings].sort((left, right) => right.startAt.localeCompare(left.startAt));
+  if (!matches.length) {
+    container.append(text(
+      "p",
+      selected.personalDataRedactedAt
+        ? "联系方式已按隐私规则清理，无法关联更多历史记录。"
+        : "没有找到该客人的其他预约记录。",
+      "admin-empty",
+    ));
+    return;
+  }
+  container.append(text(
+    "p",
+    `显示最近 ${matches.length} 次预约。`,
+    "admin-history-summary",
+  ));
+  const list = document.createElement("ul");
+  for (const booking of matches) {
+    const item = document.createElement("li");
+    item.append(
+      text("strong", formatShanghaiBookingSchedule(booking)),
+      text("span", `${statusLabel(booking.status)} · 场地 ${booking.courtId ?? "待分配"}`),
+    );
+    if (booking.note) item.append(text("p", `备注：${booking.note}`));
+    list.append(item);
+  }
+  container.append(list);
 }
 
 export function renderCourtMatrix(
@@ -464,7 +589,7 @@ export function renderBookingDetail(
   container.append(
     text("h3", bookingDisplayName(booking)),
     text("p", `预约号 ${booking.code}`, "admin-detail-code"),
-    text("p", `状态：${statusLabels[booking.status] ?? booking.status}`, "admin-detail-status"),
+    text("p", `状态：${statusLabel(booking.status)}`, "admin-detail-status"),
     text("p", `北京时间 ${formatShanghaiBookingSchedule(booking)} · ${bookingDurationLabel(booking)}`),
     text("p", `${booking.mode === "private" ? "包场" : "散客"} · ${booking.partySize} 人 · 场地 ${booking.courtId ?? "待分配"}`),
     text("p", booking.phone ?? "号码已脱敏"),
@@ -472,13 +597,17 @@ export function renderBookingDetail(
     text("p", booking.note ?? "无备注"),
   );
   if (audits.length) {
+    container.append(text("h4", "操作记录", "admin-detail-subheading"));
     const timeline = document.createElement("ol");
     timeline.className = "admin-detail-timeline";
     for (const audit of audits) {
       const transition = audit.fromStatus && audit.toStatus
-        ? ` ${audit.fromStatus} → ${audit.toStatus}`
+        ? ` ${statusLabel(audit.fromStatus)} → ${statusLabel(audit.toStatus)}`
         : "";
-      timeline.append(text("li", `${audit.action}${transition} · ${formatShanghaiDateTime(audit.at)}`));
+      timeline.append(text(
+        "li",
+        `${auditActionLabels[audit.action] ?? audit.action}${transition} · ${formatShanghaiDateTime(audit.at)}`,
+      ));
     }
     container.append(timeline);
   }

@@ -113,7 +113,10 @@ test("server renders the real booking form and current venue contract", async ()
   }
   assert.match(html, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
   assert.match(html, /13807917663/);
-  assert.match(html, /ruiancheng-court-hero\.png/);
+  assert.match(
+    html,
+    /<img(?=[^>]*alt="睿安成 PICKLE CLUB 南昌匹克球馆主视觉")(?=[^>]*src="[^"]*\/ruiancheng-court-hero\.png")(?=[^>]*width="1672")(?=[^>]*height="941")[^>]*>/,
+  );
   assert.doesNotMatch(html, /澄场|CHENGCHANG|上海市徐汇区|社交媒体|演示资料|毛之谦|荣誉留待书写|暂为空/);
   assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/);
 });

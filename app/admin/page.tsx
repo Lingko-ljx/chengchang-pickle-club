@@ -58,7 +58,8 @@ export default function AdminPage() {
         <div hidden id="admin-dashboard">
           <nav aria-label="后台视图" className="admin-tabs">
             <a href="#admin-today">今日待办</a>
-            <a href="#admin-calendar">场地矩阵</a>
+            <a href="#admin-records">预约记录</a>
+            <a href="#admin-calendar">场地排期</a>
             <a href="#admin-media">首页宣传</a>
             <a href="#admin-settings">营业设置</a>
           </nav>
@@ -71,22 +72,74 @@ export default function AdminPage() {
             <div className="admin-booking-list" id="admin-pending-list" />
           </section>
 
+          <section className="admin-panel admin-records" id="admin-records">
+            <div className="admin-section-heading admin-records-heading">
+              <div>
+                <span>BOOKINGS</span>
+                <h2>预约记录</h2>
+                <p>按姓名、手机号、日期和状态查找；每次加载 50 条，历史数据再多也能快速管理。</p>
+              </div>
+              <strong id="admin-record-count">0</strong>
+            </div>
+
+            <div aria-label="已加载预约概览" className="admin-record-summary">
+              <article><span>已加载</span><strong id="admin-summary-loaded">0</strong></article>
+              <article><span>待确认</span><strong id="admin-summary-pending">0</strong></article>
+              <article><span>已确认</span><strong id="admin-summary-confirmed">0</strong></article>
+              <article><span>已结束</span><strong id="admin-summary-finished">0</strong></article>
+            </div>
+
+            <div className="admin-record-view" role="group" aria-label="预约记录类型">
+              <button aria-pressed="true" className="is-active" id="admin-record-view-active" type="button">预约记录</button>
+              <button aria-pressed="false" id="admin-record-view-archived" type="button">回收站</button>
+              <p id="admin-record-view-help">已取消或已完成的记录可移入回收站；隐私保留期内可恢复查看，过期后仅保留脱敏记录。</p>
+            </div>
+
+            <form className="admin-filters admin-record-filters" id="admin-filter-form">
+              <label htmlFor="admin-filter-from"><span>开始日期</span><input id="admin-filter-from" type="date" /></label>
+              <label htmlFor="admin-filter-to"><span>结束日期</span><input id="admin-filter-to" type="date" /></label>
+              <label htmlFor="admin-filter-status"><span>状态</span><select id="admin-filter-status"><option value="">全部状态</option><option value="pending">待确认</option><option value="confirmed">已确认</option><option value="reschedule_proposed">等待改期</option><option value="cancelled">已取消</option><option value="completed">已完成</option></select></label>
+              <label htmlFor="admin-filter-mode"><span>模式</span><select id="admin-filter-mode"><option value="">全部模式</option><option value="private">包场</option><option value="open">散客</option></select></label>
+              <label className="admin-filter-search" htmlFor="admin-filter-query"><span>查找客人</span><input autoComplete="off" id="admin-filter-query" placeholder="姓名或手机号" type="search" /></label>
+              <button className="primary-button" type="submit">查询记录</button>
+              <button id="admin-filter-reset" type="button">清空条件</button>
+            </form>
+            <div className="admin-range-shortcuts" aria-label="快捷日期范围">
+              <span>快捷查看</span>
+              <button data-record-range="today" type="button">今天</button>
+              <button data-record-range="7" type="button">近 7 天</button>
+              <button data-record-range="30" type="button">近 30 天</button>
+              <button data-record-range="all" type="button">全部历史</button>
+            </div>
+
+            <div className="admin-workspace admin-record-workspace">
+              <div className="admin-record-results">
+                <div className="admin-record-results-heading">
+                  <h3 id="admin-record-results-title">全部预约</h3>
+                  <span id="admin-record-loading" role="status">准备加载</span>
+                </div>
+                <div className="admin-booking-list" id="admin-booking-list" />
+                <button className="admin-load-more" hidden id="admin-load-more" type="button">加载更多记录</button>
+              </div>
+              <div className="admin-record-inspector">
+                <aside className="admin-detail" id="admin-booking-detail" />
+                <section aria-live="polite" className="admin-customer-history" id="admin-customer-history">
+                  <h3>客人过往预约</h3>
+                  <p className="admin-empty">选择一条预约后，这里会显示该客人的过往记录和备注。</p>
+                </section>
+              </div>
+            </div>
+          </section>
+
           <section className="admin-panel" id="admin-calendar">
             <div className="admin-section-heading">
-              <div><span>OPERATIONS</span><h2>预约与场地</h2></div>
+              <div><span>COURTS</span><h2>场地排期</h2><p>按日期查看 11 片场地的半小时占用情况。</p></div>
             </div>
-            <form className="admin-filters" id="admin-filter-form">
-              <label htmlFor="admin-filter-date"><span>日期</span><input id="admin-filter-date" required type="date" /></label>
-              <label htmlFor="admin-filter-status"><span>状态</span><select id="admin-filter-status"><option value="">全部</option><option value="pending">待确认</option><option value="confirmed">已确认</option><option value="reschedule_proposed">等待改期</option><option value="cancelled">已取消</option><option value="completed">已完成</option></select></label>
-              <label htmlFor="admin-filter-mode"><span>模式</span><select id="admin-filter-mode"><option value="">全部</option><option value="private">包场</option><option value="open">散客</option></select></label>
-              <label htmlFor="admin-filter-query"><span>姓名 / 手机号后四位</span><input id="admin-filter-query" type="search" /></label>
-              <button type="submit">筛选</button>
+            <form className="admin-filters admin-matrix-filter" id="admin-matrix-form">
+              <label htmlFor="admin-filter-date"><span>查看日期</span><input id="admin-filter-date" required type="date" /></label>
+              <button type="submit">查看场地</button>
             </form>
             <div className="admin-matrix-scroll" id="admin-court-matrix" tabIndex={0} />
-            <div className="admin-workspace">
-              <div className="admin-booking-list" id="admin-booking-list" />
-              <aside className="admin-detail" id="admin-booking-detail" />
-            </div>
           </section>
 
           <section className="admin-panel admin-media" id="admin-media">

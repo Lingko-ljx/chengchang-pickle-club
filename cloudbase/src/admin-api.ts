@@ -1,4 +1,4 @@
-import { BookingService } from "../../lib/booking/booking-service.ts";
+import { BookingService, decodeBookingCursor, encodeBookingCursor } from "../../lib/booking/booking-service.ts";
 import { defaultBookingPolicy } from "../../lib/booking/booking-window.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
 import type {
@@ -6,6 +6,7 @@ import type {
   AuditLog,
   BookingMode,
   BookingRecord,
+  BookingPage,
   BookingStatus,
   CourtRecord,
   SessionTemplateRecord,
@@ -58,8 +59,12 @@ interface AdminBookingService {
     expectedVersion: number,
     actorType?: "staff" | "system",
   ): Promise<void>;
+  archiveBooking(bookingId: string, actorId: string, expectedVersion: number): Promise<BookingRecord>;
+  restoreBooking(bookingId: string, actorId: string, expectedVersion: number): Promise<BookingRecord>;
   listAvailability(date: string): Promise<unknown[]>;
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]>;
+  listBookingPage?(filter: AdminBookingFilter): Promise<BookingPage>;
+  listCustomerHistory(bookingId: string, limit?: number): Promise<BookingRecord[]>;
   listPendingBookings(date: string): Promise<BookingRecord[]>;
   listMatrixBookings(date: string): Promise<BookingRecord[]>;
   listCourts(): Promise<CourtRecord[]>;
@@ -177,6 +182,7 @@ function adminBooking(value: BookingRecord): Record<string, unknown> {
     ...(value.personalDataRedactedAt
       ? { personalDataRedactedAt: value.personalDataRedactedAt }
       : {}),
+    ...(value.archivedAt ? { archivedAt: value.archivedAt } : {}),
     version: value.version,
   };
 }
@@ -216,6 +222,21 @@ async function settingsDto(service: AdminBookingService) {
   };
 }
 
+function exactBody(body: Record<string, unknown>, allowed: string[]): void {
+  const keys = Object.keys(body);
+  if (keys.some((key) => !allowed.includes(key))) throw new BookingError("INVALID_INPUT");
+  for (const [camel, snake] of [
+    ["expectedVersion", "expected_version"],
+    ["sessionId", "session_id"],
+    ["courtId", "court_id"],
+  ] as const) {
+    if (
+      Object.prototype.hasOwnProperty.call(body, camel) &&
+      Object.prototype.hasOwnProperty.call(body, snake)
+    ) throw new BookingError("INVALID_INPUT");
+  }
+}
+
 const csvColumns: Array<[string, (booking: BookingRecord) => unknown]> = [
   ["booking_code", (booking) => booking.code],
   ["date", (booking) => booking.date],
@@ -233,6 +254,7 @@ const csvColumns: Array<[string, (booking: BookingRecord) => unknown]> = [
   ["updated_at", (booking) => booking.updatedAt],
   ["terminal_at", (booking) => booking.terminalAt],
   ["personal_data_redacted_at", (booking) => booking.personalDataRedactedAt],
+  ["archived_at", (booking) => booking.archivedAt],
   ["version", (booking) => booking.version],
 ];
 
@@ -263,12 +285,32 @@ function csvResponse(bookings: BookingRecord[]): HttpResponse {
 }
 
 function listFilter(event: CloudBaseHttpEvent): AdminBookingFilter {
-  const filter: AdminBookingFilter = { limit: 100 };
+  const parameters = event.queryStringParameters;
+  const allowed = new Set(["date", "from", "to", "status", "mode", "q", "archive", "cursor", "limit"]);
+  if (parameters && typeof parameters === "object") {
+    for (const [name, value] of Object.entries(parameters)) {
+      if (!allowed.has(name) || typeof value !== "string" || !value.trim()) {
+        throw new BookingError("INVALID_INPUT");
+      }
+    }
+  }
+  const filter: AdminBookingFilter = { limit: 50, archive: "active" };
   const date = queryParameter(event, "date")?.trim();
+  const from = queryParameter(event, "from")?.trim();
+  const to = queryParameter(event, "to")?.trim();
   const status = queryParameter(event, "status")?.trim() as BookingStatus | undefined;
   const mode = queryParameter(event, "mode")?.trim() as BookingMode | undefined;
   const query = queryParameter(event, "q")?.trim();
+  const archive = queryParameter(event, "archive")?.trim() as AdminBookingFilter["archive"];
+  const cursor = queryParameter(event, "cursor")?.trim();
+  const requestedLimit = queryParameter(event, "limit")?.trim();
   if (date) filter.date = dateValue(date);
+  if (from) filter.fromDate = dateValue(from);
+  if (to) filter.toDate = dateValue(to);
+  if (filter.date && (filter.fromDate || filter.toDate)) throw new BookingError("INVALID_INPUT");
+  if (filter.fromDate && filter.toDate && filter.fromDate > filter.toDate) {
+    throw new BookingError("INVALID_INPUT");
+  }
   if (status) {
     if (!statuses.has(status)) throw new BookingError("INVALID_INPUT");
     filter.status = status;
@@ -277,7 +319,33 @@ function listFilter(event: CloudBaseHttpEvent): AdminBookingFilter {
     if (!modes.has(mode)) throw new BookingError("INVALID_INPUT");
     filter.mode = mode;
   }
-  if (query) filter.query = query;
+  if (query) {
+    if (query.length > 100 || /[\u0000-\u001f\u007f]/u.test(query)) {
+      throw new BookingError("INVALID_INPUT");
+    }
+    filter.query = query;
+  }
+  if (archive) {
+    if (archive !== "active" && archive !== "archived" && archive !== "all") {
+      throw new BookingError("INVALID_INPUT");
+    }
+    filter.archive = archive;
+  }
+  if (cursor) {
+    if (cursor.length > 200 || /[\u0000-\u001f\u007f]/u.test(cursor)) {
+      throw new BookingError("INVALID_INPUT");
+    }
+    decodeBookingCursor(cursor);
+    filter.cursor = cursor;
+  }
+  if (requestedLimit) {
+    const limit = integer(requestedLimit);
+    if (limit === null || limit < 1 || limit > 100) throw new BookingError("INVALID_INPUT");
+    filter.limit = limit;
+  }
+  if ((filter.query || filter.archive !== "active") && !filter.date && !(filter.fromDate && filter.toDate)) {
+    throw new BookingError("INVALID_INPUT");
+  }
   return filter;
 }
 
@@ -398,8 +466,26 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       }
 
       if (method === "GET" && path === "/v1/admin/bookings") {
-        const bookings = await dependencies.service.listBookings(listFilter(event));
-        return jsonResponse(200, bookings.map(adminBooking));
+        const filter = listFilter(event);
+        const requestedLimit = filter.limit ?? 50;
+        const page = dependencies.service.listBookingPage
+          ? await dependencies.service.listBookingPage({ ...filter, limit: requestedLimit })
+          : { items: await dependencies.service.listBookings({
+          ...filter,
+          limit: Math.min(100, requestedLimit + 1),
+        }) };
+        if (!dependencies.service.listBookingPage && page.items.length > requestedLimit) {
+          const visible = page.items.slice(0, requestedLimit);
+          page.nextCursor = visible.length > 0
+            ? encodeBookingCursor(visible[visible.length - 1])
+            : undefined;
+        }
+        const bookings = page.items;
+        return jsonResponse(200, {
+          items: bookings.slice(0, requestedLimit).map(adminBooking),
+          nextCursor: page.nextCursor ?? null,
+          hasMore: Boolean(page.nextCursor),
+        });
       }
 
       if (method === "GET" && path === "/v1/admin/settings") {
@@ -412,24 +498,51 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
         return jsonResponse(200, logs.map(adminAudit));
       }
 
+      const customerHistory = /^\/v1\/admin\/bookings\/([^/]+)\/customer-history$/.exec(path);
+      if (method === "GET" && customerHistory) {
+        const parameters = event.queryStringParameters;
+        if (parameters && typeof parameters === "object" && Object.keys(parameters).some((name) => name !== "limit")) {
+          throw new BookingError("INVALID_INPUT");
+        }
+        if (parameters && typeof parameters === "object" && Object.prototype.hasOwnProperty.call(parameters, "limit") && typeof (parameters as Record<string, unknown>).limit !== "string") {
+          throw new BookingError("INVALID_INPUT");
+        }
+        const requestedLimit = queryParameter(event, "limit")?.trim();
+        const limit = requestedLimit ? integer(requestedLimit) : 50;
+        if (limit === null || limit < 1 || limit > 100) throw new BookingError("INVALID_INPUT");
+        const bookings = await dependencies.service.listCustomerHistory(decoded(customerHistory[1]), limit);
+        return jsonResponse(200, { items: bookings.map(adminBooking) });
+      }
+
       if (method === "GET" && path === "/v1/admin/export.csv") {
+        const parameters = event.queryStringParameters;
+        if (!parameters || typeof parameters !== "object" || Object.keys(parameters).some((name) => name !== "from" && name !== "to")) {
+          throw new BookingError("INVALID_INPUT");
+        }
         const from = dateValue(queryParameter(event, "from")?.trim());
         const to = dateValue(queryParameter(event, "to")?.trim());
         if (from > to) throw new BookingError("INVALID_INPUT");
         const bookings = await dependencies.service.listBookings({
           fromDate: from,
           toDate: to,
+          archive: "all",
           limit: 500,
         });
         if (bookings.length >= 500) throw new BookingError("EXPORT_TOO_LARGE");
         return csvResponse(bookings);
       }
 
-      const mutation = /^\/v1\/admin\/bookings\/([^/]+)\/(confirm|reschedule|cancel|complete|reassign|redact)$/.exec(path);
+      const mutation = /^\/v1\/admin\/bookings\/([^/]+)\/(confirm|reschedule|cancel|complete|reassign|archive|restore)$/.exec(path);
       if (method === "POST" && mutation) {
         const bookingId = decoded(mutation[1]);
         const action = mutation[2];
         const body = parseRequestBody(event).values;
+        const allowedFields = action === "reschedule"
+          ? ["expectedVersion", "expected_version", "sessionId", "session_id"]
+          : action === "reassign"
+            ? ["expectedVersion", "expected_version", "courtId", "court_id"]
+            : ["expectedVersion", "expected_version"];
+        exactBody(body, allowedFields);
         const version = expectedVersion(body);
         if (action === "confirm") {
           return jsonResponse(200, adminBooking(await dependencies.service.confirm({ bookingId, expectedVersion: version, actorId })));
@@ -450,13 +563,19 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
           if (!courtId) throw new BookingError("INVALID_INPUT");
           return jsonResponse(200, adminBooking(await dependencies.service.reassign({ bookingId, expectedVersion: version, actorId, courtId })));
         }
-        await dependencies.service.redactPersonalData(bookingId, actorId, version, "staff");
-        return jsonResponse(200, { redacted: true });
+        if (action === "archive") {
+          return jsonResponse(200, adminBooking(await dependencies.service.archiveBooking(bookingId, actorId, version)));
+        }
+        if (action === "restore") {
+          return jsonResponse(200, adminBooking(await dependencies.service.restoreBooking(bookingId, actorId, version)));
+        }
+        throw new BookingError("NOT_FOUND");
       }
 
       const court = /^\/v1\/admin\/courts\/([^/]+)$/.exec(path);
       if (method === "PUT" && court) {
         const body = parseRequestBody(event).values;
+        exactBody(body, ["enabled", "expectedVersion", "expected_version"]);
         await dependencies.service.setCourtEnabled(
           decoded(court[1]),
           booleanField(body, "enabled"),
@@ -469,6 +588,7 @@ export function createAdminApiHandler(dependencies: AdminApiDependencies) {
       const template = /^\/v1\/admin\/session-templates\/([^/]+)$/.exec(path);
       if (method === "PUT" && template) {
         const body = parseRequestBody(event).values;
+        exactBody(body, ["enabled", "expectedVersion", "expected_version"]);
         await dependencies.service.setSessionTemplateEnabled(
           decoded(template[1]),
           booleanField(body, "enabled"),

@@ -197,7 +197,7 @@ system_state
 court_day_allocations
 ```
 
-It creates the ten planned compound indexes, courts `01` through `11`, the
+It creates the twelve planned compound indexes, courts `01` through `11`, the
 sixteen legacy 60-minute templates `slot-0700` through `slot-2200`, and the
 authoritative `booking-policy-v2` seed (`09:00–22:00`, 30-minute starts,
 60-minute duration steps, 60-minute minimum, and 240-minute maximum).

@@ -1,4 +1,4 @@
-import { allocationId, bookingCodeId } from "../../../lib/booking/booking-service.ts";
+import { allocationId, bookingCodeId, decodeBookingCursor, encodeBookingCursor } from "../../../lib/booking/booking-service.ts";
 import { courtDayInventoryId } from "../../../lib/booking/booking-window.ts";
 import { BookingError } from "../../../lib/booking/errors.ts";
 import type { BookingRepository, BookingTransaction, Clock } from "../../../lib/booking/ports.ts";
@@ -7,6 +7,7 @@ import type {
   AuditLog,
   AvailabilitySlot,
   BookingRecord,
+  BookingPage,
   CourtAllocation,
   CourtDayInventory,
   CourtRecord,
@@ -24,8 +25,12 @@ interface QueryCommand {
   and(...expressions: QueryCommand[]): QueryCommand;
 }
 
+type QueryCondition = Record<string, unknown> | QueryCommand;
+
 interface DatabaseCommand {
   remove(): unknown;
+  and(...conditions: QueryCondition[]): QueryCommand;
+  or(...conditions: QueryCondition[]): QueryCommand;
   gte(value: unknown): QueryCommand;
   lte(value: unknown): QueryCommand;
   lt(value: unknown): QueryCommand;
@@ -42,7 +47,7 @@ interface DocumentReference {
 interface QueryReference {
   doc(id: string): DocumentReference;
   get(): Promise<DocumentResponse>;
-  where(condition: Record<string, unknown>): QueryReference;
+  where(condition: QueryCondition): QueryReference;
   orderBy(field: string, direction: "asc" | "desc"): QueryReference;
   skip(value: number): QueryReference;
   limit(value: number): QueryReference;
@@ -243,6 +248,18 @@ export class CloudBaseBookingRepository implements BookingRepository {
     return getDocument(this.db.collection("bookings").doc(bookingId));
   }
 
+  async listCustomerHistory(bookingId: string, limit: number): Promise<BookingRecord[]> {
+    const selected = await this.getBookingById(bookingId);
+    if (!selected) throw new BookingError("BOOKING_NOT_FOUND");
+    if (!selected.phoneHash) return [];
+    return this.query<BookingRecord>(
+      "bookings",
+      { phoneHash: selected.phoneHash },
+      Math.max(1, Math.min(limit, 100)),
+      [["createdAt", "desc"]],
+    );
+  }
+
   async isBookingInventoryV2Ready(): Promise<boolean> {
     const state = await getDocument<{ status?: unknown; schemaVersion?: unknown }>(
       this.db.collection("system_state").doc("booking-inventory-v2-migration"),
@@ -321,27 +338,36 @@ export class CloudBaseBookingRepository implements BookingRepository {
     if (filter.status) condition.status = filter.status;
     if (filter.mode) condition.mode = filter.mode;
     const normalizedQuery = filter.query?.trim().toLowerCase();
+    const archive = filter.archive ?? "active";
     const limit = Math.max(1, Math.min(filter.limit ?? 100, 500));
-    const queryLimit = normalizedQuery || filter.cursor ? 500 : limit;
-    return (await this.query<BookingRecord>("bookings", condition, queryLimit, [
-      ["date", "asc"],
-      ["createdAt", "asc"],
-    ]))
-      .filter((booking) => !filter.cursor || booking.id > filter.cursor)
-      .filter(
-        (booking) =>
-          !normalizedQuery ||
+    const results: BookingRecord[] = [];
+    let cursor = filter.cursor ? decodeBookingCursor(filter.cursor) : undefined;
+
+    // Export/list compatibility is deliberately capped at five SDK pages. CSV asks
+    // for 500 rows so the API can reject that detectable hard cap instead of
+    // silently returning a truncated file.
+    for (let request = 0; request < 5 && results.length < limit; request += 1) {
+      let query = this.db.collection("bookings");
+      const where = this.withBookingCursor(condition, cursor);
+      if (where) query = query.where(where);
+      for (const [field, direction] of [["date", "desc"], ["createdAt", "desc"], ["id", "desc"]] as const) {
+        query = query.orderBy(field, direction);
+      }
+      const candidates = rows<BookingRecord>(await query.limit(Math.min(100, limit)).get());
+      for (const booking of candidates) {
+        cursor = booking;
+        const archiveMatches = archive === "all" ||
+          (archive === "archived" ? Boolean(booking.archivedAt) : !booking.archivedAt);
+        const queryMatches = !normalizedQuery ||
           [booking.id, booking.code, booking.name, booking.phone, booking.email]
             .filter((value): value is string => typeof value === "string")
-            .some((value) => value.toLowerCase().includes(normalizedQuery)),
-      )
-      .sort(
-        (left, right) =>
-          left.date.localeCompare(right.date) ||
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.id.localeCompare(right.id),
-      )
-      .slice(0, limit);
+            .some((value) => value.toLowerCase().includes(normalizedQuery));
+        if (archiveMatches && queryMatches) results.push(booking);
+        if (results.length >= limit) break;
+      }
+      if (candidates.length < Math.min(100, limit)) break;
+    }
+    return results.slice(0, limit);
   }
 
   listPendingBookings(date: string): Promise<BookingRecord[]> {
@@ -447,6 +473,138 @@ export class CloudBaseBookingRepository implements BookingRepository {
         metadata: {},
       };
       await transaction.collection("audit_logs").doc(audit.id).set(audit);
+    }, 3);
+  }
+
+  async listBookingPage(filter: AdminBookingFilter): Promise<BookingPage> {
+    const condition: Record<string, unknown> = {};
+    if (filter.date) condition.date = filter.date;
+    else if (filter.fromDate && filter.toDate) {
+      condition.date = this.db.command.gte(filter.fromDate).and(this.db.command.lte(filter.toDate));
+    } else if (filter.fromDate) condition.date = this.db.command.gte(filter.fromDate);
+    else if (filter.toDate) condition.date = this.db.command.lte(filter.toDate);
+    if (filter.status) condition.status = filter.status;
+    if (filter.mode) condition.mode = filter.mode;
+
+    const normalizedQuery = filter.query?.trim().toLowerCase();
+    const archive = filter.archive ?? "active";
+    if ((normalizedQuery || archive !== "active") && !filter.date && !(filter.fromDate && filter.toDate)) {
+      throw new BookingError("INVALID_INPUT");
+    }
+    const requested = Math.max(1, Math.min(filter.limit ?? 50, 100));
+    const cursor = filter.cursor ? decodeBookingCursor(filter.cursor) : undefined;
+    let scanned = 0;
+    let queryCount = 0;
+    const items: BookingRecord[] = [];
+    let lastScanned: BookingRecord | undefined;
+    let mayHaveMore = false;
+    let scanCursor = cursor;
+
+    // CloudBase pages are at most 100 rows. Bound post-filter scans to three pages so
+    // a keyword/recycle-bin request cannot load the complete history or exhaust the
+    // free-tier three-second function budget. The opaque keyset cursor resumes from
+    // the last stable (date, createdAt, id) tuple rather than a mutation-sensitive offset.
+    while (items.length < requested && scanned < 300 && queryCount < 3) {
+      let query = this.db.collection("bookings");
+      const where = this.withBookingCursor(condition, scanCursor);
+      if (where) query = query.where(where);
+      for (const [field, direction] of [["date", "desc"], ["createdAt", "desc"], ["id", "desc"]] as const) {
+        query = query.orderBy(field, direction);
+      }
+      const raw = rows<BookingRecord>(await query.limit(100).get());
+      queryCount += 1;
+      if (raw.length === 0) {
+        mayHaveMore = false;
+        break;
+      }
+      let consumed = 0;
+      for (const booking of raw) {
+        consumed += 1;
+        scanned += 1;
+        lastScanned = booking;
+        const archiveMatches = archive === "all" ||
+          (archive === "archived" ? Boolean(booking.archivedAt) : !booking.archivedAt);
+        const queryMatches = !normalizedQuery ||
+          [booking.id, booking.code, booking.name, booking.phone, booking.email]
+            .filter((value): value is string => typeof value === "string")
+            .some((value) => value.toLowerCase().includes(normalizedQuery));
+        if (archiveMatches && queryMatches) items.push(booking);
+        if (items.length >= requested || scanned >= 300) break;
+      }
+      mayHaveMore = consumed < raw.length || raw.length === 100;
+      if (items.length >= requested || scanned >= 300 || raw.length < 100) break;
+      scanCursor = lastScanned;
+    }
+    return {
+      items,
+      ...(mayHaveMore && lastScanned
+        ? { nextCursor: encodeBookingCursor(lastScanned) }
+        : {}),
+    };
+  }
+
+  private withBookingCursor(
+    condition: Record<string, unknown>,
+    cursor?: Pick<BookingRecord, "date" | "createdAt" | "id">,
+  ): QueryCondition | undefined {
+    if (!cursor) return Object.keys(condition).length > 0 ? condition : undefined;
+    const after = this.db.command.or(
+      { date: this.db.command.lt(cursor.date) },
+      { date: cursor.date, createdAt: this.db.command.lt(cursor.createdAt) },
+      { date: cursor.date, createdAt: cursor.createdAt, id: this.db.command.lt(cursor.id) },
+    );
+    return Object.keys(condition).length > 0
+      ? this.db.command.and(condition, after)
+      : after;
+  }
+
+  setBookingArchived(
+    bookingId: string,
+    archived: boolean,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<BookingRecord> {
+    return this.db.runTransaction(async (transaction) => {
+      const document = transaction.collection("bookings").doc(bookingId);
+      const booking = await getDocument<BookingRecord>(document);
+      if (!booking) throw new BookingError("BOOKING_NOT_FOUND");
+      if (booking.version !== expectedVersion) throw new BookingError("CONFLICT");
+      if (booking.status !== "cancelled" && booking.status !== "completed") {
+        throw new BookingError("INVALID_TRANSITION");
+      }
+      if (archived === Boolean(booking.archivedAt)) throw new BookingError("CONFLICT");
+      const at = this.clock.now().toISOString();
+      const version = booking.version + 1;
+      const remove = this.db.command.remove();
+      await document.update(
+        archived
+          ? { archivedAt: at, archivedBy: actorId, updatedAt: at, version }
+          : { archivedAt: remove, archivedBy: remove, updatedAt: at, version },
+      );
+      const action = archived ? "booking_archived" : "booking_restored";
+      const audit: AuditLog = {
+        id: `${action}-${bookingId}-${version}`,
+        bookingId,
+        action,
+        actorType: "staff",
+        actorId,
+        fromStatus: booking.status,
+        toStatus: booking.status,
+        at,
+        metadata: {},
+      };
+      await transaction.collection("audit_logs").doc(audit.id).set(audit);
+      const updated: BookingRecord = {
+        ...booking,
+        ...(archived ? { archivedAt: at, archivedBy: actorId } : {}),
+        updatedAt: at,
+        version,
+      };
+      if (!archived) {
+        delete updated.archivedAt;
+        delete updated.archivedBy;
+      }
+      return updated;
     }, 3);
   }
 

@@ -17,6 +17,7 @@ import {
   BOOKING_ACTIONS,
   COURT_IDS,
   bookingActionsFor,
+  bookingRecordActionsFor,
   bookingDurationHours,
   bookingDisplayName,
   confirmationMessage,
@@ -26,7 +27,10 @@ import {
   homepageMediaActionsFor,
   matrixAssignmentsForCell,
   matrixBookingsForCell,
+  normalizeBookingPage,
+  recordDateRange,
   retainSelectedBooking,
+  statusLabel,
 } from "../admin-client/render.ts";
 
 function jsonResponse(data, status = 200) {
@@ -371,6 +375,122 @@ test("the half-hour matrix uses interval overlap and excludes terminal bookings"
   );
 });
 
+test("booking management API supports range pagination and the recoverable recycle bin", async () => {
+  const requests = [];
+  const client = createAdminApiClient({
+    baseUrl: "https://booking-api.example.invalid",
+    getAccessToken: () => "staff-access-token",
+    fetchImpl: async (url, init) => {
+      requests.push({ url: String(url), init });
+      return jsonResponse({ items: [], nextCursor: null });
+    },
+    onUnauthorized() {},
+  });
+
+  await client.listBookings({
+    from: "2026-08-01",
+    to: "2026-08-31",
+    status: "completed",
+    mode: "private",
+    q: "1380",
+    archive: "archived",
+    cursor: "next page",
+    limit: 50,
+  });
+  await client.archiveBooking("booking/1", 7);
+  await client.restoreBooking("booking/1", 8);
+  await client.getCustomerHistory("booking/1", 50);
+
+  const listUrl = new URL(requests[0].url);
+  assert.equal(listUrl.pathname, "/v1/admin/bookings");
+  assert.deepEqual(Object.fromEntries(listUrl.searchParams), {
+    from: "2026-08-01",
+    to: "2026-08-31",
+    status: "completed",
+    mode: "private",
+    q: "1380",
+    archive: "archived",
+    cursor: "next page",
+    limit: "50",
+  });
+  assert.equal(new URL(requests[1].url).pathname, "/v1/admin/bookings/booking%2F1/archive");
+  assert.equal(requests[1].init.method, "POST");
+  assert.deepEqual(JSON.parse(requests[1].init.body), { expectedVersion: 7 });
+  assert.equal(new URL(requests[2].url).pathname, "/v1/admin/bookings/booking%2F1/restore");
+  assert.equal(requests[2].init.method, "POST");
+  assert.deepEqual(JSON.parse(requests[2].init.body), { expectedVersion: 8 });
+  assert.equal(new URL(requests[3].url).pathname, "/v1/admin/bookings/booking%2F1/customer-history");
+  assert.equal(new URL(requests[3].url).searchParams.get("limit"), "50");
+});
+
+test("booking pages normalize both the paginated and legacy list contracts", () => {
+  const booking = { id: "booking-1" };
+  assert.deepEqual(normalizeBookingPage([booking]), {
+    items: [booking],
+    nextCursor: null,
+    hasMore: false,
+  });
+  assert.deepEqual(normalizeBookingPage({ items: [booking], nextCursor: "cursor-2" }), {
+    items: [booking],
+    nextCursor: "cursor-2",
+    hasMore: true,
+  });
+});
+
+test("record management never presents permanent deletion and restores archived records", () => {
+  assert.deepEqual(bookingRecordActionsFor({ status: "pending" }), []);
+  assert.deepEqual(bookingRecordActionsFor({ status: "cancelled" }), [
+    ["archive", "删除记录"],
+  ]);
+  assert.deepEqual(bookingRecordActionsFor({ status: "completed" }), [
+    ["archive", "删除记录"],
+  ]);
+  assert.deepEqual(bookingRecordActionsFor({ status: "cancelled", archivedAt: "2026-08-12T01:00:00.000Z" }), [
+    ["restore", "恢复记录"],
+  ]);
+  assert.deepEqual(
+    bookingRecordActionsFor({ status: "pending", archivedAt: "2026-08-12T01:00:00.000Z" }),
+    [["restore", "恢复记录"]],
+  );
+  assert.equal(statusLabel("reschedule_proposed"), "等待改期答复");
+  assert.equal(statusLabel("unknown"), "未知状态");
+});
+
+test("record ranges keep every search and recycle-bin query bounded", () => {
+  assert.deepEqual(recordDateRange("2026-08-12", "30"), {
+    from: "2026-07-14",
+    to: "2026-08-12",
+  });
+  assert.deepEqual(recordDateRange("2026-08-12", "all"), {
+    from: "2026-01-01",
+    to: "2026-08-12",
+  });
+  assert.deepEqual(recordDateRange("2026-08-12", "today"), {
+    from: "2026-08-12",
+    to: "2026-08-12",
+  });
+});
+
+test("customer history is loaded through the selected booking, never a phone-number URL", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  const renderSource = await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8");
+  assert.match(source, /api\.getCustomerHistory\(bookingId, 50\)/);
+  assert.doesNotMatch(source, /customer-history[^\n]*phone/);
+  assert.match(renderSource, /正在读取该客人的历史记录/);
+});
+
+test("admin page exposes scalable booking controls and a customer history surface", async () => {
+  const html = await renderAdminPage();
+  assert.match(html, /id="admin-record-view-active"/);
+  assert.match(html, /id="admin-record-view-archived"/);
+  assert.match(html, /id="admin-filter-from"/);
+  assert.match(html, /id="admin-filter-to"/);
+  assert.match(html, /id="admin-load-more"/);
+  assert.match(html, /id="admin-customer-history"/);
+  assert.match(html, /可移入回收站/);
+  assert.doesNotMatch(html, /永久删除预约/);
+});
+
 test("mutation confirmation identifies the booking, date and action", () => {
   const message = confirmationMessage(
     { code: "BOOK-42", date: "2026-08-09" },
@@ -450,7 +570,6 @@ test("booking actions expose only valid core actions for each status", () => {
     ["confirm", "确认预约"],
     ["cancel", "取消预约"],
     ["complete", "完结预约"],
-    ["redact", "提前脱敏"],
   ]);
   assert.deepEqual(bookingActionsFor({ status: "pending" }), [
     ["confirm", "确认预约"],
@@ -460,8 +579,8 @@ test("booking actions expose only valid core actions for each status", () => {
     ["complete", "完结预约"],
     ["cancel", "取消预约"],
   ]);
-  assert.deepEqual(bookingActionsFor({ status: "cancelled" }), [["redact", "提前脱敏"]]);
-  assert.deepEqual(bookingActionsFor({ status: "completed" }), [["redact", "提前脱敏"]]);
+  assert.deepEqual(bookingActionsFor({ status: "cancelled" }), []);
+  assert.deepEqual(bookingActionsFor({ status: "completed" }), []);
   assert.deepEqual(
     bookingActionsFor({
       status: "cancelled",
@@ -487,8 +606,10 @@ test("admin mutation UI has an in-flight state and reports success before best-e
   assert.match(source, /let activeAction: string \| null = null/);
   assert.match(source, /button\.disabled = activeAction !== null/);
   assert.match(source, /activeAction === action \? `\$\{label\}处理中…` : label/);
-  assert.match(source, /const updated = await api\.mutateBooking/);
-  assert.match(source, /personalDataRedactedAt: new Date\(\)\.toISOString\(\)/);
+  assert.match(source, /await api\.mutateBooking/);
+  assert.match(source, /await api\.archiveBooking/);
+  assert.match(source, /await api\.restoreBooking/);
+  assert.doesNotMatch(source, /personalDataRedactedAt: new Date\(\)\.toISOString\(\)/);
   assert.match(source, /列表未能自动刷新/);
 });
 
@@ -643,7 +764,8 @@ test("the installed SDK private-auth wrapper never touches browser credential st
 test("refresh keeps today, matrix, filters and selected audit history independent", async () => {
   const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
   assert.match(source, /api\.getBootstrap\(today,/);
-  assert.match(source, /if \(selected\) await loadSelectedAudits\(\)/);
+  assert.doesNotMatch(source, /bookings\s*=\s*bootstrap\.bookings/);
+  assert.match(source, /if \(selected\) await Promise\.all\(\[loadSelectedAudits\(\), loadSelectedCustomerHistory\(\)\]\)/);
   assert.doesNotMatch(source, /admin-template-(?:start|version)/);
   assert.doesNotMatch(await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8"), /`提交 · \$\{booking\.createdAt\}`/);
 });
@@ -683,6 +805,30 @@ test("the server-rendered admin page contains login and a hidden dashboard", asy
   const altInput = html.match(/<input(?=[^>]*id="admin-media-alt")[^>]*>/)?.[0] ?? "";
   assert.ok(altInput);
   assert.doesNotMatch(altInput, /\brequired\b/);
+});
+
+test("record actions use the selected booking context and successful moves update immediately", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  const onSelect = source.slice(source.indexOf("  const onSelect ="), source.indexOf("  const renderSettings ="));
+  const actions = source.slice(source.indexOf("  function renderActions()"), source.indexOf("  loginForm.addEventListener"));
+  assert.doesNotMatch(onSelect, /recordView\s*=/);
+  assert.match(actions, /const selectedView(?:: BookingRecordView)? = selected\.archivedAt \? "archived" : "active"/);
+  assert.match(actions, /bookingRecordActionsFor\(selected\)/);
+  assert.doesNotMatch(actions, /bookingRecordActionsFor\(selected, recordView\)/);
+  const mutation = source.slice(source.indexOf("  async function runBookingAction"), source.indexOf("  function renderActions"));
+  const removal = mutation.indexOf("bookings = bookings.filter");
+  const refresh = mutation.indexOf("await refresh()");
+  assert.ok(removal > -1 && refresh > removal, "the current page must update before background refresh");
+});
+
+test("record reset, all-history and mobile controls remain safe at scale", async () => {
+  const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /applyRecordRange\("30"\)/);
+  assert.match(source, /recordDateRange\(shanghaiDate\(\), preset\)/);
+  assert.doesNotMatch(source, /days === "all"[\s\S]{0,120}from\.value = ""/);
+  assert.match(css, /\.admin-record-results \.admin-booking-list\s*\{[^}]*max-height:\s*62dvh/s);
+  assert.match(css, /\.admin-page (?:input|input,)[\s\S]{0,160}font-size:\s*16px/s);
 });
 
 test("the server rejects unsafe and dot-segment Pages base paths before emitting a script URL", async () => {

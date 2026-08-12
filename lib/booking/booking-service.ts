@@ -32,6 +32,7 @@ import type {
   BookingWindowAvailability,
   BookingWindowAvailabilityResult,
   BookingRecord,
+  BookingPage,
   BookingStatus,
   CourtAllocation,
   CourtDayInventory,
@@ -114,6 +115,31 @@ export interface ProposeRescheduleCommand extends StaffMutationCommand {
   date?: string;
   startTime?: string;
   endTime?: string;
+}
+
+export function encodeBookingCursor(
+  value: Pick<BookingRecord, "date" | "createdAt" | "id">,
+): string {
+  return Buffer.from(JSON.stringify([value.date, value.createdAt, value.id]), "utf8").toString("base64url");
+}
+
+export function decodeBookingCursor(value: string): { date: string; createdAt: string; id: string } {
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      !Array.isArray(decoded) || decoded.length !== 3 ||
+      decoded.slice(0, 3).some((part) => typeof part !== "string" || !part) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(decoded[0] as string) ||
+      Number.isNaN(Date.parse(decoded[1] as string))
+    ) throw new Error("invalid cursor");
+    return {
+      date: decoded[0] as string,
+      createdAt: decoded[1] as string,
+      id: decoded[2] as string,
+    };
+  } catch {
+    throw new BookingError("INVALID_INPUT");
+  }
 }
 
 export interface RespondToRescheduleCommand extends VersionedCommand {
@@ -842,6 +868,22 @@ export class BookingService {
     return this.repository.redactBooking(bookingId, actorId, expectedVersion, actorType);
   }
 
+  archiveBooking(
+    bookingId: string,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<BookingRecord> {
+    return this.repository.setBookingArchived(bookingId, true, actorId, expectedVersion);
+  }
+
+  restoreBooking(
+    bookingId: string,
+    actorId: string,
+    expectedVersion: number,
+  ): Promise<BookingRecord> {
+    return this.repository.setBookingArchived(bookingId, false, actorId, expectedVersion);
+  }
+
   async listAvailability(date: string): Promise<AvailabilitySlot[]> {
     const calendarDate = requireCalendarDate(date);
     const now = this.clock.now().toISOString();
@@ -963,6 +1005,14 @@ export class BookingService {
 
   listBookings(filter: AdminBookingFilter): Promise<BookingRecord[]> {
     return this.repository.listBookings(filter);
+  }
+
+  listBookingPage(filter: AdminBookingFilter): Promise<BookingPage> {
+    return this.repository.listBookingPage(filter);
+  }
+
+  listCustomerHistory(bookingId: string, limit = 50): Promise<BookingRecord[]> {
+    return this.repository.listCustomerHistory(bookingId, Math.max(1, Math.min(limit, 100)));
   }
 
   listPendingBookings(date: string): Promise<BookingRecord[]> {

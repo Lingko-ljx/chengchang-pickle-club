@@ -1140,8 +1140,58 @@ test("memory booking listing applies inclusive export date ranges before the lim
   assert.deepEqual(
     (await repository.listBookings({ fromDate: "2099-01-01", toDate: "2099-01-03", limit: 2 }))
       .map((entry) => entry.id),
-    ["from", "to"],
+    ["to", "from"],
   );
+});
+
+test("archive is a recoverable terminal-record operation that preserves history and hides by default", async () => {
+  const terminal = bookingRecord({ status: "completed", terminalAt: "2099-01-01T02:00:00.000Z" });
+  const { repository, service } = setup({ bookings: [terminal] });
+
+  const archived = await service.archiveBooking(terminal.id, "staff-archive", terminal.version);
+
+  assert.ok(archived.archivedAt);
+  assert.equal(archived.archivedBy, "staff-archive");
+  assert.deepEqual(await service.listBookings({}), []);
+  assert.deepEqual((await service.listBookings({ archive: "archived" })).map(({ id }) => id), [terminal.id]);
+  assert.equal((await service.listBookings({ archive: "all" }))[0].phone, terminal.phone);
+  assert.deepEqual(
+    (await repository.listAuditLogs(terminal.id)).map(({ action, actorType, actorId, metadata }) => ({ action, actorType, actorId, metadata })),
+    [{ action: "booking_archived", actorType: "staff", actorId: "staff-archive", metadata: {} }],
+  );
+
+  const restored = await service.restoreBooking(terminal.id, "staff-restore", archived.version);
+  assert.equal(restored.archivedAt, undefined);
+  assert.equal((await service.listBookings({}))[0].id, terminal.id);
+  assert.deepEqual(
+    (await repository.listAuditLogs(terminal.id)).map(({ action }) => action),
+    ["booking_archived", "booking_restored"],
+  );
+});
+
+test("archive rejects active bookings, duplicate requests and stale versions atomically", async () => {
+  const active = bookingRecord({ status: "confirmed" });
+  const terminal = bookingRecord({ id: "terminal", status: "cancelled", terminalAt: "2099-01-01T02:00:00.000Z" });
+  const { repository, service } = setup({ bookings: [active, terminal] });
+
+  await assert.rejects(() => service.archiveBooking(active.id, "staff", active.version), /INVALID_TRANSITION/);
+  const archived = await service.archiveBooking(terminal.id, "staff", terminal.version);
+  await assert.rejects(() => service.archiveBooking(terminal.id, "staff", archived.version), /CONFLICT/);
+  await assert.rejects(() => service.restoreBooking(terminal.id, "staff", terminal.version), /CONFLICT/);
+  assert.deepEqual((await repository.listAuditLogs(terminal.id)).map(({ action }) => action), ["booking_archived"]);
+});
+
+test("customer history uses the stored phone hash and naturally becomes unavailable after redaction", async () => {
+  const records = [
+    bookingRecord({ id: "selected", phone: "13800138000", phoneHash: "same-customer", createdAt: "2098-12-03T00:00:00.000Z" }),
+    bookingRecord({ id: "older", phone: "13800138000", phoneHash: "same-customer", createdAt: "2098-12-01T00:00:00.000Z" }),
+    bookingRecord({ id: "other", phone: "13900139000", phoneHash: "other-customer", createdAt: "2098-12-04T00:00:00.000Z" }),
+    bookingRecord({ id: "redacted", phone: undefined, phoneHash: undefined, personalDataRedactedAt: "2098-12-05T00:00:00.000Z" }),
+  ];
+  const { service } = setup({ bookings: records });
+  assert.deepEqual((await service.listCustomerHistory("selected")).map(({ id }) => id), ["selected", "older"]);
+  assert.deepEqual(await service.listCustomerHistory("redacted"), []);
+  await assert.rejects(() => service.listCustomerHistory("missing"), /BOOKING_NOT_FOUND/);
 });
 
 test("stale redaction versions fail before deleting personal lookup data", async () => {

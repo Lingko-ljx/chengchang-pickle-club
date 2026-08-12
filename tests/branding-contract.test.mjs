@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -14,6 +15,36 @@ const layoutSource = await readFile(
   new URL("../app/layout.tsx", import.meta.url),
   "utf8",
 );
+const globalStyles = await readFile(
+  new URL("../app/globals.css", import.meta.url),
+  "utf8",
+);
+const heroArtwork = await readFile(
+  new URL("../public/ruiancheng-court-hero.png", import.meta.url),
+);
+
+test("the homepage hero presents the supplied Ruiancheng brand artwork without cropping", () => {
+  assert.match(
+    pageSource,
+    /alt="睿安成 PICKLE CLUB 南昌匹克球馆主视觉"/,
+  );
+  assert.match(pageSource, /height=\{941\}/);
+  assert.match(pageSource, /width=\{1672\}/);
+  assert.match(pageSource, /fetchPriority="high"/);
+  assert.match(pageSource, /loading="eager"/);
+  assert.equal(
+    createHash("sha256").update(heroArtwork).digest("hex"),
+    "0c12d5478f38a570a7d5dfd69f250837bee062e1dc3056926d5aca953b7f8afd",
+  );
+  assert.match(
+    globalStyles,
+    /\.hero-visual\s*\{[^}]*aspect-ratio:\s*1672\s*\/\s*941;[^}]*\}/s,
+  );
+  assert.match(
+    globalStyles,
+    /\.hero-visual-image\s*\{[^}]*object-fit:\s*contain;[^}]*\}/s,
+  );
+});
 
 test("the public site uses the approved Ruiancheng identity and contact details", () => {
   const publicSource = `${pageSource}\n${bookingFormSource}\n${layoutSource}`;

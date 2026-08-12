@@ -1,8 +1,13 @@
 export type BookingFilters = {
   date?: string;
+  from?: string;
+  to?: string;
   status?: string;
   mode?: string;
   q?: string;
+  archive?: "active" | "archived" | "all";
+  cursor?: string;
+  limit?: number;
 };
 
 export type AdminBootstrapFilters = BookingFilters & { date: string };
@@ -53,10 +58,10 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
     return payload.data;
   };
 
-  const query = (values: Record<string, string | undefined>) => {
+  const query = (values: Record<string, string | number | undefined>) => {
     const parameters = new URLSearchParams();
     for (const [name, value] of Object.entries(values)) {
-      if (value) parameters.set(name, value);
+      if (value !== undefined && value !== "") parameters.set(name, String(value));
     }
     const encoded = parameters.toString();
     return encoded ? `?${encoded}` : "";
@@ -75,9 +80,23 @@ export function createAdminApiClient(options: AdminApiClientOptions) {
     getMatrixBookings: (date: string) => request(`/v1/admin/matrix${query({ date })}`),
     listBookings: (filters: BookingFilters) =>
       request(`/v1/admin/bookings${query(filters)}`),
+    archiveBooking: (bookingId: string, expectedVersion: number) =>
+      request(
+        `/v1/admin/bookings/${encodeURIComponent(bookingId)}/archive`,
+        json("POST", { expectedVersion }),
+      ),
+    restoreBooking: (bookingId: string, expectedVersion: number) =>
+      request(
+        `/v1/admin/bookings/${encodeURIComponent(bookingId)}/restore`,
+        json("POST", { expectedVersion }),
+      ),
     getSettings: () => request("/v1/admin/settings"),
     getAuditLogs: (bookingId: string) =>
       request(`/v1/admin/bookings/${encodeURIComponent(bookingId)}/audit-logs`),
+    getCustomerHistory: (bookingId: string, limit = 50) =>
+      request(
+        `/v1/admin/bookings/${encodeURIComponent(bookingId)}/customer-history${query({ limit })}`,
+      ),
     mutateBooking: (
       bookingId: string,
       action: string,
