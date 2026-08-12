@@ -16,11 +16,16 @@ export default function BookingResultPage() {
         <p className="booking-flow-kicker">BOOKING CONFIRMED</p>
         <h1>预约已自动确认</h1>
         <p className="booking-flow-lead">
-          场地已经为你锁定。请保存下面的预约编号，用于随时查询或取消预约。
+          场地已经为你锁定。4 位预约编号方便前台核对；安全查询码用于在线查询或取消预约。
         </p>
         <div className="booking-code-panel">
-          <span>预约编号</span>
+          <span>预约编号 · 手机号后四位</span>
           <strong id="booking-result-code">正在读取…</strong>
+          <div className="booking-secure-code">
+            <span>安全查询码</span>
+            <code id="booking-result-secure-code">正在读取…</code>
+            <small>为防止相同尾号串单，请和预留手机号一起保存。</small>
+          </div>
         </div>
         <div className="booking-flow-actions">
           <a
@@ -41,7 +46,7 @@ export default function BookingResultPage() {
           </a>
         </div>
         <p className="booking-flow-note">
-          如球馆需要调整时间，工作人员会通过预约电话与你联系。
+          如球馆需要调整时间，工作人员会通过预约电话与你联系；到店只需报 4 位预约编号。
         </p>
       </section>
       <script

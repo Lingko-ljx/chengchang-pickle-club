@@ -112,13 +112,17 @@ test("mobile users get a native sticky directory with stable section links", () 
   assert.equal(summaryFocused, true);
 });
 
-test("mobile coach and honor sections use compact horizontal snap tracks", () => {
+test("mobile coach and honor sections are readable without repeated horizontal swipes", () => {
   assert.match(pageSource, /className="honor-champion-track"/);
   assert.match(pageSource, /className="honor-history-track honor-list"/);
   assert.match(pageSource, /className="[^"]*\bhonor-media-track\b[^"]*"/);
-  assert.match(globalStyles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.coach-feature-grid\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*auto;[^}]*scroll-snap-type:\s*x mandatory;/s);
-  assert.match(globalStyles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.honor-champion-track[\s\S]*overflow-x:\s*auto;[\s\S]*scroll-snap-type:\s*x mandatory;/s);
-  assert.match(globalStyles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.honor-history-track[\s\S]*overflow-x:\s*auto;/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.coach-feature-grid\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.honor-champion-track\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.honor-history-track\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.doesNotMatch(globalStyles, /\.coach-feature-grid\s*\{[^}]*overflow-x:\s*auto;/s);
+  assert.doesNotMatch(globalStyles, /\.honor-champion-track\s*\{[^}]*overflow-x:\s*auto;/s);
+  assert.doesNotMatch(globalStyles, /\.honor-history-track\s*\{[^}]*overflow-x:\s*auto;/s);
   assert.match(globalStyles, /\.honor-media-track\s*\{[^}]*overflow-x:\s*auto;[^}]*scroll-snap-type:\s*x mandatory;/s);
-  assert.match(globalStyles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.coach-support-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.honor-media \.honor-media-track\s*\{[^}]*display:\s*grid;[^}]*overflow-x:\s*visible;[^}]*scroll-snap-type:\s*none;/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.coach-support-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
 });

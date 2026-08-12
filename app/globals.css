@@ -2759,6 +2759,27 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.booking-secure-code {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(11, 54, 54, 0.16);
+}
+
+.booking-secure-code code {
+  overflow-wrap: anywhere;
+  color: var(--paper-light);
+  font-size: 0.94rem;
+  font-size: clamp(0.88rem, 2.2vw, 1rem);
+  letter-spacing: 0.04em;
+}
+
+.booking-secure-code small {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .booking-flow-actions,
 .booking-action-row {
   align-items: center;
@@ -3995,19 +4016,13 @@ textarea:focus-visible {
   }
 
   .coach-feature-grid {
-    display: flex;
-    gap: 14px;
-    margin-right: calc((100vw - 100%) / -2);
-    overflow-x: auto;
-    padding-bottom: 12px;
-    scroll-padding-left: 0;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: thin;
+    display: grid;
+    gap: 18px;
+    grid-template-columns: 1fr;
   }
 
   .coach-feature-card {
-    flex: 0 0 min(84vw, 440px);
-    scroll-snap-align: start;
+    grid-template-columns: 1fr;
   }
 
   .coach-support-grid {
@@ -4016,15 +4031,28 @@ textarea:focus-visible {
 
   .coach-feature-copy {
     gap: 12px;
-    padding: 20px;
+    padding: 22px;
   }
 
   .coach-feature-photo {
-    aspect-ratio: 16 / 10;
+    aspect-ratio: 3 / 4;
+    background: var(--paper-deep);
+  }
+
+  .coach-feature-photo img {
+    object-fit: contain;
+    object-position: center top;
   }
 
   .coach-feature-copy h3 {
-    font-size: 28px;
+    font-size: 30px;
+  }
+
+  .coach-feature-copy > div > span,
+  .coach-feature-copy > p,
+  .coach-feature-copy li {
+    font-size: 13px;
+    line-height: 1.65;
   }
 
   .coach-feature-copy ul {
@@ -4046,52 +4074,88 @@ textarea:focus-visible {
   }
 
   .honor-champion-track {
-    display: flex;
+    display: grid;
     gap: 12px;
-    margin-right: calc((100vw - 100%) / -2);
-    overflow-x: auto;
-    padding-bottom: 12px;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: thin;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .honor-champion-card {
-    flex: 0 0 min(72vw, 320px);
-    min-height: 196px;
-    scroll-snap-align: start;
+    min-height: 180px;
+    padding: 18px;
+  }
+
+  .honor-champion-card:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .honor-champion-card p {
+    margin-top: 42px;
+  }
+
+  .honor-champion-card h3 {
+    font-size: 19px;
+    line-height: 1.5;
   }
 
   .honor-history-track {
-    display: flex;
+    display: grid;
     gap: 10px;
-    overflow-x: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 12px 0;
-    scroll-snap-type: x mandatory;
   }
 
   .honor-history-track .honor-row {
     background: var(--paper-light);
     border: 1px solid var(--line);
     border-radius: 14px;
-    flex: 0 0 min(78vw, 340px);
-    min-height: 116px;
+    gap: 8px 12px;
+    grid-template-columns: 1fr auto;
+    min-height: 0;
     padding: 16px;
-    scroll-snap-align: start;
   }
 
-  .coach-gallery {
-    display: flex;
+  .honor-history-track .honor-row time {
+    grid-column: 1;
+  }
+
+  .honor-history-track .honor-row > div {
+    grid-column: 1 / -1;
+  }
+
+  .honor-history-track .honor-row > span {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .honor-history-track .honor-row h3 {
+    font-size: 17px;
+    line-height: 1.5;
+  }
+
+  .coach-gallery.honor-media-track,
+  .honor-media .honor-media-track {
+    display: grid;
     gap: 14px;
-    overflow-x: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
     padding-bottom: 12px;
-    scroll-snap-type: x mandatory;
+    scroll-snap-type: none;
   }
 
+  .coach-gallery.honor-media-track .coach-gallery-item,
   .coach-gallery-item,
   .coach-gallery-item.is-portrait,
   .coach-gallery-item.is-portrait + .coach-gallery-item.is-portrait {
-    flex: 0 0 min(82vw, 390px);
-    scroll-snap-align: start;
+    flex: none;
+    grid-column: auto;
+    min-width: 0;
+    scroll-snap-align: none;
+  }
+
+  .honor-media .honor-media-card {
+    flex: none;
+    min-width: 0;
+    scroll-snap-align: none;
   }
 
   .coach-gallery-item.is-portrait .coach-gallery-frame {

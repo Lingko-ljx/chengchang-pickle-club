@@ -56,6 +56,8 @@ test("exports the real booking form without a framework client runtime", async (
   }
   assert.match(html, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
   assert.match(html, /13807917663/);
+  assert.match(html, /负责人 MANAGER/);
+  assert.match(html, /<p>刘华<\/p>/);
   assert.match(
     html,
     new RegExp(
@@ -156,6 +158,14 @@ test("exports result and status pages with only their ES5 clients", async () => 
     assert.equal(scripts.length, 2);
     assert.match(scripts[0], page.client);
     assert.ok(scripts.some((script) => /data-wechat-entry-client/.test(script)));
+    if (/booking-result-shell/.test(String(page.marker))) {
+      assert.match(html, /预约编号 · 手机号后四位/);
+      assert.match(html, /id="booking-result-secure-code"/);
+      assert.match(html, /安全查询码/);
+    } else {
+      assert.match(html, /4 位预约编号仅供前台快速核对/);
+      assert.match(html, /<span>安全查询码<\/span>/);
+    }
   }
 });
 

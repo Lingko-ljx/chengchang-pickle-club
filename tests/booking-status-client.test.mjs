@@ -33,9 +33,10 @@ test("booking result and status clients parse as ES5", async () => {
   }
 });
 
-test("result client reads only code and builds a base-path-aware status link", async () => {
+test("result client shows the phone suffix while keeping the unique code as a security credential", async () => {
   const source = await readClient("booking-result");
-  const code = { textContent: "" };
+  const displayCode = { textContent: "" };
+  const secureCode = { textContent: "" };
   const link = { href: "" };
   const shell = {
     getAttribute(name) {
@@ -49,7 +50,8 @@ test("result client reads only code and builds a base-path-aware status link", a
     document: {
       getElementById(id) {
         return {
-          "booking-result-code": code,
+          "booking-result-code": displayCode,
+          "booking-result-secure-code": secureCode,
           "booking-result-shell": shell,
           "booking-result-status-link": link,
         }[id] ?? null;
@@ -60,11 +62,13 @@ test("result client reads only code and builds a base-path-aware status link", a
       location: {
         search:
           "?code=BOOK%2F42&name=Private&phone=13800138000&email=p%40example.com",
+        hash: "#display_code=8000",
       },
     },
   });
 
-  assert.equal(code.textContent, "BOOK/42");
+  assert.equal(displayCode.textContent, "8000");
+  assert.equal(secureCode.textContent, "BOOK/42");
   assert.equal(
     link.href,
     "/chengchang-pickle-club/booking/status/?code=BOOK%2F42",
@@ -85,16 +89,17 @@ test("malformed query keys cannot stop either client from finding a valid code",
         getElementById(id) {
           return {
             "booking-result-code": resultCode,
+            "booking-result-secure-code": { textContent: "" },
             "booking-result-shell": { getAttribute: () => "" },
             "booking-result-status-link": resultLink,
           }[id] ?? null;
         },
       },
       encodeURIComponent,
-      window: { location: { search: "?%=bad&code=BOOK-42" } },
+      window: { location: { search: "?%=bad&code=BOOK-42", hash: "#display_code=0042" } },
     }),
   );
-  assert.equal(resultCode.textContent, "BOOK-42");
+  assert.equal(resultCode.textContent, "0042");
 
   let statusPage;
   assert.doesNotThrow(() => {

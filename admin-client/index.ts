@@ -20,6 +20,7 @@ import {
   renderHonorMediaAdmin,
   renderPendingQueue,
   recordDateRange,
+  recordWeekRange,
   retainSelectedBooking,
   summarizeBookings,
   type AdminAuditLog,
@@ -190,7 +191,12 @@ function startAdmin() {
     recordFrom.value = range.from;
     recordTo.value = range.to;
   };
-  applyRecordRange("30");
+  const applyRecordWeek = (offsetWeeks: number) => {
+    const range = recordWeekRange(shanghaiDate(), offsetWeeks);
+    recordFrom.value = range.from;
+    recordTo.value = range.to;
+  };
+  applyRecordWeek(0);
 
   const renderRecordSummary = () => {
     const summary = summarizeBookings(bookings);
@@ -709,7 +715,7 @@ function startAdmin() {
   };
 
   const filters = () => {
-    if (!recordFrom.value || !recordTo.value) applyRecordRange("30");
+    if (!recordFrom.value || !recordTo.value) applyRecordWeek(0);
     return {
       from: recordFrom.value,
       to: recordTo.value,
@@ -781,9 +787,9 @@ function startAdmin() {
     const target = selected;
     const body: Record<string, unknown> = { expectedVersion: target.version };
     const prompt = action === "archive"
-      ? `删除“${target.name?.trim() || target.code}”的预约记录？\n\n记录将移入回收站，可以恢复；客户历史和操作记录不会丢失。`
+      ? `删除“${target.name?.trim() || target.displayCode || "已脱敏预约"}”的预约记录？\n\n记录将移入回收站，可以恢复；客户历史和操作记录不会丢失。`
       : action === "restore"
-        ? `恢复“${target.name?.trim() || target.code}”的预约记录？`
+        ? `恢复“${target.name?.trim() || target.displayCode || "已脱敏预约"}”的预约记录？`
         : confirmationMessage(target, label);
     if (!window.confirm(prompt)) return;
     activeAction = action;
@@ -1052,7 +1058,7 @@ function startAdmin() {
   required<HTMLButtonElement>("admin-record-view-archived").addEventListener("click", () => setRecordView("archived"));
   required<HTMLButtonElement>("admin-filter-reset").addEventListener("click", () => {
     required<HTMLFormElement>("admin-filter-form").reset();
-    applyRecordRange("30");
+    applyRecordWeek(0);
     recordNextCursor = null;
     refreshRecords().catch((error) => showMessage(String(error), true));
   });
@@ -1063,6 +1069,13 @@ function startAdmin() {
   };
   document.querySelectorAll<HTMLButtonElement>("[data-record-range]").forEach((button) => {
     button.addEventListener("click", () => setRange(button.dataset.recordRange ?? "all"));
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-record-week]").forEach((button) => {
+    button.addEventListener("click", () => {
+      applyRecordWeek(Number.parseInt(button.dataset.recordWeek ?? "0", 10) || 0);
+      recordNextCursor = null;
+      refreshRecords().catch((error) => showMessage(String(error), true));
+    });
   });
   required<HTMLFormElement>("admin-export-form").addEventListener("submit", (event) => {
     event.preventDefault();

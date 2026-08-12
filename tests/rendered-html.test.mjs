@@ -138,6 +138,10 @@ test("server renders the real booking form and current venue contract", async ()
   }
   assert.match(html, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
   assert.match(html, /13807917663/);
+  assert.match(html, /负责人 MANAGER/);
+  assert.match(html, /<p>刘华<\/p>/);
+  assert.match(html, /负责人 MANAGER/);
+  assert.match(html, /<p>刘华<\/p>/);
   assert.match(
     html,
     /<img(?=[^>]*alt="睿安成 PICKLE CLUB 南昌匹克球馆主视觉")(?=[^>]*src="[^"]*\/ruiancheng-court-hero\.png")(?=[^>]*width="1672")(?=[^>]*height="941")[^>]*>/,

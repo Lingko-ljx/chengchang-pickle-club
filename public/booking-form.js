@@ -115,6 +115,14 @@
     return base + separator + encodeURIComponent(name) + "=" + encodeURIComponent(value) + hash;
   }
 
+  function appendFragmentParameter(path, name, value) {
+    var hashIndex = path.indexOf("#");
+    var base = hashIndex >= 0 ? path.slice(0, hashIndex) : path;
+    var fragment = hashIndex >= 0 ? path.slice(hashIndex + 1) : "";
+    var separator = fragment ? "&" : "";
+    return base + "#" + fragment + separator + encodeURIComponent(name) + "=" + encodeURIComponent(value);
+  }
+
   function isValidDate(value) {
     var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
     var parsed;
@@ -478,21 +486,33 @@
       request.onreadystatechange = function () {
         var payload;
         var code;
+        var displayCode;
         if (request.readyState !== 4) return;
         if (request.status === 201) {
           try {
             payload = window.JSON.parse(request.responseText);
             code = payload && payload.data && payload.data.code;
+            displayCode = payload && payload.data && payload.data.displayCode;
           } catch (error) {
             void error;
             code = "";
+            displayCode = "";
           }
-          if (typeof code === "string" && code !== "") {
+          if (
+            typeof code === "string" &&
+            code !== "" &&
+            typeof displayCode === "string" &&
+            /^\d{4}$/.test(displayCode)
+          ) {
             resultPath =
               form.getAttribute("data-booking-result-path") || resultPath;
             clearIdempotencyKey();
             form.reset();
-            window.location.href = appendQueryParameter(resultPath, "code", code);
+            window.location.href = appendFragmentParameter(
+              appendQueryParameter(resultPath, "code", code),
+              "display_code",
+              displayCode
+            );
             return;
           }
         }

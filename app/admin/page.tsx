@@ -107,9 +107,10 @@ export default function AdminPage() {
             </form>
             <div className="admin-range-shortcuts" aria-label="快捷日期范围">
               <span>快捷查看</span>
+              <button data-record-week="-1" type="button">上一周</button>
+              <button data-record-week="0" type="button">本周</button>
+              <button data-record-week="1" type="button">下一周</button>
               <button data-record-range="today" type="button">今天</button>
-              <button data-record-range="7" type="button">近 7 天</button>
-              <button data-record-range="30" type="button">近 30 天</button>
               <button data-record-range="all" type="button">全部历史</button>
             </div>
 

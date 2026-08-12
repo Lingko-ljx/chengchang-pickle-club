@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { BookingService } from "../../lib/booking/booking-service.ts";
 import { requireCalendarDate } from "../../lib/booking/calendar-date.ts";
+import { bookingDisplayCode } from "../../lib/booking/display-code.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
 import { currentPublicScheduleConsentVersion } from "../../lib/booking/types.ts";
 import type { BookingRecord } from "../../lib/booking/types.ts";
@@ -218,8 +219,12 @@ function maskPhone(phone: string | undefined): string | undefined {
 }
 
 function publicBooking(booking: BookingRecord, now: Date): Record<string, unknown> {
+  const displayCode = bookingDisplayCode(booking);
   const result: Record<string, unknown> = {
+    // `code` is the unique ownership token used together with the full phone.
+    // `displayCode` is only a collision-prone, human-facing reference.
     code: booking.code,
+    ...(displayCode ? { displayCode } : {}),
     status: booking.status,
     date: booking.date,
     startTime: formatShanghaiTime(booking.startAt),
@@ -530,10 +535,15 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
         );
         const booking = await dependencies.service.create(command);
         if (nativeForm) {
+          const displayCode = bookingDisplayCode(booking);
           return {
             statusCode: 303,
             headers: {
-              Location: `${dependencies.resultUrl}?code=${encodeURIComponent(booking.code)}`,
+              Location: `${dependencies.resultUrl}?code=${encodeURIComponent(booking.code)}${
+                displayCode
+                  ? `#display_code=${encodeURIComponent(displayCode)}`
+                  : ""
+              }`,
             },
             body: "",
           };

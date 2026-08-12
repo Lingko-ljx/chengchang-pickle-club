@@ -19,6 +19,7 @@ import {
   bookingActionsFor,
   bookingRecordActionsFor,
   bookingDurationHours,
+  bookingDisplayCode,
   bookingDisplayName,
   confirmationMessage,
   formatShanghaiBookingSchedule,
@@ -32,6 +33,7 @@ import {
   renderBookingDetail,
   normalizeBookingPage,
   recordDateRange,
+  recordWeekRange,
   retainSelectedBooking,
   statusLabel,
 } from "../admin-client/render.ts";
@@ -582,6 +584,25 @@ test("record ranges keep every search and recycle-bin query bounded", () => {
   });
 });
 
+test("record week shortcuts use Beijing calendar Monday through Sunday", () => {
+  assert.deepEqual(recordWeekRange("2026-08-12", 0), {
+    from: "2026-08-10",
+    to: "2026-08-16",
+  });
+  assert.deepEqual(recordWeekRange("2026-08-12", -1), {
+    from: "2026-08-03",
+    to: "2026-08-09",
+  });
+  assert.deepEqual(recordWeekRange("2026-08-12", 1), {
+    from: "2026-08-17",
+    to: "2026-08-23",
+  });
+  assert.deepEqual(recordWeekRange("2026-08-16", 0), {
+    from: "2026-08-10",
+    to: "2026-08-16",
+  });
+});
+
 test("customer history is loaded through the selected booking, never a phone-number URL", async () => {
   const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
   const renderSource = await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8");
@@ -604,11 +625,12 @@ test("admin page exposes scalable booking controls and a customer history surfac
 
 test("mutation confirmation identifies the booking, date and action", () => {
   const message = confirmationMessage(
-    { code: "BOOK-42", date: "2026-08-09" },
+    { displayCode: "1763", date: "2026-08-09" },
     "取消预约",
   );
 
-  assert.match(message, /BOOK-42/);
+  assert.match(message, /1763/);
+  assert.doesNotMatch(message, /BOOK-/);
   assert.match(message, /2026-08-09/);
   assert.match(message, /取消预约/);
 });
@@ -658,6 +680,8 @@ test("booking cards lead with the customer name and use a redacted fallback", as
   assert.equal(bookingDisplayName({ name: "  毛之谦  " }), "毛之谦");
   assert.equal(bookingDisplayName({}), "已脱敏预约");
   assert.equal(bookingDisplayName({ name: "   " }), "已脱敏预约");
+  assert.equal(bookingDisplayCode({ displayCode: "1763" }), "1763");
+  assert.equal(bookingDisplayCode({}), "已脱敏");
 
   const source = await readFile(new URL("../admin-client/render.ts", import.meta.url), "utf8");
   assert.match(source, /text\("strong", bookingDisplayName\(booking\)\)/);
@@ -669,9 +693,10 @@ test("booking cards lead with the customer name and use a redacted fallback", as
   assert.match(cardSource, /北京时间/);
   const detailName = source.indexOf('text("h3", bookingDisplayName(booking))');
   const detailCode = source.indexOf(
-    'text("p", `预约号 ${booking.code}`, "admin-detail-code")',
+    'text("p", `预约号 ${bookingDisplayCode(booking)}`, "admin-detail-code")',
     detailName,
   );
+  assert.doesNotMatch(source, /`预约号 \$\{booking\.code\}`/);
   assert.notEqual(detailName, -1);
   assert.ok(detailCode > detailName);
 });
@@ -934,10 +959,17 @@ test("record actions use the selected booking context and successful moves updat
 
 test("record reset, all-history and mobile controls remain safe at scale", async () => {
   const source = await readFile(new URL("../admin-client/index.ts", import.meta.url), "utf8");
+  const html = await renderAdminPage();
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(source, /applyRecordRange\("30"\)/);
+  assert.match(source, /applyRecordWeek\(0\)/);
+  assert.doesNotMatch(source, /applyRecordRange\("30"\)/);
   assert.match(source, /recordDateRange\(shanghaiDate\(\), preset\)/);
+  assert.match(source, /recordWeekRange\(shanghaiDate\(\), offsetWeeks\)/);
   assert.doesNotMatch(source, /days === "all"[\s\S]{0,120}from\.value = ""/);
+  assert.match(html, /data-record-week="-1"[^>]*>上一周</);
+  assert.match(html, /data-record-week="0"[^>]*>本周</);
+  assert.match(html, /data-record-week="1"[^>]*>下一周</);
+  assert.match(html, /data-record-range="all"[^>]*>全部历史</);
   assert.match(css, /\.admin-record-results \.admin-booking-list\s*\{[^}]*max-height:\s*62dvh/s);
   assert.match(css, /\.admin-page (?:input|input,)[\s\S]{0,160}font-size:\s*16px/s);
 });

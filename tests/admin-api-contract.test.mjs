@@ -435,6 +435,7 @@ test("booking records expose bounded range pagination and recoverable archive mu
       const projected = structuredClone(item);
       delete projected.phoneHash;
       delete projected.idempotencyKeyHash;
+      projected.displayCode = item.phone.slice(-4);
       return projected;
     }),
     nextCursor: responseBody(listing).data.nextCursor,
@@ -643,6 +644,7 @@ test("bootstrap authenticates once, runs all same-day reads concurrently, and re
   assert.equal(data.todayDashboard.date, DATE);
   assert.deepEqual(data.selectedDashboard, data.todayDashboard);
   assert.equal(data.bookings[0].code, "ADMINCODE1");
+  assert.equal(data.bookings[0].displayCode, "8000");
   assert.equal(data.matrixBookings.bookings[0].proposedDate, DATE);
   assert.deepEqual(data.matrixBookings.inventoryVersions, { "01": 0 });
   assert.deepEqual(data.settings, {

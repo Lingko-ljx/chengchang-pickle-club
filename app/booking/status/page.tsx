@@ -25,7 +25,7 @@ export default function BookingStatusPage() {
         <p className="booking-flow-kicker">BOOKING STATUS</p>
         <h1>查询预约状态</h1>
         <p className="booking-flow-lead">
-          输入预约编号和预留手机号。验证成功后可查看进度、取消预约或回应改期。
+          输入预约成功页保存的安全查询码和预留手机号。4 位预约编号仅供前台快速核对，不能单独查询，避免相同尾号串单。
         </p>
 
         <form
@@ -35,7 +35,7 @@ export default function BookingStatusPage() {
           method="post"
         >
           <label htmlFor="booking-status-code">
-            <span>预约编号</span>
+            <span>安全查询码</span>
             <input
               autoComplete="off"
               id="booking-status-code"

@@ -27,6 +27,7 @@ export function bookingActionsFor(booking: {
 export type AdminBooking = {
   id: string;
   code: string;
+  displayCode?: string;
   bookingKind?: "customer" | "staff_reservation";
   staffReservationTitle?: string;
   sessionId: string;
@@ -142,10 +143,10 @@ const statusLabels: Record<string, string> = {
 };
 
 export function confirmationMessage(
-  booking: Pick<AdminBooking, "code" | "date">,
+  booking: Pick<AdminBooking, "displayCode" | "date">,
   action: string,
 ): string {
-  return `${action} · 预约 ${booking.code} · ${booking.date}\n确认继续吗？`;
+  return `${action} · 预约 ${bookingDisplayCode(booking)} · ${booking.date}\n确认继续吗？`;
 }
 
 type ShanghaiInstantParts = {
@@ -217,6 +218,21 @@ export function recordDateRange(
   const from = new Date(`${today}T12:00:00.000Z`);
   from.setUTCDate(from.getUTCDate() - days + 1);
   return { from: from.toISOString().slice(0, 10), to: today };
+}
+
+export function recordWeekRange(
+  today: string,
+  offsetWeeks = 0,
+): { from: string; to: string } {
+  const monday = new Date(`${today}T12:00:00.000Z`);
+  const daysSinceMonday = (monday.getUTCDay() + 6) % 7;
+  monday.setUTCDate(monday.getUTCDate() - daysSinceMonday + offsetWeeks * 7);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(sunday.getUTCDate() + 6);
+  return {
+    from: monday.toISOString().slice(0, 10),
+    to: sunday.toISOString().slice(0, 10),
+  };
 }
 
 export function bookingRecordActionsFor(
@@ -298,6 +314,13 @@ export function bookingDisplayName(
   booking: { name?: string; staffReservationTitle?: string },
 ): string {
   return booking.staffReservationTitle?.trim() || booking.name?.trim() || "已脱敏预约";
+}
+
+export function bookingDisplayCode(
+  booking: Pick<AdminBooking, "displayCode"> | { displayCode?: string },
+): string {
+  const value = booking.displayCode?.trim();
+  return /^\d{4}$/.test(value ?? "") ? value! : "已脱敏";
 }
 
 export function retainSelectedBooking<T extends { id: string }>(
@@ -774,7 +797,7 @@ export function renderBookingDetail(
     text("h3", bookingDisplayName(booking)),
     ...(booking.bookingKind === "staff_reservation"
       ? [text("p", "后台人工占场", "admin-detail-code")]
-      : [text("p", `预约号 ${booking.code}`, "admin-detail-code")]),
+      : [text("p", `预约号 ${bookingDisplayCode(booking)}`, "admin-detail-code")]),
     text("p", `状态：${statusLabel(booking.status)}`, "admin-detail-status"),
     text("p", `北京时间 ${formatShanghaiBookingSchedule(booking)} · ${bookingDurationLabel(booking)}`),
     text(

@@ -1,5 +1,6 @@
 import { BookingService, decodeBookingCursor, encodeBookingCursor } from "../../lib/booking/booking-service.ts";
 import { defaultBookingPolicy } from "../../lib/booking/booking-window.ts";
+import { bookingDisplayCode } from "../../lib/booking/display-code.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
 import type {
   AdminBookingFilter,
@@ -187,9 +188,13 @@ function booleanField(body: Record<string, unknown>, name: string): boolean {
 
 function adminBooking(value: BookingRecord): Record<string, unknown> {
   const staffReservation = value.bookingKind === "staff_reservation";
+  const displayCode = bookingDisplayCode(value);
   return {
     id: value.id,
+    // Keep the unique code for authenticated support actions, while all normal
+    // admin presentation can prefer the customer's phone suffix.
     code: value.code,
+    ...(displayCode ? { displayCode } : {}),
     ...(value.bookingKind ? { bookingKind: value.bookingKind } : {}),
     ...(value.staffReservationTitle
       ? { staffReservationTitle: value.staffReservationTitle }

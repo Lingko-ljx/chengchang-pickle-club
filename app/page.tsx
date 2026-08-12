@@ -673,6 +673,11 @@ export default function Home() {
               <small>点击号码可直接拨打</small>
             </div>
             <div>
+              <span>负责人 MANAGER</span>
+              <p>刘华</p>
+              <small>球馆运营与预约协调</small>
+            </div>
+            <div>
               <span>营业时间 OPENING</span>
               <p>周一至周日 09:00 — 22:00</p>
               <small>法定节假日以公告为准</small>

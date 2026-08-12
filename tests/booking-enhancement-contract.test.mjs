@@ -542,7 +542,7 @@ test("invalid dates ignore stale availability success and failure", async () => 
   }
 });
 
-test("one persisted idempotency key survives failed submissions and clears only on 201 with a code", async () => {
+test("one persisted idempotency key survives failed submissions and clears only on 201 with both secure and display codes", async () => {
   const source = await readEnhancement();
   const storage = createStorage();
   const page = loadEnhancement(source, { date: "2026-08-10", storage });
@@ -583,7 +583,7 @@ test("one persisted idempotency key survives failed submissions and clears only 
   page.submit();
   const retry = page.request(1);
   assert.match(retry.body, new RegExp(`(?:^|&)idempotency_key=${key}(?:&|$)`));
-  retry.respond(201, JSON.stringify({ data: { code: "BOOK/42" } }));
+  retry.respond(201, JSON.stringify({ data: { code: "BOOK/42", displayCode: "8000" } }));
 
   assert.equal(page.resetCount(), 1);
   assert.equal(page.controls.idempotencyKey.value, "");
@@ -591,7 +591,7 @@ test("one persisted idempotency key survives failed submissions and clears only 
   assert.equal(storage.removeCount(), 1);
   assert.equal(
     page.location.href,
-    "/chengchang-pickle-club/booking/result/?code=BOOK%2F42",
+    "/chengchang-pickle-club/booking/result/?code=BOOK%2F42#display_code=8000",
   );
 });
 
@@ -625,11 +625,11 @@ test("allowlisted channel attribution survives the result redirect but never ent
   page.submit();
   const request = page.request();
   assert.doesNotMatch(request.body, /(?:^|&)src=|wx_menu|openid|unionid/i);
-  request.respond(201, JSON.stringify({ data: { code: "L3JSR8PC" } }));
+  request.respond(201, JSON.stringify({ data: { code: "L3JSR8PC", displayCode: "8000" } }));
 
   assert.equal(
     page.location.href,
-    "/chengchang-pickle-club/booking/result/?src=wx_menu&code=L3JSR8PC",
+    "/chengchang-pickle-club/booking/result/?src=wx_menu&code=L3JSR8PC#display_code=8000",
   );
 });
 
@@ -646,6 +646,11 @@ test("400, 429, network, and malformed success responses preserve every field an
     {
       name: "201 without code",
       trigger: (request) => request.respond(201, JSON.stringify({ data: {} })),
+    },
+    {
+      name: "201 without display code",
+      trigger: (request) =>
+        request.respond(201, JSON.stringify({ data: { code: "BOOK-42" } })),
     },
   ];
 

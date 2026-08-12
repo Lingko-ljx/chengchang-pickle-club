@@ -60,6 +60,8 @@ test("the public site uses the approved Ruiancheng identity and contact details"
   }
   assert.match(publicSource, /江西省南昌市青山湖区青山湖南大道260号14号楼/);
   assert.match(publicSource, /13807917663/);
+  assert.match(pageSource, /负责人 MANAGER/);
+  assert.match(pageSource, /<p>刘华<\/p>/);
   assert.match(pageSource, /ruiancheng-court-hero\.png/);
 
   assert.doesNotMatch(publicSource, /澄场|CHENGCHANG|陆予安|周澄|林岚|毛之谦|总教头|特约嘉宾/);
@@ -96,7 +98,7 @@ test("the public site transcribes Liu Qirui's supplied honors exactly", () => {
   assert.doesNotMatch(pageSource, /荣誉留待书写|honor-list-empty|暂为空|codex-clipboard|微信截图/);
 });
 
-test("the coach section gives the two professional coaches a featured, gallery-ready layout", () => {
+test("the coach section stays compact and readable without horizontal coach cards", () => {
   assert.match(pageSource, /const featuredCoaches = \[/);
   assert.match(pageSource, /const supportCoaches = \[/);
   assert.match(pageSource, /className="coach-feature-grid"/);
@@ -106,7 +108,16 @@ test("the coach section gives the two professional coaches a featured, gallery-r
   assert.match(pageSource, /data-coach-media-slot=/);
   assert.match(globalStyles, /\.coach-feature-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(globalStyles, /\.coach-support-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.match(globalStyles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.coach-feature-grid\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*auto;/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.coach-feature-grid\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*1fr;/s);
+  assert.doesNotMatch(globalStyles, /\.coach-feature-grid\s*\{[^}]*overflow-x:\s*auto;/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.coach-feature-photo img\s*\{[^}]*object-fit:\s*contain;[^}]*object-position:\s*center top;/s);
+});
+
+test("mobile honors use readable grids instead of horizontal snap carousels", () => {
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.honor-champion-track\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.honor-history-track\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.doesNotMatch(globalStyles, /\.honor-champion-track\s*\{[^}]*overflow-x:\s*auto;/s);
+  assert.doesNotMatch(globalStyles, /\.honor-history-track\s*\{[^}]*overflow-x:\s*auto;/s);
 });
 
 test("coach media captions keep the supplied events and results correctly separated", () => {

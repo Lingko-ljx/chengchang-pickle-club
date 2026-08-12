@@ -366,6 +366,7 @@ test("JSON creation returns a sanitized 201 envelope and requires client idempot
   assert.deepEqual(responseBody(created), {
     data: {
       code: "PUBLIC00000000000000000000000001",
+      displayCode: "8000",
       status: "confirmed",
       date: DATE,
       startTime: "09:00",
@@ -575,7 +576,7 @@ test("base64 native forms derive the exact canonical hourly HMAC and redirect sa
   });
   assert.equal(first.statusCode, 303);
   assert.deepEqual(first.headers, {
-    Location: "https://example.test/booking/result?code=FORMCODE2345",
+    Location: "https://example.test/booking/result?code=FORMCODE2345#display_code=9000",
   });
   assert.equal(first.body, "");
   assert.equal(captured[0].sessionId, MORNING);
@@ -777,6 +778,7 @@ test("lookup requires code plus the full normalized phone and sanitizes not-foun
   );
   assert.equal(found.statusCode, 200);
   assert.equal(responseBody(found).data.code, booking.code);
+  assert.equal(responseBody(found).data.displayCode, "8000");
   assert.equal(responseBody(found).data.phone, "138****8000");
   assert.equal(responseBody(found).data.name, "A** L*******");
   assert.equal(responseBody(found).data.actionVersion, booking.version);
@@ -798,6 +800,52 @@ test("lookup requires code plus the full normalized phone and sanitizes not-foun
   for (const response of [wrongCode, wrongPhone]) {
     assert.equal(response.statusCode, 404);
     assert.deepEqual(responseBody(response), NOT_FOUND);
+  }
+});
+
+test("matching phone suffixes share a display code but cannot replace the unique ownership token", async () => {
+  const { service } = serviceFixture();
+  const first = await service.create({
+    idempotencyKey: "display-code-first",
+    sessionId: MORNING,
+    mode: "private",
+    partySize: 2,
+    name: "First Player",
+    phone: "13800138000",
+    privacyConsent: true,
+  });
+  const second = await service.create({
+    idempotencyKey: "display-code-second",
+    sessionId: MORNING,
+    mode: "private",
+    partySize: 2,
+    name: "Second Player",
+    phone: "13999138000",
+    privacyConsent: true,
+  });
+  assert.notEqual(first.code, second.code);
+
+  const handler = handlerFor(service);
+  const firstLookup = await handler(jsonEvent("POST", "/v1/bookings/lookup", {
+    code: first.code,
+    phone: first.phone,
+  }));
+  const secondLookup = await handler(jsonEvent("POST", "/v1/bookings/lookup", {
+    code: second.code,
+    phone: second.phone,
+  }));
+  assert.equal(firstLookup.statusCode, 200);
+  assert.equal(secondLookup.statusCode, 200);
+  assert.equal(responseBody(firstLookup).data.displayCode, "8000");
+  assert.equal(responseBody(secondLookup).data.displayCode, "8000");
+
+  for (const phone of [first.phone, second.phone]) {
+    const suffixLookup = await handler(jsonEvent("POST", "/v1/bookings/lookup", {
+      code: "8000",
+      phone,
+    }));
+    assert.equal(suffixLookup.statusCode, 404);
+    assert.deepEqual(responseBody(suffixLookup), NOT_FOUND);
   }
 });
 
