@@ -134,3 +134,18 @@ test("a legacy client can book without retroactively consenting to public name d
   assert.equal(created.publicScheduleConsentVersion, undefined);
   assert.equal(created.publicScheduleConsentAt, undefined);
 });
+
+test("v2 name visibility choice is stored atomically and survives idempotency replay", async () => {
+  const { service } = setup();
+  const requested = command({
+    idempotencyKey: "v2-hide-public-name",
+    publicScheduleConsentVersion: 2,
+    hidePublicName: true,
+  });
+
+  const created = await service.create(requested);
+  assert.equal(created.publicScheduleConsentVersion, 2);
+  assert.equal(created.hidePublicName, true);
+  assert.equal(created.publicScheduleConsentAt, created.privacyConsentAt);
+  assert.deepEqual(await service.create(requested), created);
+});

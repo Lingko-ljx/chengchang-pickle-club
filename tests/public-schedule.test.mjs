@@ -168,6 +168,89 @@ test("public schedule returns only active, masked, public-safe fields", async ()
   }
 });
 
+test("public schedule v2 shows a full name by default and masks only explicit opt-outs", async () => {
+  const response = await handlerFor({
+    async listPublicSchedule() {
+      return [
+        booking({
+          id: "v2-visible",
+          name: "  刘栖睿  ",
+          publicScheduleConsentVersion: 2,
+          publicScheduleConsentAt: "2026-08-01T00:00:00.000Z",
+        }),
+        booking({
+          id: "v2-hidden",
+          name: "Ada Lovelace",
+          publicScheduleConsentVersion: 2,
+          publicScheduleConsentAt: "2026-08-01T00:00:00.000Z",
+          hidePublicName: true,
+          phone: "13900139000",
+          email: "hidden@example.com",
+          note: "never public",
+          code: "HIDDEN-CODE",
+        }),
+        booking({
+          id: "v2-missing-consent-time",
+          name: "缓存请求不得公开",
+          publicScheduleConsentVersion: 2,
+          publicScheduleConsentAt: undefined,
+        }),
+        booking({
+          id: "v2-redacted",
+          name: "残留姓名不得公开",
+          publicScheduleConsentVersion: 2,
+          publicScheduleConsentAt: "2026-08-01T00:00:00.000Z",
+          personalDataRedactedAt: "2026-08-10T00:00:00.000Z",
+        }),
+        booking({
+          id: "v2-malformed-name",
+          name: "<b>历史脏数据</b>",
+          publicScheduleConsentVersion: 2,
+          publicScheduleConsentAt: "2026-08-01T00:00:00.000Z",
+        }),
+        booking({
+          id: "unknown-version",
+          name: "未知版本不得公开",
+          publicScheduleConsentVersion: 99,
+          publicScheduleConsentAt: "2026-08-01T00:00:00.000Z",
+        }),
+      ];
+    },
+  })(event());
+
+  assert.equal(response.statusCode, 200);
+  const data = JSON.parse(response.body).data;
+  assert.deepEqual(
+    data.items.map((item) => item.name),
+    ["匿名球友", "A**", "匿名球友", "匿名球友", "匿名球友", "刘栖睿"],
+  );
+  for (const secret of [
+    "13900139000",
+    "hidden@example.com",
+    "never public",
+    "HIDDEN-CODE",
+  ]) {
+    assert.equal(response.body.includes(secret), false, secret);
+  }
+});
+
+test("a cached record with a consent timestamp but no policy version still fails closed", async () => {
+  const response = await handlerFor({
+    async listPublicSchedule() {
+      return [booking({
+        name: "半迁移历史姓名",
+        publicScheduleConsentVersion: undefined,
+        publicScheduleConsentAt: "2026-08-01T00:00:00.000Z",
+      })];
+    },
+  })(event());
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["Cache-Control"], "no-store");
+  assert.equal(JSON.parse(response.body).data.items[0].name, "匿名球友");
+  assert.equal(response.body.includes("半迁移历史姓名"), false);
+});
+
 test("public schedule validates a real Beijing calendar date before reading bookings", async () => {
   let calls = 0;
   const handler = handlerFor({
@@ -179,8 +262,34 @@ test("public schedule validates a real Beijing calendar date before reading book
   for (const invalid of ["", "2026-02-29", "2026-08-32"]) {
     const response = await handler(event(invalid));
     assert.equal(response.statusCode, 400);
+    assert.equal(response.headers["Cache-Control"], "no-store");
     assert.equal(JSON.parse(response.body).error.code, "INVALID_INPUT");
   }
+  assert.equal(calls, 0);
+});
+
+test("public schedule rejects extra query fields and never permits caching any response", async () => {
+  let calls = 0;
+  const handler = handlerFor({
+    async listPublicSchedule() {
+      calls += 1;
+      return [];
+    },
+  });
+  const extra = await handler({
+    ...event(),
+    queryStringParameters: { date: DATE, extra: "must-not-be-ignored" },
+  });
+  assert.equal(extra.statusCode, 400);
+  assert.equal(extra.headers["Cache-Control"], "no-store");
+
+  const wrongMethod = await handler({ ...event(), httpMethod: "POST" });
+  assert.equal(wrongMethod.statusCode, 404);
+  assert.equal(wrongMethod.headers["Cache-Control"], "no-store");
+
+  const preflight = await handler({ ...event(), httpMethod: "OPTIONS" });
+  assert.equal(preflight.statusCode, 204);
+  assert.equal(preflight.headers["Cache-Control"], "no-store");
   assert.equal(calls, 0);
 });
 
@@ -210,6 +319,7 @@ test("public schedule rate limits abusive anonymous refreshes before repository 
     idempotencySalt: "public-schedule-test",
   })(event());
   assert.equal(response.statusCode, 429);
+  assert.equal(response.headers["Cache-Control"], "no-store");
   assert.equal(reads, 0);
 });
 
@@ -306,4 +416,6 @@ test("public schedule browser client parses as ES5 and never renders server text
   assert.match(summary.textContent, /1 场.*2 位/);
   assert.equal(list.children.length, 1);
   assert.equal(list.children[0].children[0].textContent, "<img src=x onerror=alert(1)>");
+  assert.match(status.textContent, /默认展示完整姓名/);
+  assert.match(status.textContent, /手机号、邮箱、预约编号和备注始终保密/);
 });

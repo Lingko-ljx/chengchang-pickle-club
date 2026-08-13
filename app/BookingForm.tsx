@@ -84,7 +84,7 @@ export function BookingForm({
             </div>
             <div className="public-schedule-list" id="public-schedule-list" />
             <p aria-live="polite" id="public-schedule-status">
-              仅展示脱敏称呼与打球时间，联系方式始终保密。
+              默认展示预约人的完整姓名与打球时间；选择不公开姓名的球友仅显示脱敏称呼。手机号、邮箱、预约编号和备注始终保密。
             </p>
           </section>
         ) : null}
@@ -197,10 +197,12 @@ export function BookingForm({
                   <input
                     autoComplete="name"
                     id="booking-name"
+                    maxLength={40}
                     name="name"
                     required
                     type="text"
                   />
+                  <small className="field-help">请填写大家熟悉的真实称呼，默认会在首页完整展示。</small>
                 </label>
                 <label htmlFor="booking-phone">
                   <span>联系电话</span>
@@ -228,18 +230,23 @@ export function BookingForm({
                   value="yes"
                 />
                 <span>
-                  我同意睿安成使用以上信息处理预约并与我联系。
+                  我同意睿安成使用以上信息处理预约并与我联系，并已知悉姓名默认会在首页公开展示。
                 </span>
               </label>
 
+              <input
+                name="public_schedule_consent_version"
+                type="hidden"
+                value="2"
+              />
               <label className="privacy-consent public-schedule-consent">
                 <input
-                  name="public_schedule_consent_version"
+                  name="hide_public_name"
                   type="checkbox"
-                  value="1"
+                  value="true"
                 />
                 <span>
-                  （选填）我同意首页公开姓名首字加 **、预约时段、人数和散客/包场性质，不公开手机号、邮箱、预约号或备注。不勾选也可预约，首页将匿名显示。
+                  我不想公开完整姓名（选填）。勾选后首页仅显示脱敏称呼；不勾选则默认显示完整姓名。预约时段、人数和散客/包场性质仍会展示，手机号、邮箱、预约编号和备注始终保密。
                 </span>
               </label>
 

@@ -958,7 +958,7 @@ textarea:focus-visible {
   margin: 0;
 }
 
-.coach-feature-copy > div {
+.coach-name-row {
   align-items: baseline;
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -974,7 +974,7 @@ textarea:focus-visible {
   margin: 0;
 }
 
-.coach-feature-copy > div > span,
+.coach-name-row > span,
 .coach-feature-copy > p,
 .coach-feature-copy li {
   color: var(--muted);
@@ -984,6 +984,22 @@ textarea:focus-visible {
 
 .coach-feature-copy > p {
   margin: 0;
+}
+
+.coach-credentials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.coach-credentials > span {
+  background: rgba(169, 207, 69, 0.16);
+  border: 1px solid rgba(104, 132, 39, 0.34);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.45;
+  padding: 5px 9px;
 }
 
 .coach-feature-copy ul {
@@ -1880,6 +1896,21 @@ textarea:focus-visible {
   gap: 10px;
   line-height: 1.6;
   margin-top: 24px;
+}
+
+.field-help {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  line-height: 1.55;
+  margin-top: 7px;
+}
+
+.public-schedule-consent {
+  background: rgba(169, 207, 69, 0.12);
+  border: 1px solid rgba(104, 132, 39, 0.3);
+  border-radius: 10px;
+  padding: 12px;
 }
 
 .booking-disclaimer {
@@ -4048,7 +4079,7 @@ textarea:focus-visible {
     font-size: 30px;
   }
 
-  .coach-feature-copy > div > span,
+  .coach-name-row > span,
   .coach-feature-copy > p,
   .coach-feature-copy li {
     font-size: 13px;
@@ -4057,6 +4088,23 @@ textarea:focus-visible {
 
   .coach-feature-copy ul {
     gap: 7px;
+  }
+
+  .coach-credentials {
+    gap: 6px;
+  }
+
+  .coach-credentials > span {
+    font-size: 12px;
+    padding: 5px 8px;
+  }
+
+  .privacy-consent {
+    font-size: 13px;
+  }
+
+  .field-help {
+    font-size: 12px;
   }
 
   .coach-feature-copy li {

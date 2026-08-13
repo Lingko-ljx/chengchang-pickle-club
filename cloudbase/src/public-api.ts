@@ -3,7 +3,12 @@ import { BookingService } from "../../lib/booking/booking-service.ts";
 import { requireCalendarDate } from "../../lib/booking/calendar-date.ts";
 import { bookingDisplayCode } from "../../lib/booking/display-code.ts";
 import { BookingError } from "../../lib/booking/errors.ts";
-import { currentPublicScheduleConsentVersion } from "../../lib/booking/types.ts";
+import { canonicalBookingName } from "../../lib/booking/validation.ts";
+import {
+  currentPublicScheduleConsentVersion,
+  legacyPublicScheduleConsentVersion,
+} from "../../lib/booking/types.ts";
+import type { PublicScheduleConsentVersion } from "../../lib/booking/types.ts";
 import type { BookingRecord } from "../../lib/booking/types.ts";
 import { CloudBaseBookingRepository } from "./repositories/cloudbase-booking-repository.ts";
 import {
@@ -63,6 +68,21 @@ export interface PublicApiDependencies {
 
 function field(body: Record<string, unknown>, snake: string, camel = snake): unknown {
   return body[snake] ?? body[camel];
+}
+
+function exclusiveField(
+  body: Record<string, unknown>,
+  snake: string,
+  camel: string,
+): unknown {
+  if (
+    snake !== camel &&
+    Object.prototype.hasOwnProperty.call(body, snake) &&
+    Object.prototype.hasOwnProperty.call(body, camel)
+  ) {
+    throw new BookingError("INVALID_INPUT");
+  }
+  return field(body, snake, camel);
 }
 
 function stringField(body: Record<string, unknown>, snake: string, camel = snake): string {
@@ -162,7 +182,7 @@ function canonicalBookingFields(command: Record<string, unknown>): unknown[] {
   const timing = typeof command.sessionId === "string"
     ? [command.sessionId]
     : ["booking-window-v2", command.date, command.startTime, command.endTime];
-  return [
+  const fields = [
     ...timing,
     command.mode,
     command.partySize,
@@ -173,6 +193,12 @@ function canonicalBookingFields(command: Record<string, unknown>): unknown[] {
     command.privacyConsent,
     command.publicScheduleConsentVersion ?? "",
   ];
+  // Keep the v1/legacy fingerprint byte-for-byte stable. v2 must bind the
+  // visibility choice so the same client key cannot replay a different policy.
+  if (command.publicScheduleConsentVersion === currentPublicScheduleConsentVersion) {
+    fields.push(command.hidePublicName === true);
+  }
+  return fields;
 }
 
 function derivedNativeIdempotencyKey(
@@ -259,16 +285,51 @@ function publicBooking(booking: BookingRecord, now: Date): Record<string, unknow
 
 function publicScheduleName(booking: BookingRecord): string {
   if (booking.bookingKind === "staff_reservation") return "单位包场";
-  if (
-    booking.publicScheduleConsentVersion !== currentPublicScheduleConsentVersion ||
-    !booking.publicScheduleConsentAt
-  ) {
+  if (booking.personalDataRedactedAt) return "匿名球友";
+  if (!booking.publicScheduleConsentAt) return "匿名球友";
+  const raw = canonicalBookingName(booking.name);
+  if (booking.publicScheduleConsentVersion === currentPublicScheduleConsentVersion) {
+    if (!raw) return "匿名球友";
+    if (booking.hidePublicName !== true) return raw;
+  } else if (booking.publicScheduleConsentVersion !== legacyPublicScheduleConsentVersion) {
+    // Missing or unknown versions fail closed. In particular, cached legacy
+    // clients cannot accidentally gain full-name disclosure semantics.
     return "匿名球友";
   }
-  const raw = booking.name?.trim();
   if (!raw) return "球友**";
   const first = Array.from(raw)[0];
   return first ? `${first}**` : "球友**";
+}
+
+function publicScheduleConsentVersionField(
+  body: Record<string, unknown>,
+): PublicScheduleConsentVersion | undefined {
+  const supplied = exclusiveField(
+    body,
+    "public_schedule_consent_version",
+    "publicScheduleConsentVersion",
+  );
+  if (supplied === undefined) return undefined;
+  if (
+    supplied === legacyPublicScheduleConsentVersion ||
+    supplied === String(legacyPublicScheduleConsentVersion)
+  ) {
+    return legacyPublicScheduleConsentVersion;
+  }
+  if (
+    supplied === currentPublicScheduleConsentVersion ||
+    supplied === String(currentPublicScheduleConsentVersion)
+  ) {
+    return currentPublicScheduleConsentVersion;
+  }
+  throw new BookingError("INVALID_INPUT");
+}
+
+function hidePublicNameField(body: Record<string, unknown>): true | undefined {
+  const supplied = exclusiveField(body, "hide_public_name", "hidePublicName");
+  if (supplied === undefined) return undefined;
+  if (supplied === true || supplied === "true" || supplied === "on") return true;
+  throw new BookingError("INVALID_INPUT");
 }
 
 function publicScheduleItem(booking: BookingRecord): Record<string, unknown> {
@@ -310,21 +371,14 @@ function createCommand(
 ): Record<string, unknown> {
   const partySize = integerField(body, "party_size", "partySize");
   const privacyConsent = booleanField(body, "privacy_consent", "privacyConsent");
-  const suppliedPublicScheduleConsent = field(
-    body,
-    "public_schedule_consent_version",
-    "publicScheduleConsentVersion",
-  );
+  const publicScheduleConsentVersion = publicScheduleConsentVersionField(body);
+  const hidePublicName = hidePublicNameField(body);
   if (
-    suppliedPublicScheduleConsent !== undefined &&
-    suppliedPublicScheduleConsent !== currentPublicScheduleConsentVersion &&
-    suppliedPublicScheduleConsent !== String(currentPublicScheduleConsentVersion)
+    hidePublicName === true &&
+    publicScheduleConsentVersion !== currentPublicScheduleConsentVersion
   ) {
     throw new BookingError("INVALID_INPUT");
   }
-  const publicScheduleConsentVersion = suppliedPublicScheduleConsent === undefined
-    ? undefined
-    : currentPublicScheduleConsentVersion;
   const endTime = stringField(body, "end_time", "endTime");
   const timing: Record<string, unknown> = {};
   if (endTime) {
@@ -342,16 +396,19 @@ function createCommand(
   } else {
     timing.sessionId = canonicalSessionId(body);
   }
+  const name = canonicalBookingName(field(body, "name"));
+  if (!name) throw new BookingError("INVALID_INPUT");
   const command: Record<string, unknown> = {
     ...timing,
     mode: stringField(body, "mode"),
     partySize,
-    name: stringField(body, "name"),
+    name,
     phone: completePhone(field(body, "phone")),
     privacyConsent,
-    ...(publicScheduleConsentVersion === currentPublicScheduleConsentVersion
-      ? { publicScheduleConsentVersion: currentPublicScheduleConsentVersion }
+    ...(publicScheduleConsentVersion !== undefined
+      ? { publicScheduleConsentVersion }
       : {}),
+    ...(hidePublicName === true ? { hidePublicName: true } : {}),
   };
   const email = stringField(body, "email");
   const note = stringField(body, "note");
@@ -404,10 +461,13 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
   const allowedOrigins = allowedOriginSet(dependencies.allowedOrigins);
 
   return async function publicApi(event: CloudBaseHttpEvent): Promise<HttpResponse> {
-    const headers = corsHeaders(event, allowedOrigins);
+    const path = requestPath(event);
+    const headers = {
+      ...corsHeaders(event, allowedOrigins),
+      ...(path === "/v1/public-schedule" ? { "Cache-Control": "no-store" } : {}),
+    };
     try {
       const method = requestMethod(event);
-      const path = requestPath(event);
       if (method === "OPTIONS") {
         return { statusCode: 204, headers, body: "" };
       }
@@ -473,6 +533,16 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
       }
 
       if (method === "GET" && path === "/v1/public-schedule") {
+        const parameters = event.queryStringParameters;
+        if (
+          !parameters ||
+          typeof parameters !== "object" ||
+          Array.isArray(parameters) ||
+          Object.keys(parameters).length !== 1 ||
+          typeof (parameters as Record<string, unknown>).date !== "string"
+        ) {
+          throw new BookingError("INVALID_INPUT");
+        }
         const date = requireCalendarDate(queryParameter(event, "date")?.trim() ?? "");
         const address = trustedClientAddress(event);
         await enforce(
@@ -511,7 +581,7 @@ export function createPublicApiHandler(dependencies: PublicApiDependencies) {
             ).length,
             items: bookings.map(publicScheduleItem),
           },
-          { ...headers, "Cache-Control": "no-store" },
+          headers,
         );
       }
 
@@ -629,6 +699,11 @@ export async function main(event: CloudBaseHttpEvent): Promise<HttpResponse> {
     });
     return await productionHandler(event);
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(
+      error,
+      requestPath(event) === "/v1/public-schedule"
+        ? { "Cache-Control": "no-store" }
+        : {},
+    );
   }
 }

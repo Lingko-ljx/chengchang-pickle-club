@@ -34,6 +34,9 @@ test("exports the real booking form without a framework client runtime", async (
     "刘栖睿",
     "特邀职业教练",
     "唐语彤",
+    "ARRONAX 签约球员",
+    "小红书：猪猪帮帮主（940423673）",
+    "LUZZ 签约球员",
     "普通教练",
     "曾海鑫",
     "毛智谦",
@@ -92,14 +95,17 @@ test("exports the real booking form without a framework client runtime", async (
   );
   assert.match(
     html,
-    /<input(?=[^>]*name="public_schedule_consent_version")(?=[^>]*type="checkbox")(?=[^>]*value="1")[^>]*>/i,
+    /<input(?=[^>]*name="public_schedule_consent_version")(?=[^>]*type="hidden")(?=[^>]*value="2")[^>]*>/i,
   );
   const publicScheduleConsentTag = html.match(
     /<input(?=[^>]*name="public_schedule_consent_version")[^>]*>/i,
   )?.[0];
   assert.ok(publicScheduleConsentTag);
   assert.doesNotMatch(publicScheduleConsentTag, /\brequired\b/i);
-  assert.match(html, /不勾选也可预约，首页将匿名显示/);
+  assert.match(html, /<input(?=[^>]*name="hide_public_name")(?=[^>]*type="checkbox")(?=[^>]*value="true")[^>]*>/i);
+  assert.match(html, /我不想公开完整姓名（选填）/);
+  assert.match(html, /不勾选则默认显示完整姓名/);
+  assert.match(html, /手机号、邮箱、预约编号和备注始终保密/);
   assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.ok(html.includes(`src="${prefixed("/booking-form.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/public-schedule.js")}"`));

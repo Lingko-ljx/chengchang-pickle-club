@@ -54,6 +54,9 @@ test("the public site uses the approved Ruiancheng identity and contact details"
   assert.match(pageSource, /刘栖睿/);
   assert.match(pageSource, /特邀职业教练/);
   assert.match(pageSource, /唐语彤/);
+  assert.match(pageSource, /ARRONAX 签约球员/);
+  assert.match(pageSource, /小红书：猪猪帮帮主（940423673）/);
+  assert.match(pageSource, /LUZZ 签约球员/);
   assert.match(pageSource, /普通教练/);
   for (const coach of ["曾海鑫", "毛智谦", "刘洋", "邹洪武"]) {
     assert.match(pageSource, new RegExp(coach));
@@ -65,7 +68,7 @@ test("the public site uses the approved Ruiancheng identity and contact details"
   assert.match(pageSource, /ruiancheng-court-hero\.png/);
 
   assert.doesNotMatch(publicSource, /澄场|CHENGCHANG|陆予安|周澄|林岚|毛之谦|总教头|特约嘉宾/);
-  assert.doesNotMatch(pageSource, /上海市徐汇区|社交媒体|小红书|微信视频号/);
+  assert.doesNotMatch(pageSource, /上海市徐汇区|社交媒体|微信视频号/);
   assert.doesNotMatch(pageSource, /城市球会邀请赛|年度新锐运动空间|公开赛混合双打|优秀组织/);
   assert.doesNotMatch(pageSource, /演示资料|首版演示|不代表真实营业信息/);
 });
@@ -143,11 +146,22 @@ test("coach media captions keep the supplied events and results correctly separa
   assert.doesNotMatch(pageSource, /浙江桐乡站|呼和浩特站公开混合双打第一名/);
 });
 
-test("the first usable release does not collect email or promise email delivery", () => {
+test("the booking form defaults to full-name visibility with a clear optional opt-out", () => {
   assert.doesNotMatch(bookingFormSource, /name="email"|booking-email|电子邮箱/);
-  assert.match(bookingFormSource, /我同意睿安成使用以上信息处理预约并与我联系。/);
-  assert.match(bookingFormSource, /（选填）我同意首页公开姓名首字加 \*\*、预约时段、人数和散客\/包场性质/);
-  assert.match(bookingFormSource, /不公开手机号、邮箱、预约号或备注/);
-  assert.match(bookingFormSource, /不勾选也可预约，首页将匿名显示/);
+  assert.match(bookingFormSource, /name="public_schedule_consent_version"[\s\S]*type="hidden"[\s\S]*value="2"/);
+  assert.match(bookingFormSource, /name="hide_public_name"[\s\S]*type="checkbox"[\s\S]*value="true"/);
+  assert.match(bookingFormSource, /已知悉姓名默认会在首页公开展示/);
+  assert.match(bookingFormSource, /我不想公开完整姓名（选填）/);
+  assert.match(bookingFormSource, /不勾选则默认显示完整姓名/);
+  assert.match(bookingFormSource, /手机号、邮箱、预约编号和备注始终保密/);
+  assert.match(bookingFormSource, /maxLength=\{40\}/);
+  assert.match(bookingFormSource, /请填写大家熟悉的真实称呼，默认会在首页完整展示/);
   assert.doesNotMatch(bookingFormSource, /处理预约并与我联系；首页/);
+});
+
+test("coach credentials use compact readable labels", () => {
+  assert.match(pageSource, /className="coach-credentials"/);
+  assert.match(globalStyles, /\.coach-credentials\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.coach-credentials\s*>\s*span\s*\{[^}]*font-size:\s*12px;/s);
+  assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.privacy-consent\s*\{[^}]*font-size:\s*13px;/s);
 });

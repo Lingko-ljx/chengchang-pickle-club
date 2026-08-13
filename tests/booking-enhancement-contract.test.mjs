@@ -140,12 +140,18 @@ function loadEnhancement(source, options = {}) {
     type: "checkbox",
     value: "yes",
   });
-  const publicScheduleConsent = eventTarget({
-    checked: options.publicScheduleConsent === true,
+  const publicScheduleVersion = eventTarget({
     disabled: false,
     name: "public_schedule_consent_version",
+    type: "hidden",
+    value: "2",
+  });
+  const hidePublicName = eventTarget({
+    checked: options.hidePublicName === true,
+    disabled: false,
+    name: "hide_public_name",
     type: "checkbox",
-    value: "1",
+    value: "true",
   });
   const idempotencyKey = eventTarget({
     disabled: false,
@@ -167,7 +173,8 @@ function loadEnhancement(source, options = {}) {
     email,
     note,
     consent,
-    publicScheduleConsent,
+    publicScheduleVersion,
+    hidePublicName,
     idempotencyKey,
     honeypot,
   ];
@@ -284,7 +291,8 @@ function loadEnhancement(source, options = {}) {
       note,
       partySize,
       phone,
-      publicScheduleConsent,
+      publicScheduleVersion,
+      hidePublicName,
       sessionId,
       startTime,
     },
@@ -569,7 +577,8 @@ test("one persisted idempotency key survives failed submissions and clears only 
   assert.match(first.body, /(?:^|&)party_size=3(?:&|$)/);
   assert.match(first.body, /(?:^|&)name=%E6%9E%97%E6%BE%84(?:&|$)/);
   assert.match(first.body, /(?:^|&)privacy_consent=yes(?:&|$)/);
-  assert.doesNotMatch(first.body, /(?:^|&)public_schedule_consent_version=/);
+  assert.match(first.body, /(?:^|&)public_schedule_consent_version=2(?:&|$)/);
+  assert.doesNotMatch(first.body, /(?:^|&)hide_public_name=/);
   assert.match(first.body, new RegExp(`(?:^|&)idempotency_key=${key}(?:&|$)`));
 
   first.respond(409, JSON.stringify({ error: { code: "SESSION_FULL" } }));
@@ -595,24 +604,26 @@ test("one persisted idempotency key survives failed submissions and clears only 
   );
 });
 
-test("optional public schedule consent is serialized only when the customer checks it", async () => {
+test("version 2 always submits and hide-public-name is serialized only when checked", async () => {
   const source = await readEnhancement();
   const unchecked = loadEnhancement(source, { date: "2026-08-10" });
   unchecked.submit();
-  assert.doesNotMatch(
+  assert.match(
     unchecked.request().body,
-    /(?:^|&)public_schedule_consent_version=/,
+    /(?:^|&)public_schedule_consent_version=2(?:&|$)/,
   );
+  assert.doesNotMatch(unchecked.request().body, /(?:^|&)hide_public_name=/);
 
   const checked = loadEnhancement(source, {
     date: "2026-08-10",
-    publicScheduleConsent: true,
+    hidePublicName: true,
   });
   checked.submit();
   assert.match(
     checked.request().body,
-    /(?:^|&)public_schedule_consent_version=1(?:&|$)/,
+    /(?:^|&)public_schedule_consent_version=2(?:&|$)/,
   );
+  assert.match(checked.request().body, /(?:^|&)hide_public_name=true(?:&|$)/);
 });
 
 test("allowlisted channel attribution survives the result redirect but never enters booking PII", async () => {

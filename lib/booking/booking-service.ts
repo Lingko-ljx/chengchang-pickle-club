@@ -49,7 +49,6 @@ import type {
   RestoreCourtTimeBlockCommand,
   UpdateCourtTimeBlockCommand,
 } from "./types.ts";
-import { currentPublicScheduleConsentVersion } from "./types.ts";
 import { validateCreateBooking } from "./validation.ts";
 
 export const courtIds = Array.from({ length: 11 }, (_, index) =>
@@ -500,12 +499,13 @@ export class BookingService {
         ...(email ? { email } : {}),
         ...(command.note === undefined ? {} : { note: command.note.trim() }),
         privacyConsentAt: now,
-        ...(command.publicScheduleConsentVersion === currentPublicScheduleConsentVersion
+        ...(command.publicScheduleConsentVersion !== undefined
           ? {
-              publicScheduleConsentVersion: currentPublicScheduleConsentVersion,
+              publicScheduleConsentVersion: command.publicScheduleConsentVersion,
               publicScheduleConsentAt: now,
             }
           : {}),
+        ...(command.hidePublicName === true ? { hidePublicName: true } : {}),
         canCancelUntil: startAt,
         createdAt: now,
         updatedAt: now,

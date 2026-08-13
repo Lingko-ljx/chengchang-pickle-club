@@ -51,6 +51,10 @@ const featuredCoaches = [
     imageHeight: 2160,
     imageWidth: 1440,
     detail: "以实战判断、技术拆解与竞赛能力提升为训练重点。",
+    credentials: [
+      "ARRONAX 签约球员",
+      "小红书：猪猪帮帮主（940423673）",
+    ],
     highlights: [
       "2026 李宁杯中国匹克球巡回赛呼和浩特站（CPC-1000）公开组男子单打第一名",
       "2026 WPC 海南站 4.0 男子双打冠军",
@@ -66,6 +70,7 @@ const featuredCoaches = [
     imageHeight: 3200,
     imageWidth: 2133,
     detail: "以比赛节奏、双打配合与动作细节为训练重点。",
+    credentials: ["LUZZ 签约球员"],
     highlights: [
       "职业赛场经验与双打协作训练",
       "课程与到馆时间请联系球馆确认",
@@ -478,9 +483,14 @@ export default function Home() {
               </div>
               <div className="coach-feature-copy">
                 <p>PRO COACH · {coach.badge}</p>
-                <div>
+                <div className="coach-name-row">
                   <h3>{coach.name}</h3>
                   <span>{coach.role}</span>
+                </div>
+                <div className="coach-credentials" aria-label={`${coach.name}身份信息`}>
+                  {coach.credentials.map((credential) => (
+                    <span key={credential}>{credential}</span>
+                  ))}
                 </div>
                 <p>{coach.detail}</p>
                 <ul>

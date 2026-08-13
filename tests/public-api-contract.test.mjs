@@ -421,7 +421,7 @@ test("public schedule disclosure consent is independent, optional, and strictly 
   })));
   const unknown = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
     idempotency_key: "request-with-unknown-consent",
-    public_schedule_consent_version: 2,
+    public_schedule_consent_version: 3,
   })));
 
   assert.equal(legacy.statusCode, 201);
@@ -433,12 +433,190 @@ test("public schedule disclosure consent is independent, optional, and strictly 
   assert.equal(captured.length, 2);
   assert.notEqual(captured[0].idempotencyKey, captured[1].idempotencyKey);
 
-  for (const ambiguousVersion of ["01", "1.0", true]) {
+  for (const ambiguousVersion of ["01", "1.0", "02", "2.0", true]) {
     const response = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
       idempotency_key: `ambiguous-consent-${String(ambiguousVersion)}`,
       public_schedule_consent_version: ambiguousVersion,
     })));
     assert.equal(response.statusCode, 400);
+  }
+  assert.equal(captured.length, 2);
+});
+
+test("v2 public-name policy defaults to full name and only canonical opt-out is persisted", async () => {
+  const captured = [];
+  const handler = handlerFor({
+    async create(command) {
+      captured.push(command);
+      return {
+        code: `NAMEPOLICY${captured.length}`,
+        status: "confirmed",
+        date: DATE,
+        startAt: "2099-01-01T01:00:00.000Z",
+        endAt: "2099-01-01T02:00:00.000Z",
+        mode: command.mode,
+        partySize: command.partySize,
+        name: command.name,
+        phone: command.phone,
+        version: 1,
+        canCancelUntil: "2099-01-01T01:00:00.000Z",
+      };
+    },
+  });
+
+  const visible = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+    idempotency_key: "v2-visible-name",
+    public_schedule_consent_version: 2,
+  })));
+  const hidden = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+    idempotency_key: "v2-hidden-name",
+    public_schedule_consent_version: "2",
+    hide_public_name: "true",
+  })));
+
+  assert.equal(visible.statusCode, 201);
+  assert.equal(hidden.statusCode, 201);
+  assert.equal(captured[0].publicScheduleConsentVersion, 2);
+  assert.equal(captured[0].hidePublicName, undefined);
+  assert.equal(captured[1].publicScheduleConsentVersion, 2);
+  assert.equal(captured[1].hidePublicName, true);
+  assert.notEqual(captured[0].idempotencyKey, captured[1].idempotencyKey);
+
+  const sameKeyVisible = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+    idempotency_key: "same-v2-policy-key",
+    public_schedule_consent_version: 2,
+  })));
+  const sameKeyHidden = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+    idempotency_key: "same-v2-policy-key",
+    public_schedule_consent_version: 2,
+    hide_public_name: true,
+  })));
+  assert.equal(sameKeyVisible.statusCode, 201);
+  assert.equal(sameKeyHidden.statusCode, 201);
+  assert.notEqual(captured[2].idempotencyKey, captured[3].idempotencyKey);
+
+  for (const invalid of [
+    { public_schedule_consent_version: 1, hide_public_name: "on" },
+    { public_schedule_consent_version: 2, hide_public_name: "sometimes" },
+    { public_schedule_consent_version: 3 },
+    { public_schedule_consent_version: "02" },
+  ]) {
+    const response = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+      idempotency_key: `invalid-name-policy-${JSON.stringify(invalid)}`,
+      ...invalid,
+    })));
+    assert.equal(response.statusCode, 400);
+    assert.equal(responseBody(response).error.code, "INVALID_INPUT");
+  }
+  for (const ambiguousAliases of [
+    { public_schedule_consent_version: 2, publicScheduleConsentVersion: 2 },
+    { public_schedule_consent_version: 2, hide_public_name: true, hidePublicName: true },
+  ]) {
+    const response = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+      idempotency_key: "ambiguous-v2-policy-alias",
+      ...ambiguousAliases,
+    })));
+    assert.equal(response.statusCode, 400);
+    assert.equal(responseBody(response).error.code, "INVALID_INPUT");
+  }
+  assert.equal(captured.length, 4);
+});
+
+test("public creation rejects names that would disclose contact details or markup", async () => {
+  let createCalls = 0;
+  const handler = handlerFor({
+    async create() {
+      createCalls += 1;
+      throw new Error("unsafe name reached booking service");
+    },
+  });
+
+  for (const name of ["13800138000", "ada@example.com", "<b>刘栖睿</b>", "刘\u200b栖睿"]) {
+    const response = await handler(jsonEvent("POST", "/v1/bookings", createPayload({
+      idempotency_key: `unsafe-name-${createCalls}`,
+      public_schedule_consent_version: 2,
+      name,
+    })));
+    assert.equal(response.statusCode, 400, name);
+    assert.equal(responseBody(response).error.code, "INVALID_INPUT", name);
+  }
+  assert.equal(createCalls, 0);
+});
+
+test("the real URL-encoded privacy opt-out value reaches the service as true", async () => {
+  const captured = [];
+  const handler = handlerFor({
+    async create(command) {
+      captured.push(command);
+      return {
+        code: "FORMPRIVACY0001",
+        status: "confirmed",
+        date: DATE,
+        startAt: "2099-01-01T01:00:00.000Z",
+        endAt: "2099-01-01T02:00:00.000Z",
+        mode: command.mode,
+        partySize: command.partySize,
+        name: command.name,
+        phone: command.phone,
+        version: 1,
+        canCancelUntil: "2099-01-01T01:00:00.000Z",
+      };
+    },
+  });
+  const params = new URLSearchParams({
+    session_id: MORNING,
+    mode: "open",
+    party_size: "2",
+    name: "刘栖睿",
+    phone: "13800138000",
+    privacy_consent: "yes",
+    public_schedule_consent_version: "2",
+    hide_public_name: "true",
+    idempotency_key: "real-form-privacy-value",
+  });
+  const response = await handler({
+    httpMethod: "POST",
+    path: "/v1/bookings",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(captured[0].publicScheduleConsentVersion, 2);
+  assert.equal(captured[0].hidePublicName, true);
+
+  const legacyCheckbox = new URLSearchParams(params);
+  legacyCheckbox.set("idempotency_key", "legacy-checkbox-privacy-value");
+  legacyCheckbox.set("hide_public_name", "on");
+  const legacyResponse = await handler({
+    httpMethod: "POST",
+    path: "/v1/bookings",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: legacyCheckbox.toString(),
+  });
+  assert.equal(legacyResponse.statusCode, 201);
+  assert.equal(captured[1].hidePublicName, true);
+
+  for (const rejectedValue of ["false", "1", "yes", "off", "TRUE"]) {
+    const rejected = new URLSearchParams(params);
+    rejected.set("idempotency_key", `rejected-checkbox-${rejectedValue}`);
+    rejected.set("hide_public_name", rejectedValue);
+    const rejectedResponse = await handler({
+      httpMethod: "POST",
+      path: "/v1/bookings",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: rejected.toString(),
+    });
+    assert.equal(rejectedResponse.statusCode, 400, rejectedValue);
+    assert.equal(responseBody(rejectedResponse).error.code, "INVALID_INPUT", rejectedValue);
   }
   assert.equal(captured.length, 2);
 });

@@ -69,13 +69,14 @@ test("server renders the real booking form and current venue contract", async ()
   );
   assert.match(
     html,
-    /<input(?=[^>]*name="public_schedule_consent_version")(?=[^>]*type="checkbox")(?=[^>]*value="1")[^>]*>/i,
+    /<input(?=[^>]*name="public_schedule_consent_version")(?=[^>]*type="hidden")(?=[^>]*value="2")[^>]*>/i,
   );
   const publicScheduleConsentTag = html.match(
     /<input(?=[^>]*name="public_schedule_consent_version")[^>]*>/i,
   )?.[0];
   assert.ok(publicScheduleConsentTag);
   assert.doesNotMatch(publicScheduleConsentTag, /\brequired\b/i);
+  assert.match(html, /<input(?=[^>]*name="hide_public_name")(?=[^>]*type="checkbox")(?=[^>]*value="true")[^>]*>/i);
   assert.match(
     html,
     /<input(?=[^>]*name="idempotency_key")(?=[^>]*type="hidden")[^>]*>/i,
@@ -91,10 +92,11 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, /id="public-schedule"/);
   assert.match(html, new RegExp(`data-public-schedule-url="${apiBaseUrl}/v1/public-schedule"`));
   assert.match(html, /<script[^>]+data-public-schedule-client[^>]+defer/);
-  assert.match(html, /我同意睿安成使用以上信息处理预约并与我联系。/);
-  assert.match(html, /选填.*首页公开姓名首字加 \*\*、预约时段、人数和散客\/包场性质/);
-  assert.match(html, /不公开手机号、邮箱、预约号或备注/);
-  assert.match(html, /不勾选也可预约，首页将匿名显示/);
+  assert.match(html, /已知悉姓名默认会在首页公开展示/);
+  assert.match(html, /我不想公开完整姓名（选填）/);
+  assert.match(html, /不勾选则默认显示完整姓名/);
+  assert.match(html, /手机号、邮箱、预约编号和备注始终保密/);
+  assert.match(html, /<input(?=[^>]*name="name")(?=[^>]*maxlength="40")[^>]*>/i);
   assert.doesNotMatch(html, /处理预约并与我联系；首页/);
   assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.match(html, /<script[^>]+data-booking-form-client[^>]+defer/);
@@ -116,6 +118,9 @@ test("server renders the real booking form and current venue contract", async ()
     "刘栖睿",
     "特邀职业教练",
     "唐语彤",
+    "ARRONAX 签约球员",
+    "小红书：猪猪帮帮主（940423673）",
+    "LUZZ 签约球员",
     "普通教练",
     "曾海鑫",
     "毛智谦",

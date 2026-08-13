@@ -64,12 +64,12 @@
       status.textContent = "这一天还没有公开预约，欢迎来开第一场。";
       return;
     }
-    status.textContent = "仅展示脱敏称呼与打球时间，联系方式始终保密。";
+    status.textContent = "默认展示完整姓名；选择不公开姓名的球友仅显示脱敏称呼。手机号、邮箱、预约编号和备注始终保密。";
     for (index = 0; index < items.length; index += 1) {
       article = document.createElement("article");
       article.className = "public-schedule-item";
       name = document.createElement("strong");
-      name.textContent = String(items[index].name || "球友**");
+      name.textContent = String(items[index].name || "匿名球友");
       detail = document.createElement("span");
       detail.textContent = itemText(items[index]);
       article.appendChild(name);

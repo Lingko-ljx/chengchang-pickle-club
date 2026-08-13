@@ -6,7 +6,15 @@ export type BookingStatus =
   | "cancelled"
   | "completed";
 
-export const currentPublicScheduleConsentVersion = 1;
+/**
+ * v1 was an explicit opt-in to a masked public name.
+ * v2 explicitly establishes full-name display as the default, with a separate opt-out.
+ */
+export const legacyPublicScheduleConsentVersion = 1;
+export const currentPublicScheduleConsentVersion = 2;
+export type PublicScheduleConsentVersion =
+  | typeof legacyPublicScheduleConsentVersion
+  | typeof currentPublicScheduleConsentVersion;
 
 export type AllocationMode = "empty" | BookingMode;
 
@@ -118,8 +126,10 @@ export interface CreateBookingCommand {
   email?: string;
   note?: string;
   privacyConsent: true;
-  /** Versioned opt-in to showing a masked name in the public daily schedule. */
-  publicScheduleConsentVersion?: typeof currentPublicScheduleConsentVersion;
+  /** Versioned public daily-schedule name policy accepted by the submitting client. */
+  publicScheduleConsentVersion?: PublicScheduleConsentVersion;
+  /** v2-only opt-out: when true, the daily schedule masks this customer's name. */
+  hidePublicName?: true;
 }
 
 export interface BookingRecord {
@@ -151,9 +161,11 @@ export interface BookingRecord {
   note?: string;
   /** Customer consent timestamp. Staff-created inventory reservations do not collect consent. */
   privacyConsentAt?: string;
-  /** Explicit, versioned consent to the public masked schedule disclosure. */
+  /** Explicit, versioned acceptance of the public schedule name policy. */
   publicScheduleConsentVersion?: number;
   publicScheduleConsentAt?: string;
+  /** v2-only opt-out. Missing means full-name display only for a valid v2 record. */
+  hidePublicName?: boolean;
   canCancelUntil: string;
   createdAt: string;
   updatedAt: string;
