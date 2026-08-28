@@ -93,14 +93,14 @@ export function BookingForm({
           >
             <div className="public-schedule-heading">
               <div>
-              <span>WHO IS PLAYING</span>
+                <span>WHO IS PLAYING</span>
                 <h3>这一天，谁来打球</h3>
               </div>
               <strong id="public-schedule-summary">正在读取预约热度…</strong>
             </div>
             <div className="public-schedule-list" id="public-schedule-list" />
             <p aria-live="polite" id="public-schedule-status">
-              默认展示预约人的完整姓名与打球时间；选择不公开姓名的球友仅显示脱敏称呼。手机号、邮箱、预约编号和备注始终保密。
+              默认显示完整姓名和打球时间；勾选隐私设置后姓名脱敏。联系方式始终保密。
             </p>
           </section>
         ) : null}
@@ -135,110 +135,147 @@ export function BookingForm({
                 />
               </label>
 
-              <fieldset className="form-group booking-mode-group">
-                <legend>预约方式</legend>
-                <div className="mode-options">
-                  <label>
-                    <input defaultChecked name="mode" type="radio" value="open" />
-                    <span>散客拼场</span>
-                  </label>
-                  <label>
-                    <input name="mode" type="radio" value="private" />
-                    <span>包场独享</span>
+              <div className="booking-form-heading">
+                <span>约 1 分钟完成</span>
+                <h3>选择时间并提交</h3>
+                <p>空余时段自动确认；如需调整，我们会电话联系。</p>
+              </div>
+
+              <fieldset className="form-group booking-play-group">
+                <legend><span>1</span> 怎么玩</legend>
+                <div className="booking-play-grid">
+                  <div className="mode-options" aria-label="预约方式">
+                    <label>
+                      <input defaultChecked name="mode" type="radio" value="open" />
+                      <span>散客拼场</span>
+                    </label>
+                    <label>
+                      <input name="mode" type="radio" value="private" />
+                      <span>包场独享</span>
+                    </label>
+                  </div>
+                  <label className="booking-party-field" htmlFor="booking-party-size">
+                    <span>参与人数</span>
+                    <select
+                      defaultValue="1"
+                      id="booking-party-size"
+                      name="party_size"
+                      required
+                    >
+                      {partySizes.map((size) => (
+                        <option key={size} value={size}>{`${size} 位`}</option>
+                      ))}
+                    </select>
                   </label>
                 </div>
               </fieldset>
 
-              <div className="form-group input-grid booking-time-grid">
-                <label htmlFor="booking-date">
-                  <span>预约日期</span>
-                  <input id="booking-date" name="date" required type="date" />
-                </label>
-                <label htmlFor="booking-start-time">
-                  <span>开始时间</span>
-                  <select
-                    id="booking-start-time"
-                    name="start_time"
-                    required
+              <fieldset className="form-group booking-time-group">
+                <legend><span>2</span> 什么时候</legend>
+                <div className="input-grid booking-time-grid">
+                  <label htmlFor="booking-date">
+                    <span>预约日期</span>
+                    <input id="booking-date" name="date" required type="date" />
+                  </label>
+                  <label htmlFor="booking-start-time">
+                    <span>开始时间</span>
+                    <select
+                      id="booking-start-time"
+                      name="start_time"
+                      required
+                    >
+                      <option value="">选择时间</option>
+                      {fallbackStartTimes.map((time) => (
+                        <option key={time} value={time}>
+                          {time}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor="booking-end-time">
+                    <span>结束时间</span>
+                    <select id="booking-end-time" name="end_time" required>
+                      <option value="">选择时间</option>
+                    </select>
+                  </label>
+                  <div
+                    aria-live="polite"
+                    className="booking-time-summary"
+                    id="booking-time-summary"
+                    role="status"
                   >
-                    <option value="">请选择开始时间</option>
-                    {fallbackStartTimes.map((time) => (
-                      <option key={time} value={time}>
-                        {time}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label htmlFor="booking-end-time">
-                  <span>结束时间</span>
-                  <select id="booking-end-time" name="end_time" required>
-                    <option value="">请选择结束时间</option>
-                  </select>
-                </label>
-                <div
-                  aria-live="polite"
-                  className="booking-time-summary"
-                  id="booking-time-summary"
-                  role="status"
-                >
-                  <strong>北京时间</strong>
-                  <span>请选择开始与结束时间</span>
+                    <strong>北京时间</strong>
+                    <span>选择开始时间后，默认预约 1 小时</span>
+                  </div>
+                  <p
+                    aria-live="polite"
+                    className="booking-availability-status"
+                    hidden
+                    id="booking-availability-status"
+                    role="status"
+                  >
+                    正在查询连续可用时段…
+                  </p>
                 </div>
-                <p
-                  aria-live="polite"
-                  className="booking-availability-status"
-                  id="booking-availability-status"
-                  role="status"
-                >
-                  营业时间 09:00–22:00 · 最少 1 小时 · 整小时计费
-                </p>
-              </div>
+              </fieldset>
 
-              <div className="form-group input-grid">
-                <label htmlFor="booking-party-size">
-                  <span>参与人数</span>
-                  <select
-                    defaultValue="1"
-                    id="booking-party-size"
-                    name="party_size"
-                    required
-                  >
-                    {partySizes.map((size) => (
-                      <option key={size} value={size}>{`${size} 位`}</option>
-                    ))}
-                  </select>
-                </label>
-                <label htmlFor="booking-name">
-                  <span>您的称呼</span>
-                  <input
-                    autoComplete="name"
-                    id="booking-name"
-                    maxLength={40}
-                    name="name"
-                    required
-                    type="text"
-                  />
-                  <small className="field-help">请填写大家熟悉的真实称呼，默认会在首页完整展示。</small>
-                </label>
-                <label htmlFor="booking-phone">
-                  <span>联系电话</span>
-                  <input
-                    autoComplete="tel"
-                    id="booking-phone"
-                    inputMode="tel"
-                    name="phone"
-                    pattern="[0-9+() -]{8,20}"
-                    required
-                    type="tel"
-                  />
-                </label>
-                <label className="form-wide" htmlFor="booking-note">
-                  <span>备注（选填）</span>
-                  <textarea id="booking-note" name="note" rows={3} />
-                </label>
-              </div>
+              <fieldset className="form-group booking-contact-group">
+                <legend><span>3</span> 怎么联系</legend>
+                <div className="input-grid booking-contact-grid">
+                  <label htmlFor="booking-name">
+                    <span>您的称呼</span>
+                    <input
+                      autoComplete="name"
+                      id="booking-name"
+                      maxLength={40}
+                      name="name"
+                      required
+                      type="text"
+                    />
+                    <small className="field-help">请填写球友熟悉的真实称呼。</small>
+                  </label>
+                  <label htmlFor="booking-phone">
+                    <span>联系电话</span>
+                    <input
+                      autoComplete="tel"
+                      id="booking-phone"
+                      inputMode="tel"
+                      name="phone"
+                      pattern="[0-9+() -]{8,20}"
+                      required
+                      type="tel"
+                    />
+                  </label>
+                </div>
 
-              <label className="privacy-consent">
+                <details className="booking-more-options">
+                  <summary>
+                    <span>备注与姓名公开设置</span>
+                    <small>选填</small>
+                  </summary>
+                  <div>
+                    <label className="booking-note-field" htmlFor="booking-note">
+                      <span>备注</span>
+                      <textarea id="booking-note" name="note" rows={2} />
+                    </label>
+                    <label className="privacy-consent public-schedule-consent">
+                      <input
+                        name="hide_public_name"
+                        type="checkbox"
+                        value="true"
+                      />
+                      <span>我不想公开完整姓名，仅显示脱敏称呼。</span>
+                    </label>
+                  </div>
+                </details>
+              </fieldset>
+
+              <input
+                name="public_schedule_consent_version"
+                type="hidden"
+                value="2"
+              />
+              <label className="privacy-consent booking-required-consent">
                 <input
                   name="privacy_consent"
                   required
@@ -246,32 +283,16 @@ export function BookingForm({
                   value="yes"
                 />
                 <span>
-                  我同意睿安成使用以上信息处理预约并与我联系，并已知悉姓名默认会在首页公开展示。
-                </span>
-              </label>
-
-              <input
-                name="public_schedule_consent_version"
-                type="hidden"
-                value="2"
-              />
-              <label className="privacy-consent public-schedule-consent">
-                <input
-                  name="hide_public_name"
-                  type="checkbox"
-                  value="true"
-                />
-                <span>
-                  我不想公开完整姓名（选填）。勾选后首页仅显示脱敏称呼；不勾选则默认显示完整姓名。预约时段、人数和散客/包场性质仍会展示，手机号、邮箱、预约编号和备注始终保密。
+                  我同意用于本次预约与联系，并知悉姓名默认公开。
                 </span>
               </label>
 
               <p className="booking-disclaimer">
-                所有时间均为北京时间。余位校验通过后，提交成功后系统将自动确认并锁定场地；如需调整，工作人员会电话联系。
+                手机号、预约编号和备注不会公开。提交后自动确认；如需调整，工作人员会电话联系。
               </p>
               <p id="booking-error" className="field-error" hidden role="alert" />
               <button className="primary-button" type="submit">
-                提交预约
+                确认预约
                 <span aria-hidden="true">↗</span>
               </button>
             </form>

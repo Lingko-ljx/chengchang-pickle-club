@@ -322,9 +322,22 @@ test("booking enhancement parses as ES5", async () => {
   assert.doesNotThrow(() => parse(source, { ecmaVersion: 5 }));
 });
 
-test("valid dates fetch v2 windows and filter start/end choices by mode and whole party size", async () => {
+test("an empty form starts on the Beijing date and immediately checks availability", async () => {
   const source = await readEnhancement();
   const page = loadEnhancement(source);
+
+  assert.match(page.controls.date.value, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(page.requests.length, 1);
+  assert.equal(page.request().method, "GET");
+  assert.match(
+    page.request().url,
+    new RegExp(`\\?date=${page.controls.date.value}$`),
+  );
+});
+
+test("valid dates fetch v2 windows and filter start/end choices by mode and whole party size", async () => {
+  const source = await readEnhancement();
+  const page = loadEnhancement(source, { date: "2026-02-31" });
   const { date, endTime, modeOpen, modePrivate, partySize, sessionId, startTime } = page.controls;
 
   date.value = "2026-02-31";
@@ -394,6 +407,7 @@ test("valid dates fetch v2 windows and filter start/end choices by mode and whol
   startTime.value = "09:00";
   startTime.fire("change");
   assert.deepEqual(endTime.options.slice(1).map((entry) => entry.value), ["10:00"]);
+  assert.equal(endTime.value, "10:00");
   endTime.value = "10:00";
   endTime.fire("change");
   assert.equal(sessionId.value, "");
@@ -454,6 +468,8 @@ test("offline fallback keeps only whole-hour durations from half-hour starts", a
   assert.deepEqual(endTime.options.slice(1).map((entry) => entry.value), [
     "10:30", "11:30", "12:30", "13:30",
   ]);
+  assert.equal(endTime.value, "10:30");
+  assert.match(page.timeSummary.textContent, /09:30–10:30 · 共 1 小时/);
 
   endTime.value = "10:00";
   page.submit();
@@ -464,7 +480,7 @@ test("offline fallback keeps only whole-hour durations from half-hour starts", a
 
 test("stale availability success cannot replace newer date sessions", async () => {
   const source = await readEnhancement();
-  const page = loadEnhancement(source, { partySize: 3 });
+  const page = loadEnhancement(source, { date: "2026-08-09", partySize: 3 });
   const { date, sessionId, startTime } = page.controls;
   const response = (dateValue, time, endTime) =>
     JSON.stringify({

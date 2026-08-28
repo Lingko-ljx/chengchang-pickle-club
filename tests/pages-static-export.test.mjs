@@ -103,9 +103,9 @@ test("exports the real booking form without a framework client runtime", async (
   assert.ok(publicScheduleConsentTag);
   assert.doesNotMatch(publicScheduleConsentTag, /\brequired\b/i);
   assert.match(html, /<input(?=[^>]*name="hide_public_name")(?=[^>]*type="checkbox")(?=[^>]*value="true")[^>]*>/i);
-  assert.match(html, /我不想公开完整姓名（选填）/);
-  assert.match(html, /不勾选则默认显示完整姓名/);
-  assert.match(html, /手机号、邮箱、预约编号和备注始终保密/);
+  assert.match(html, /我不想公开完整姓名，仅显示脱敏称呼/);
+  assert.match(html, /手机号、预约编号和备注不会公开/);
+  assert.match(html, /备注与姓名公开设置/);
   assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.ok(html.includes(`src="${prefixed("/booking-form.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/public-schedule.js")}"`));

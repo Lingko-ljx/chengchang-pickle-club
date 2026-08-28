@@ -64,7 +64,7 @@
       status.textContent = "这一天还没有公开预约，欢迎来开第一场。";
       return;
     }
-    status.textContent = "默认展示完整姓名；选择不公开姓名的球友仅显示脱敏称呼。手机号、邮箱、预约编号和备注始终保密。";
+    status.textContent = "默认显示完整姓名；勾选隐私设置后姓名脱敏。联系方式始终保密。";
     for (index = 0; index < items.length; index += 1) {
       article = document.createElement("article");
       article.className = "public-schedule-item";

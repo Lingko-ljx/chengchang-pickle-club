@@ -62,25 +62,39 @@ function rewriteAttribute(
   }
 }
 
-const requested = querySource();
-if (requested.present && !requested.source) rememberSource(null);
-const source = requested.source ?? (!requested.present ? storedSource() : null);
+function applyChannelAttribution() {
+  const requested = querySource();
+  if (requested.present && !requested.source) rememberSource(null);
+  const source = requested.source ?? (!requested.present ? storedSource() : null);
 
-if (source) {
-  rememberSource(source);
-  document.documentElement.setAttribute("data-public-channel-source", source);
+  if (source) {
+    rememberSource(source);
+    document.documentElement.setAttribute("data-public-channel-source", source);
 
-  const page = document.querySelector("[data-public-channel-page]");
-  if (page) page.setAttribute("data-public-channel-source", source);
+    const page = document.querySelector("[data-public-channel-page]");
+    if (page) page.setAttribute("data-public-channel-source", source);
 
-  const links = document.querySelectorAll("[data-preserve-public-channel]");
-  for (let index = 0; index < links.length; index += 1) {
-    rewriteAttribute(links[index], "href", source, preserveParameters(links[index]));
+    const links = document.querySelectorAll("[data-preserve-public-channel]");
+    for (let index = 0; index < links.length; index += 1) {
+      rewriteAttribute(links[index], "href", source, preserveParameters(links[index]));
+    }
+
+    const form = document.getElementById("booking-form");
+    if (form) {
+      rewriteAttribute(form, "data-booking-result-path", source);
+      rewriteAttribute(form, "data-booking-status-path", source);
+    }
   }
+}
 
-  const form = document.getElementById("booking-form");
-  if (form) {
-    rewriteAttribute(form, "data-booking-result-path", source);
-    rewriteAttribute(form, "data-booking-status-path", source);
-  }
+function applyAfterPageHydration() {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(applyChannelAttribution);
+  });
+}
+
+if (document.readyState === "complete") {
+  applyAfterPageHydration();
+} else {
+  window.addEventListener("load", applyAfterPageHydration, { once: true });
 }

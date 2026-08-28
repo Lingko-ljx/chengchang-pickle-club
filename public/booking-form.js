@@ -33,6 +33,7 @@
   var bookingPolicy = null;
   var availabilityGeneration = 0;
   var fallbackStartOptions = [];
+  var defaultedDate = false;
 
   if (!dateInput || !startSelect || !endSelect || !partySizeSelect) return;
 
@@ -153,9 +154,14 @@
     return (hours < 10 ? "0" : "") + hours + ":" + (remainder < 10 ? "0" : "") + remainder;
   }
 
+  function beijingDate() {
+    var shifted = new Date(new Date().getTime() + 8 * 60 * 60 * 1000);
+    return shifted.toISOString().slice(0, 10);
+  }
+
   function localEndEntries(startTime) {
     var start = timeMinutes(startTime);
-    var entries = [{ value: "", text: "请选择结束时间" }];
+    var entries = [{ value: "", text: "选择时间" }];
     var hours;
     var end;
     if (start < 540 || start >= 1320 || start % 30 !== 0) return entries;
@@ -246,7 +252,7 @@
     var minutes = durationMinutes(startSelect.value, endSelect.value);
     if (!timeSummary) return;
     if (!minutes || minutes % 60 !== 0) {
-      timeSummary.textContent = "北京时间 · 请选择开始与结束时间";
+      timeSummary.textContent = "选择开始时间后，默认预约 1 小时";
       return;
     }
     timeSummary.textContent =
@@ -269,13 +275,18 @@
   function renderEndOptions() {
     var values = filteredWindows();
     var selectedValue = endSelect.value;
-    var entries = [{ value: "", text: "请选择结束时间" }];
+    var localEntries;
+    var entries = [{ value: "", text: "选择时间" }];
     var seen = {};
     var index;
     var value;
     var hours;
     if (!availableWindows) {
-      replaceOptions(endSelect, localEndEntries(startSelect.value), selectedValue);
+      localEntries = localEndEntries(startSelect.value);
+      replaceOptions(endSelect, localEntries, selectedValue);
+      if (!endSelect.value && localEntries.length > 1) {
+        endSelect.value = localEntries[1].value;
+      }
       syncCanonicalSessionId();
       return;
     }
@@ -291,13 +302,16 @@
       });
     }
     replaceOptions(endSelect, entries, selectedValue);
+    if (!endSelect.value && entries.length > 1) {
+      endSelect.value = entries[1].value;
+    }
     syncCanonicalSessionId();
   }
 
   function filterWindows() {
     var values;
     var selectedValue;
-    var entries = [{ value: "", text: "请选择可用开始时间" }];
+    var entries = [{ value: "", text: "选择可用时间" }];
     var seen = {};
     var index;
     var value;
@@ -313,7 +327,7 @@
     replaceOptions(startSelect, entries, selectedValue);
     renderEndOptions();
     if (values.length) {
-      setAvailabilityStatus("已按当前人数和预约方式显示实时可用时间。");
+      setAvailabilityStatus("");
     } else {
       setAvailabilityStatus("当天暂无符合条件的连续时段，请更换时间、人数或预约方式。");
     }
@@ -372,7 +386,7 @@
       endSelect.disabled = false;
       restoreFallbackOptions();
       hideError();
-      setAvailabilityStatus("营业时间 09:00–22:00 · 最少 1 小时 · 整小时计费");
+      setAvailabilityStatus("");
       return;
     }
 
@@ -533,6 +547,11 @@
   }
 
   fallbackStartOptions = readOptions(startSelect);
+  if (!dateInput.value) {
+    dateInput.value = beijingDate();
+    defaultedDate = true;
+  }
+  if (dateInput.setAttribute) dateInput.setAttribute("min", beijingDate());
   ensureIdempotencyKey();
   renderEndOptions();
   dateInput.addEventListener("change", fetchAvailability);
@@ -546,4 +565,5 @@
     if (privateMode) privateMode.addEventListener("change", filterWindows);
   }
   form.addEventListener("submit", submitWithXhr);
+  if (defaultedDate) fetchAvailability();
 })();

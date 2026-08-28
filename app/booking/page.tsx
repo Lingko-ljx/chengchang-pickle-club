@@ -46,7 +46,7 @@ export default function BookingPage() {
         <div className="booking-standalone-title">
           <span>COURT BOOKING</span>
           <strong>预约场地</strong>
-          <small>09:00–22:00 · 整点或半点开始 · 1–4 小时</small>
+          <small>09:00–22:00 · 半点可约 · 1–4 小时</small>
         </div>
         <a
           className="booking-standalone-status"
@@ -68,12 +68,6 @@ export default function BookingPage() {
             statusPath={statusPath}
             variant="standalone"
           />
-          <div className="booking-status-entry">
-            <span>已经提交过预约？</span>
-            <a data-preserve-public-channel href={statusPath}>
-              查询状态、取消或回应改期 →
-            </a>
-          </div>
         </div>
       </section>
       <script data-wechat-entry-client defer src={`${basePath}/wechat-entry.js`} />

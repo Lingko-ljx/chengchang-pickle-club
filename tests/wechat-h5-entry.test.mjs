@@ -80,7 +80,7 @@ test("channel propagation strips phone, openid and every unapproved query key", 
 });
 
 test("public pages expose copyable WeChat entry markers and load the bridge", async () => {
-  const [home, booking, result, status, layout, buildScript, exportScript] =
+  const [home, booking, result, status, layout, buildScript, exportScript, entryClient] =
     await Promise.all([
       readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
       readFile(new URL("../app/booking/page.tsx", import.meta.url), "utf8"),
@@ -89,6 +89,7 @@ test("public pages expose copyable WeChat entry markers and load the bridge", as
       readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
       readFile(new URL("../scripts/build-browser-clients.mjs", import.meta.url), "utf8"),
       readFile(new URL("../scripts/prepare-pages-output.mjs", import.meta.url), "utf8"),
+      readFile(new URL("../wechat-entry-client/index.ts", import.meta.url), "utf8"),
     ]);
 
   assert.match(home, /data-public-channel-page="booking"/);
@@ -109,6 +110,8 @@ test("public pages expose copyable WeChat entry markers and load the bridge", as
   assert.match(status, /data-preserve-public-channel/);
   assert.match(buildScript, /"wechat-entry"\s*:/);
   assert.match(exportScript, /data-wechat-entry-client/);
+  assert.match(entryClient, /window\.addEventListener\("load", applyAfterPageHydration/);
+  assert.match(entryClient, /window\.requestAnimationFrame\(applyChannelAttribution\)/);
 
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(layout, /referrer:\s*"strict-origin-when-cross-origin"/);

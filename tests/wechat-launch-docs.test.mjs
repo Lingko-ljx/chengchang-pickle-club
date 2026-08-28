@@ -4,29 +4,32 @@ import test from "node:test";
 
 const projectFile = (path) => new URL(`../${path}`, import.meta.url);
 
-test("WeChat menu template is account-independent and public-only", async () => {
+test("WeChat menu template matches the manually published content structure", async () => {
   const source = await readFile(
     projectFile("docs/wechat-menu-template.json"),
     "utf8",
   );
   const template = JSON.parse(source);
 
+  assert.deepEqual(template.menu.map(({ name }) => name), [
+    "预约场地",
+    "球馆动态",
+    "联系我们",
+  ]);
   assert.deepEqual(
-    template.button.map(({ name, type }) => ({ name, type })),
-    [
-      { name: "预约场地", type: "view" },
-      { name: "球馆动态", type: "view" },
-      { name: "联系我们", type: "view" },
-    ],
+    template.menu[1].submenus.map(({ name }) => name),
+    ["每日动态", "教练团队", "赛事荣誉", "球馆介绍"],
   );
-  assert.deepEqual(
-    template.button.map(({ url }) => url),
-    [
-      "{{BOOKING_MENU_URL}}",
-      "{{DAILY_MENU_URL}}",
-      "{{CONTACT_MENU_URL}}",
-    ],
+  assert.equal(template.menu[0].action, "send_message");
+  assert.match(template.menu[0].content, /\{\{BOOKING_MENU_URL\}\}/);
+  assert.doesNotMatch(
+    JSON.stringify(template.menu[1].submenus),
+    /预约场地/,
   );
+  assert.equal(template.menu[2].action, "send_message");
+  assert.match(template.menu[2].content, /刘华/);
+  assert.match(template.menu[2].content, /13807917663/);
+  assert.match(template.menu[2].content, /青山湖南大道260号14号楼/);
   assert.doesNotMatch(source, /\/admin\/|AppSecret|access[_ -]?token|openid/i);
 });
 

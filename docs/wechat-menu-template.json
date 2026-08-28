@@ -1,19 +1,39 @@
 {
-  "button": [
+  "menu": [
     {
-      "type": "view",
       "name": "预约场地",
-      "url": "{{BOOKING_MENU_URL}}"
+      "action": "send_message",
+      "content": "点击进入场地预约：{{BOOKING_MENU_URL}}"
     },
     {
-      "type": "view",
       "name": "球馆动态",
-      "url": "{{DAILY_MENU_URL}}"
+      "submenus": [
+        {
+          "name": "每日动态",
+          "action": "send_message",
+          "content": "点击查看今日 / 往日球场：{{DAILY_MOMENTS_URL}}"
+        },
+        {
+          "name": "教练团队",
+          "action": "send_message",
+          "content": "点击查看教练团队：{{COACHES_URL}}"
+        },
+        {
+          "name": "赛事荣誉",
+          "action": "send_message",
+          "content": "点击查看赛事荣誉：{{HONORS_URL}}"
+        },
+        {
+          "name": "球馆介绍",
+          "action": "send_message",
+          "content": "点击查看球馆与开放时间：{{VENUE_URL}}"
+        }
+      ]
     },
     {
-      "type": "view",
       "name": "联系我们",
-      "url": "{{CONTACT_MENU_URL}}"
+      "action": "send_message",
+      "content": "睿安成 PICKLE CLUB\n\n地址：江西省南昌市青山湖区青山湖南大道260号14号楼\n负责人：刘华\n联系电话：13807917663\n营业时间：周一至周日 09:00—22:00\n法定节假日以公告为准"
     }
   ]
 }

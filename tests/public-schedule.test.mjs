@@ -416,6 +416,6 @@ test("public schedule browser client parses as ES5 and never renders server text
   assert.match(summary.textContent, /1 场.*2 位/);
   assert.equal(list.children.length, 1);
   assert.equal(list.children[0].children[0].textContent, "<img src=x onerror=alert(1)>");
-  assert.match(status.textContent, /默认展示完整姓名/);
-  assert.match(status.textContent, /手机号、邮箱、预约编号和备注始终保密/);
+  assert.match(status.textContent, /默认显示完整姓名/);
+  assert.match(status.textContent, /联系方式始终保密/);
 });

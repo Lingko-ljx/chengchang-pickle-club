@@ -150,12 +150,12 @@ test("the booking form defaults to full-name visibility with a clear optional op
   assert.doesNotMatch(bookingFormSource, /name="email"|booking-email|电子邮箱/);
   assert.match(bookingFormSource, /name="public_schedule_consent_version"[\s\S]*type="hidden"[\s\S]*value="2"/);
   assert.match(bookingFormSource, /name="hide_public_name"[\s\S]*type="checkbox"[\s\S]*value="true"/);
-  assert.match(bookingFormSource, /已知悉姓名默认会在首页公开展示/);
-  assert.match(bookingFormSource, /我不想公开完整姓名（选填）/);
-  assert.match(bookingFormSource, /不勾选则默认显示完整姓名/);
-  assert.match(bookingFormSource, /手机号、邮箱、预约编号和备注始终保密/);
+  assert.match(bookingFormSource, /知悉姓名默认公开/);
+  assert.match(bookingFormSource, /我不想公开完整姓名，仅显示脱敏称呼/);
+  assert.match(bookingFormSource, /手机号、预约编号和备注不会公开/);
+  assert.match(bookingFormSource, /备注与姓名公开设置/);
   assert.match(bookingFormSource, /maxLength=\{40\}/);
-  assert.match(bookingFormSource, /请填写大家熟悉的真实称呼，默认会在首页完整展示/);
+  assert.match(bookingFormSource, /请填写球友熟悉的真实称呼/);
   assert.doesNotMatch(bookingFormSource, /处理预约并与我联系；首页/);
 });
 

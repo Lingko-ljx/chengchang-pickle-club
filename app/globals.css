@@ -2245,7 +2245,7 @@ textarea:focus-visible {
 }
 
 .public-schedule-heading > strong {
-  color: var(--accent);
+  color: var(--lime);
   font-size: 0.86rem;
 }
 
@@ -2639,6 +2639,533 @@ textarea:focus-visible {
 
   .site-footer > p:last-child {
     justify-self: start;
+  }
+}
+
+/* Clear three-step booking form. Business fields stay unchanged; only the
+   visual grouping and optional controls are simplified. */
+.booking-form-heading {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 28px;
+}
+
+.booking-form-heading > span {
+  color: var(--sage);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.booking-form-heading h3 {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 30px;
+  font-weight: 400;
+  margin: 8px 0 7px;
+}
+
+.booking-form-heading p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.booking-form .form-group {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  margin: 0;
+  min-width: 0;
+  padding: 27px 0;
+}
+
+.booking-form .form-group + .form-group {
+  padding-top: 27px;
+}
+
+.booking-form .form-group > legend {
+  align-items: center;
+  color: var(--ink);
+  display: flex;
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 18px;
+  gap: 9px;
+  margin: 0 0 18px;
+  padding: 0;
+}
+
+.booking-form .form-group > legend > span {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--sage);
+  display: inline-flex;
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.booking-play-grid {
+  align-items: end;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 2fr) minmax(104px, 0.8fr);
+}
+
+.booking-play-grid .mode-options {
+  margin-top: 0;
+}
+
+.booking-play-grid .mode-options span {
+  align-items: center;
+  display: flex;
+  font-size: 14px;
+  justify-content: center;
+  min-height: 50px;
+  padding: 10px 12px;
+}
+
+.booking-party-field,
+.booking-note-field {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+}
+
+.booking-contact-grid > label:last-child {
+  grid-column: auto;
+}
+
+.booking-layout.is-standalone .public-schedule-item strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.booking-layout.is-standalone .public-schedule-item span {
+  flex: 1;
+  min-width: 0;
+}
+
+.booking-party-field > span,
+.booking-note-field > span {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.booking-party-field select,
+.booking-note-field textarea {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  min-height: 50px;
+  outline: none;
+  padding: 4px 0;
+  width: 100%;
+}
+
+.booking-note-field textarea {
+  min-height: 72px;
+  padding-top: 10px;
+  resize: vertical;
+}
+
+.booking-more-options {
+  border-top: 1px dashed var(--line);
+  margin-top: 20px;
+}
+
+.booking-more-options summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 50px;
+}
+
+.booking-more-options summary::-webkit-details-marker {
+  display: none;
+}
+
+.booking-more-options summary::after {
+  color: var(--sage);
+  content: "+";
+  font-size: 18px;
+  margin-left: 10px;
+}
+
+.booking-more-options[open] summary::after {
+  content: "−";
+}
+
+.booking-more-options summary small {
+  color: var(--muted);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.booking-more-options > div {
+  padding: 4px 0 8px;
+}
+
+.booking-more-options .public-schedule-consent {
+  margin-top: 16px;
+}
+
+.booking-required-consent {
+  margin-top: 20px;
+}
+
+.privacy-consent input {
+  flex: 0 0 auto;
+  height: 18px;
+  margin: 1px 0 0;
+  width: 18px;
+}
+
+.booking-form > .primary-button {
+  font-size: 15px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+@media (max-width: 860px) {
+  .booking-layout.is-standalone > .booking-copy {
+    order: 1;
+  }
+
+  .booking-layout.is-standalone > div:last-child {
+    order: 2;
+  }
+
+  .booking-layout.is-standalone .public-schedule {
+    margin-top: 0;
+  }
+
+  .booking-layout.is-standalone .public-schedule-list {
+    max-height: 248px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 620px) {
+  .booking-standalone-header {
+    min-height: 108px;
+    padding-bottom: 13px;
+    padding-top: max(13px, env(safe-area-inset-top, 0px));
+  }
+
+  .booking-standalone-header .brand-mark {
+    height: 31px;
+    width: 31px;
+  }
+
+  .booking-standalone-header .brand-name {
+    font-size: 16px;
+  }
+
+  .booking-standalone-header .brand-name small {
+    font-size: 8px;
+  }
+
+  .booking-standalone-title {
+    align-items: center;
+    padding-top: 10px;
+  }
+
+  .booking-standalone-title > strong {
+    font-size: 20px;
+  }
+
+  .booking-standalone-title > small {
+    font-size: 12px;
+  }
+
+  .booking-standalone-status {
+    font-size: 13px;
+    min-height: 40px;
+    padding: 9px 14px;
+  }
+
+  .booking-standalone-section {
+    min-height: calc(100dvh - 108px);
+    padding-bottom: max(42px, env(safe-area-inset-bottom, 0px));
+    padding-top: 16px;
+  }
+
+  .booking-layout.is-standalone {
+    gap: 18px;
+  }
+
+  .booking-layout.is-standalone .public-schedule {
+    border-radius: 16px;
+    padding: 16px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading,
+  .booking-layout.is-standalone .public-schedule-item {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading h3 {
+    font-size: 19px;
+    margin-bottom: 0;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading > strong {
+    font-size: 13px;
+    line-height: 1.45;
+    max-width: 46%;
+    text-align: right;
+  }
+
+  .booking-layout.is-standalone .public-schedule-list {
+    gap: 7px;
+    margin: 13px 0;
+    max-height: 224px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-item {
+    min-height: 48px;
+    padding: 10px 12px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-item strong {
+    font-size: 15px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-item span {
+    font-size: 13px;
+    line-height: 1.45;
+    text-align: right;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading span,
+  .booking-layout.is-standalone .public-schedule > p {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .booking-standalone-section .booking-form {
+    border-radius: 16px;
+    padding: 22px 16px 18px;
+  }
+
+  .booking-form-heading {
+    padding-bottom: 19px;
+  }
+
+  .booking-form-heading > span {
+    font-size: 12px;
+  }
+
+  .booking-form-heading h3 {
+    font-size: 26px;
+    margin: 6px 0;
+  }
+
+  .booking-form-heading p {
+    font-size: 13px;
+  }
+
+  .booking-form .form-group,
+  .booking-form .form-group + .form-group {
+    padding: 19px 0;
+  }
+
+  .booking-form .form-group > legend {
+    font-size: 17px;
+    margin-bottom: 14px;
+  }
+
+  .booking-form .form-group > legend > span {
+    font-size: 11px;
+    height: 26px;
+    width: 26px;
+  }
+
+  .booking-play-grid {
+    gap: 10px;
+    grid-template-columns: minmax(0, 2fr) minmax(92px, 0.82fr);
+  }
+
+  .booking-play-grid .mode-options {
+    gap: 7px;
+  }
+
+  .booking-play-grid .mode-options span {
+    font-size: 14px;
+    min-height: 48px;
+    padding: 8px 6px;
+  }
+
+  .booking-party-field,
+  .booking-note-field,
+  .booking-form .input-grid > label,
+  .booking-form .input-grid label > span {
+    font-size: 13px;
+    letter-spacing: 0.04em;
+  }
+
+  .booking-party-field select,
+  .booking-note-field textarea,
+  .booking-form .input-grid input,
+  .booking-form .input-grid select,
+  .booking-form .input-grid textarea {
+    font-size: 16px; /* WeChat form zoom guard */
+    min-height: 48px;
+  }
+
+  .booking-standalone-section .booking-time-grid {
+    gap: 13px 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .booking-standalone-section .booking-time-grid > label:first-child,
+  .booking-standalone-section .booking-time-summary,
+  .booking-standalone-section .booking-availability-status {
+    grid-column: 1 / -1;
+  }
+
+  .booking-time-summary {
+    font-size: 13px;
+    min-height: 52px;
+    padding: 10px 12px;
+  }
+
+  .booking-time-summary strong,
+  .booking-time-summary span,
+  .booking-availability-status,
+  .field-help {
+    font-size: 12px;
+  }
+
+  .booking-contact-grid {
+    gap: 17px;
+    grid-template-columns: 1fr;
+  }
+
+  .booking-more-options summary {
+    font-size: 14px;
+    min-height: 48px;
+  }
+
+  .booking-more-options summary small,
+  .booking-disclaimer {
+    font-size: 12px;
+  }
+
+  .privacy-consent {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .privacy-consent input {
+    height: 20px;
+    width: 20px;
+  }
+
+  .booking-form > .primary-button {
+    font-size: 16px;
+    min-height: 54px;
+  }
+
+  .mobile-site-nav summary,
+  .mobile-site-nav a {
+    font-size: 14px;
+  }
+
+  .daily-media-heading h2 {
+    font-size: 34px;
+  }
+
+  .daily-media-heading-actions p,
+  .daily-media-empty {
+    font-size: 14px;
+  }
+
+  .daily-media-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-right: 0;
+    overflow-x: visible;
+    padding-bottom: 0;
+    scroll-snap-type: none;
+  }
+
+  .daily-media-card {
+    flex: none;
+    min-width: 0;
+    scroll-snap-align: none;
+  }
+
+  .daily-media-card.is-pinned {
+    grid-column: 1 / -1;
+  }
+
+  .daily-media-frame {
+    height: 142px;
+  }
+
+  .daily-media-card.is-pinned .daily-media-frame {
+    height: 230px;
+  }
+
+  .daily-media-copy {
+    padding: 13px 14px 15px;
+  }
+
+  .daily-media-copy h3 {
+    font-size: 17px;
+    line-height: 1.45;
+  }
+
+  .daily-media-copy p {
+    font-size: 13px;
+    line-height: 1.55;
+    margin-top: 7px;
+  }
+
+  .coach-support-card > span,
+  .coach-support-card > strong,
+  .coach-support-card p,
+  .coach-support-heading > p,
+  .coach-gallery-heading > p,
+  .honor-media-card p,
+  .coach-gallery-item p {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .honor-media-card figcaption span,
+  .coach-gallery-item figcaption > span {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 350px) {
+  .booking-play-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-party-field {
+    margin-top: 4px;
+  }
+
+  .daily-media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-media-card.is-pinned {
+    grid-column: auto;
   }
 }
 
@@ -4569,5 +5096,207 @@ textarea:focus-visible {
     flex-direction: column;
     gap: 10px;
     margin-top: 22px;
+  }
+}
+
+/* Final mobile cascade: keep the focused booking and content hubs compact in
+   the WeChat WebView, after the legacy responsive rules above. */
+@media (max-width: 860px) {
+  .booking-layout.is-standalone {
+    gap: 18px;
+  }
+
+  .booking-layout.is-standalone > .booking-copy {
+    order: 1;
+  }
+
+  .booking-layout.is-standalone > div:last-child {
+    order: 2;
+  }
+
+  .booking-layout.is-standalone .public-schedule-list {
+    max-height: 248px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 620px) {
+  .booking-standalone-header {
+    min-height: 108px;
+    padding-bottom: 13px;
+    padding-top: max(13px, env(safe-area-inset-top, 0px));
+  }
+
+  .booking-standalone-header .brand-mark {
+    height: 31px;
+    width: 31px;
+  }
+
+  .booking-standalone-header .brand-name {
+    font-size: 16px;
+  }
+
+  .booking-standalone-header .brand-name small {
+    font-size: 8px;
+  }
+
+  .booking-standalone-title {
+    align-items: center;
+    padding-top: 10px;
+  }
+
+  .booking-standalone-title > strong {
+    font-size: 20px;
+  }
+
+  .booking-standalone-title > small {
+    font-size: 12px;
+  }
+
+  .booking-standalone-status {
+    font-size: 13px;
+    min-height: 40px;
+    padding: 9px 14px;
+  }
+
+  .booking-standalone-section {
+    min-height: calc(100dvh - 108px);
+    padding-bottom: max(42px, env(safe-area-inset-bottom, 0px));
+    padding-top: 16px;
+  }
+
+  .booking-layout.is-standalone .public-schedule {
+    border-radius: 16px;
+    padding: 16px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading,
+  .booking-layout.is-standalone .public-schedule-item {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading h3 {
+    font-size: 19px;
+    margin-bottom: 0;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading > strong {
+    font-size: 13px;
+    line-height: 1.45;
+    max-width: 46%;
+    text-align: right;
+  }
+
+  .booking-layout.is-standalone .public-schedule-list {
+    gap: 7px;
+    margin: 13px 0;
+    max-height: 224px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-item {
+    min-height: 48px;
+    padding: 10px 12px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-item strong {
+    font-size: 15px;
+  }
+
+  .booking-layout.is-standalone .public-schedule-item span {
+    font-size: 13px;
+    line-height: 1.45;
+    text-align: right;
+  }
+
+  .booking-layout.is-standalone .public-schedule-heading span,
+  .booking-layout.is-standalone .public-schedule > p {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .booking-standalone-section .booking-form {
+    border-radius: 16px;
+    padding: 22px 16px 18px;
+  }
+
+  .booking-standalone-section .booking-time-grid {
+    gap: 13px 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .booking-standalone-section .booking-time-grid > label:first-child,
+  .booking-standalone-section .booking-time-summary,
+  .booking-standalone-section .booking-availability-status {
+    grid-column: 1 / -1;
+  }
+
+  .mobile-site-nav summary,
+  .mobile-site-nav a {
+    font-size: 14px;
+  }
+
+  .daily-media {
+    padding-bottom: 38px;
+    padding-top: 38px;
+  }
+
+  .daily-media-heading {
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .daily-media-heading > div > p {
+    font-size: 11px;
+  }
+
+  .daily-media-heading-actions p,
+  .daily-media-empty {
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .daily-media-empty {
+    padding: 12px 0 4px;
+  }
+
+  .daily-media-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-right: 0;
+    overflow-x: visible;
+    padding-bottom: 0;
+    scroll-snap-type: none;
+  }
+
+  .daily-media-card {
+    flex: none;
+    min-width: 0;
+    scroll-snap-align: none;
+  }
+
+  .daily-media-card.is-pinned {
+    grid-column: 1 / -1;
+  }
+
+  .daily-media-frame {
+    height: 142px;
+  }
+
+  .daily-media-card.is-pinned .daily-media-frame {
+    height: 230px;
+  }
+}
+
+@media (max-width: 350px) {
+  .booking-play-grid,
+  .daily-media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-media-card.is-pinned {
+    grid-column: auto;
   }
 }
