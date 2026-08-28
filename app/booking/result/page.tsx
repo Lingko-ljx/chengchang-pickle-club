@@ -40,7 +40,7 @@ export default function BookingResultPage() {
           <a
             className="booking-flow-back"
             data-preserve-public-channel
-            href={`${basePath}/#booking`}
+            href={`${basePath}/booking/`}
           >
             返回预约页面
           </a>

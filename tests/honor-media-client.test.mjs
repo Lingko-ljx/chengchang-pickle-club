@@ -79,9 +79,11 @@ test("homepage provides an independent honor manifest target with static fallbac
 test("mobile users get a native sticky directory with stable section links", () => {
   assert.match(pageSource, /className="mobile-site-nav"/);
   assert.match(pageSource, /<summary>浏览目录<\/summary>/);
-  for (const target of ["#home", "#daily-moments", "#team", "#honors", "#booking", "#contact"]) {
+  for (const target of ["#home", "#daily-moments", "#team", "#honors", "#contact"]) {
     assert.match(pageSource, new RegExp(`href="${target}"`));
   }
+  assert.ok(pageSource.includes('href={`${basePath}/booking/`}'));
+  assert.match(pageSource, /data-preserve-public-channel/);
   assert.match(globalStyles, /\.mobile-site-nav\s*\{[^}]*display:\s*none;/s);
   assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.mobile-site-nav\s*\{[^}]*display:\s*block;[^}]*position:\s*sticky;/s);
   assert.match(globalStyles, /@media\s*\(max-width:\s*860px\)[\s\S]*\.mobile-site-nav\s*\{[^}]*top:\s*calc\(78px/s);

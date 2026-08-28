@@ -5,6 +5,7 @@ type BookingFormProps = {
   resultPath: string;
   scriptSrc: string;
   statusPath: string;
+  variant?: "full" | "standalone";
 };
 
 const fallbackStartTimes = [
@@ -43,32 +44,47 @@ export function BookingForm({
   resultPath,
   scriptSrc,
   statusPath,
+  variant = "full",
 }: BookingFormProps) {
   const configured = Boolean(apiBaseUrl && formEndpoint);
+  const standalone = variant === "standalone";
 
   return (
-    <div className="booking-layout">
+    <div className={`booking-layout${standalone ? " is-standalone" : ""}`}>
       <div className="booking-copy">
-        <p className="booking-overline">FIRST SESSION</p>
-        <h2>
-          选择一个时间，
-          <br />
-          <span>来打一场刚刚好的球。</span>
-        </h2>
-        <p>
-          每天 09:00–22:00 开放预约，开始时间可选整点或半点。
-          每次至少 1 小时，之后按整小时增加，可选择散客拼场或包场。
-        </p>
-        <div className="booking-facts">
-          <div>
-            <span>30</span>
-            <p>分钟可选开始间隔</p>
+        {standalone ? (
+          <div className="booking-standalone-intro">
+            <p className="booking-overline">COURT BOOKING</p>
+            <h2>预约场地</h2>
+            <p>
+              选择日期、开始时间和结束时间后提交即可。空余时段将自动确认，
+              如需调整，工作人员会电话联系。
+            </p>
           </div>
-          <div>
-            <span>1—4H</span>
-            <p>按实际整小时计费</p>
-          </div>
-        </div>
+        ) : (
+          <>
+            <p className="booking-overline">FIRST SESSION</p>
+            <h2>
+              选择一个时间，
+              <br />
+              <span>来打一场刚刚好的球。</span>
+            </h2>
+            <p>
+              每天 09:00–22:00 开放预约，开始时间可选整点或半点。
+              每次至少 1 小时，之后按整小时增加，可选择散客拼场或包场。
+            </p>
+            <div className="booking-facts">
+              <div>
+                <span>30</span>
+                <p>分钟可选开始间隔</p>
+              </div>
+              <div>
+                <span>1—4H</span>
+                <p>按实际整小时计费</p>
+              </div>
+            </div>
+          </>
+        )}
         {configured ? (
           <section
             className="public-schedule"

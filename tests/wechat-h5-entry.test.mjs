@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  PUBLIC_BOOKING_ANCHOR,
+  PUBLIC_BOOKING_ROUTE,
   PUBLIC_CHANNEL_QUERY_PARAMETER,
   WECHAT_MENU_CHANNEL,
   WECHAT_QR_CHANNEL,
@@ -35,11 +35,11 @@ test("stable menu and QR entry URLs contain only the allowlisted source", () => 
 
   assert.equal(
     buildPublicBookingEntryUrl(siteUrl, WECHAT_MENU_CHANNEL),
-    `https://booking.example.com/pickle/?${PUBLIC_CHANNEL_QUERY_PARAMETER}=wx_menu#${PUBLIC_BOOKING_ANCHOR}`,
+    `https://booking.example.com/pickle/${PUBLIC_BOOKING_ROUTE}?${PUBLIC_CHANNEL_QUERY_PARAMETER}=wx_menu`,
   );
   assert.equal(
     buildPublicBookingEntryUrl(siteUrl, WECHAT_QR_CHANNEL),
-    `https://booking.example.com/pickle/?${PUBLIC_CHANNEL_QUERY_PARAMETER}=wx_qr#${PUBLIC_BOOKING_ANCHOR}`,
+    `https://booking.example.com/pickle/${PUBLIC_BOOKING_ROUTE}?${PUBLIC_CHANNEL_QUERY_PARAMETER}=wx_qr`,
   );
   assert.equal(
     buildPublicBookingStatusUrl(siteUrl, WECHAT_MENU_CHANNEL),
@@ -80,9 +80,10 @@ test("channel propagation strips phone, openid and every unapproved query key", 
 });
 
 test("public pages expose copyable WeChat entry markers and load the bridge", async () => {
-  const [home, result, status, layout, buildScript, exportScript] =
+  const [home, booking, result, status, layout, buildScript, exportScript] =
     await Promise.all([
       readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../app/booking/page.tsx", import.meta.url), "utf8"),
       readFile(new URL("../app/booking/result/page.tsx", import.meta.url), "utf8"),
       readFile(new URL("../app/booking/status/page.tsx", import.meta.url), "utf8"),
       readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -96,6 +97,10 @@ test("public pages expose copyable WeChat entry markers and load the bridge", as
   assert.match(home, /data-wechat-menu-status-url=/);
   assert.match(home, /data-wechat-entry-client/);
   assert.match(home, /data-preserve-public-channel/);
+  assert.match(booking, /data-public-channel-page="booking"/);
+  assert.match(booking, /variant="standalone"/);
+  assert.match(booking, /data-wechat-entry-client/);
+  assert.match(booking, /data-preserve-public-channel/);
   assert.match(result, /data-public-channel-page="result"/);
   assert.match(result, /data-preserve-public-channel="code"/);
   assert.match(result, /data-wechat-entry-client/);
@@ -108,7 +113,7 @@ test("public pages expose copyable WeChat entry markers and load the bridge", as
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(layout, /referrer:\s*"strict-origin-when-cross-origin"/);
   assert.match(layout, /siteName:\s*"睿安成 PICKLE CLUB"/);
-  assert.doesNotMatch(`${home}\n${result}\n${status}\n${layout}`, /AppID|openid|unionid/i);
+  assert.doesNotMatch(`${home}\n${booking}\n${result}\n${status}\n${layout}`, /AppID|openid|unionid/i);
 });
 
 test("mobile CSS accounts for WeChat WebView safe areas and form zoom", async () => {

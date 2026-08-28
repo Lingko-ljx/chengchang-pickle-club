@@ -4384,3 +4384,190 @@ textarea:focus-visible {
     height: 230px;
   }
 }
+
+/* Independent booking entry used by the WeChat menu and booking QR code. */
+.booking-standalone-page {
+  background: var(--paper);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.booking-standalone-header {
+  align-items: center;
+  display: grid;
+  gap: 32px;
+  grid-template-columns: auto 1fr auto;
+  min-height: 118px;
+  padding-bottom: 22px;
+  padding-top: max(22px, env(safe-area-inset-top, 0px));
+}
+
+.booking-standalone-title {
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  text-align: center;
+}
+
+.booking-standalone-title > span {
+  color: var(--sage);
+  font-family: Arial, sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+}
+
+.booking-standalone-title > strong {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 25px;
+  font-weight: 400;
+}
+
+.booking-standalone-title > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.booking-standalone-status {
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 12px 19px;
+  white-space: nowrap;
+}
+
+.booking-standalone-status:hover {
+  background: var(--ink);
+  color: var(--paper-light);
+}
+
+.booking-standalone-section {
+  min-height: calc(100dvh - 118px);
+  padding-bottom: max(76px, env(safe-area-inset-bottom, 0px));
+  padding-top: 54px;
+}
+
+.booking-standalone-section .booking-layout {
+  margin: 0;
+}
+
+.booking-layout.is-standalone {
+  gap: 52px;
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+}
+
+.booking-layout.is-standalone > * {
+  min-width: 0;
+}
+
+.booking-layout.is-standalone .booking-standalone-intro h2 {
+  font-size: 46px;
+  font-size: clamp(38px, 4vw, 54px);
+  margin: 22px 0 20px;
+}
+
+.booking-layout.is-standalone .booking-standalone-intro > p:last-child {
+  color: rgba(250, 248, 242, 0.64);
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 0;
+}
+
+.booking-standalone-section .booking-status-entry {
+  margin-left: 0;
+}
+
+@media (max-width: 860px) {
+  .booking-standalone-header {
+    gap: 22px;
+  }
+
+  .booking-layout.is-standalone {
+    display: flex;
+    flex-direction: column;
+    gap: 34px;
+  }
+
+  .booking-layout.is-standalone > div:last-child {
+    order: 1;
+    width: 100%;
+  }
+
+  .booking-layout.is-standalone > .booking-copy {
+    max-width: none;
+    order: 2;
+  }
+
+  .booking-layout.is-standalone .booking-standalone-intro {
+    display: none;
+  }
+
+  .booking-layout.is-standalone .public-schedule {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  .booking-standalone-header {
+    gap: 16px;
+    grid-template-columns: 1fr auto;
+    min-height: 144px;
+    padding-bottom: 18px;
+    padding-top: max(18px, env(safe-area-inset-top, 0px));
+  }
+
+  .booking-standalone-header .brand-name {
+    font-size: 17px;
+  }
+
+  .booking-standalone-title {
+    align-items: end;
+    border-top: 1px solid var(--line);
+    gap: 4px 12px;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: auto minmax(0, 1fr);
+    justify-items: start;
+    padding-top: 14px;
+    text-align: left;
+  }
+
+  .booking-standalone-title > span {
+    display: none;
+  }
+
+  .booking-standalone-title > strong {
+    font-size: 22px;
+  }
+
+  .booking-standalone-title > small {
+    justify-self: end;
+    line-height: 1.5;
+    text-align: right;
+  }
+
+  .booking-standalone-status {
+    font-size: 11px;
+    grid-column: 2;
+    grid-row: 1;
+    padding: 10px 15px;
+  }
+
+  .booking-standalone-section {
+    min-height: calc(100dvh - 144px);
+    padding-bottom: max(54px, env(safe-area-inset-bottom, 0px));
+    padding-top: 24px;
+  }
+
+  .booking-standalone-section .booking-form {
+    margin-left: 0;
+    margin-right: 0;
+    padding: 27px 18px;
+  }
+
+  .booking-standalone-section .booking-status-entry {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 22px;
+  }
+}

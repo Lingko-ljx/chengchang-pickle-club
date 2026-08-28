@@ -138,6 +138,37 @@ test("exports the real booking form without a framework client runtime", async (
   assert.ok(scriptTags.some((script) => /data-wechat-entry-client/.test(script)));
 });
 
+test("exports a focused independent booking page for the WeChat entry", async () => {
+  const html = await readFile(
+    new URL("../out/booking/index.html", import.meta.url),
+    "utf8",
+  );
+  const apiBaseUrl = process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL?.replace(
+    /\/+$/,
+    "",
+  );
+  assert.ok(apiBaseUrl, "Pages verification requires the booking API base URL");
+
+  assert.match(html, /class="booking-standalone-page"/);
+  assert.match(html, /class="booking-layout is-standalone"/);
+  assert.match(html, /<form[^>]+id="booking-form"[^>]+method="post"/i);
+  assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
+  assert.ok(
+    html.includes(
+      `data-wechat-menu-booking-url="${new URL("booking/?src=wx_menu", siteUrl)}"`,
+    ),
+  );
+  assert.ok(html.includes(`href="${prefixed("/booking/status/")}"`));
+  assert.doesNotMatch(html, /data-homepage-media|data-honor-media|教练团队|个人赛事荣誉|联系我们/);
+
+  const scriptTags = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
+  assert.equal(scriptTags.length, 3);
+  assert.ok(scriptTags.some((script) => /data-booking-form-client/.test(script)));
+  assert.ok(scriptTags.some((script) => /data-public-schedule-client/.test(script)));
+  assert.ok(scriptTags.some((script) => /data-wechat-entry-client/.test(script)));
+  assert.doesNotMatch(html, /_next\/static\/chunks\/[^"]+\.js|self\.__next|__next_f|modulepreload/);
+});
+
 test("exports result and status pages with only their ES5 clients", async () => {
   const pages = [
     {

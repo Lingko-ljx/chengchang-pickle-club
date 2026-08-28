@@ -1,5 +1,5 @@
 export const PUBLIC_CHANNEL_QUERY_PARAMETER = "src";
-export const PUBLIC_BOOKING_ANCHOR = "booking";
+export const PUBLIC_BOOKING_ROUTE = "booking/";
 export const PUBLIC_BOOKING_STATUS_ROUTE = "booking/status/";
 export const WECHAT_MENU_CHANNEL = "wx_menu";
 export const WECHAT_QR_CHANNEL = "wx_qr";
@@ -45,9 +45,8 @@ export function buildPublicBookingEntryUrl(
   sourceValue: unknown,
 ): string {
   const source = publicChannelSourceOrThrow(sourceValue);
-  const url = cleanSiteUrl(siteUrl);
+  const url = new URL(PUBLIC_BOOKING_ROUTE, cleanSiteUrl(siteUrl));
   url.searchParams.set(PUBLIC_CHANNEL_QUERY_PARAMETER, source);
-  url.hash = PUBLIC_BOOKING_ANCHOR;
   return url.toString();
 }
 

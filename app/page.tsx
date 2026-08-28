@@ -292,7 +292,11 @@ export default function Home() {
           <a href="#honors">荣誉</a>
           <a href="#contact">联系</a>
         </nav>
-        <a className="header-cta" href="#booking">
+        <a
+          className="header-cta"
+          data-preserve-public-channel
+          href={`${basePath}/booking/`}
+        >
           预约体验
           <span aria-hidden="true">↗</span>
         </a>
@@ -305,7 +309,7 @@ export default function Home() {
           <a href="#daily-moments">今日 / 往日球场</a>
           <a href="#team">教练</a>
           <a href="#honors">荣誉</a>
-          <a href="#booking">预约</a>
+          <a data-preserve-public-channel href={`${basePath}/booking/`}>预约</a>
           <a href="#contact">联系</a>
         </nav>
       </details>
@@ -666,7 +670,12 @@ export default function Home() {
               <br />
               <span>从一次见面开始。</span>
             </h2>
-            <a href="#booking" className="circle-link" aria-label="前往预约体验">
+            <a
+              href={`${basePath}/booking/`}
+              className="circle-link"
+              data-preserve-public-channel
+              aria-label="前往预约体验"
+            >
               <span>BOOK</span>
               <i aria-hidden="true">↗</i>
             </a>
