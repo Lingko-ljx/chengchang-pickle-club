@@ -136,8 +136,7 @@ export function BookingForm({
               </label>
 
               <div className="booking-form-heading">
-                <span>约 1 分钟完成</span>
-                <h3>选择时间并提交</h3>
+                <h3>填写预约</h3>
                 <p>空余时段自动确认；如需调整，我们会电话联系。</p>
               </div>
 
@@ -172,6 +171,11 @@ export function BookingForm({
 
               <fieldset className="form-group booking-time-group">
                 <legend><span>2</span> 什么时候</legend>
+                <div className="booking-quick-dates" aria-label="快捷选择预约日期" hidden id="booking-quick-dates">
+                  {["今天", "明天", "后天"].map((label, index) => (
+                    <button key={label} id={`booking-day-${index}`} type="button" aria-pressed="false">{label}</button>
+                  ))}
+                </div>
                 <div className="input-grid booking-time-grid">
                   <label htmlFor="booking-date">
                     <span>预约日期</span>
@@ -264,7 +268,7 @@ export function BookingForm({
                         type="checkbox"
                         value="true"
                       />
-                      <span>我不想公开完整姓名，仅显示脱敏称呼。</span>
+                      <span>不公开我的完整姓名（显示为“刘**”）。</span>
                     </label>
                   </div>
                 </details>
@@ -288,7 +292,7 @@ export function BookingForm({
               </label>
 
               <p className="booking-disclaimer">
-                手机号、预约编号和备注不会公开。提交后自动确认；如需调整，工作人员会电话联系。
+                手机号、预约编号和备注不会公开。
               </p>
               <p id="booking-error" className="field-error" hidden role="alert" />
               <button className="primary-button" type="submit">

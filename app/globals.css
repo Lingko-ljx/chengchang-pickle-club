@@ -3169,6 +3169,7 @@ textarea:focus-visible {
   }
 }
 
+
 @supports not (aspect-ratio: 1 / 1) {
   .venue-board {
     height: 0;
@@ -5299,4 +5300,71 @@ textarea:focus-visible {
   .daily-media-card.is-pinned {
     grid-column: auto;
   }
+}
+
+/* Task-focused controls, shared across desktop and the WeChat mobile view. */
+.booking-quick-dates, .booking-page-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.booking-quick-dates[hidden] { display: none; }
+.booking-quick-dates { margin-bottom: 0.875rem; }
+.booking-quick-dates button, .booking-page-shortcuts a, .daily-media-retry {
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  font-size: 0.875rem;
+  min-height: 44px;
+  padding: 0.625rem 0.875rem;
+}
+.booking-quick-dates button { background: var(--paper); color: var(--ink); flex: 1; }
+.booking-quick-dates button[aria-pressed="true"] { background: var(--ink); color: var(--lime); }
+.booking-page-shortcuts { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.booking-page-shortcuts a { background: var(--paper-light); text-align: center; }
+.booking-form input, .booking-form select, .booking-form textarea { font-size: 1rem; min-width: 0; }
+.booking-form label > span, .booking-form legend, .booking-form-heading p { font-size: 1rem; line-height: 1.6; }
+.booking-form .field-help, .booking-disclaimer, .booking-time-summary, .booking-availability-status { font-size: 0.875rem; line-height: 1.6; }
+.daily-media-date-track { display: block; overflow-x: visible; padding-bottom: 0; }
+.daily-media-date-track label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; font-size: 0.875rem; }
+.daily-media-date-track select { background: var(--paper-light); border: 1px solid var(--line); border-radius: 0.5rem; min-height: 44px; padding: 0.5rem; font-size: 1rem; max-width: 100%; }
+.daily-media-date-track[hidden], .daily-media-status[hidden], .daily-media-retry[hidden] { display: none; }
+.daily-media-status { font-size: 0.875rem; line-height: 1.6; }
+.daily-media-empty { grid-column: 1 / -1; }
+.admin-tabs { flex-wrap: wrap; overflow-x: visible; }
+.admin-tabs a { font-size: 0.875rem; min-height: 44px; }
+.admin-panel input, .admin-panel select, .admin-panel textarea { font-size: 1rem; min-width: 0; max-width: 100%; }
+.admin-panel label > span, .admin-booking-row span, .admin-record-view p, .admin-section-heading p, .admin-staff-reservation-heading p, .admin-staff-reservation-note { font-size: 0.875rem; line-height: 1.6; }
+.admin-detail { scroll-margin-top: 1.5rem; }
+
+@media (max-width: 860px) {
+  .mobile-site-nav.content-shortcuts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  .content-shortcuts a { padding: 0.5rem 0.125rem; min-height: 44px; text-align: center; justify-content: center; font-size: 0.875rem; letter-spacing: 0; }
+  .booking-layout.is-standalone > div:last-child { order: 1; }
+  .booking-layout.is-standalone > .booking-copy { order: 2; }
+  .booking-standalone-section { padding-top: 0.5rem; }
+  .booking-layout.is-standalone .public-schedule-list { max-height: none; overflow-y: visible; }
+  .booking-layout.is-standalone .public-schedule-heading > strong, .booking-layout.is-standalone .public-schedule-item span { font-size: 0.875rem; }
+  .booking-layout.is-standalone .public-schedule-item { flex-wrap: wrap; gap: 0.5rem; }
+  .booking-layout.is-standalone .public-schedule-item strong { overflow-wrap: anywhere; }
+  .team-heading h2, .honors-title h2, .intro-heading h2, .contact-title h2, .coach-gallery-heading h2 { font-size: 1.75rem; line-height: 1.35; }
+  .team-heading h2 span { display: block; }
+  .team-heading, .intro-heading { margin-bottom: 1.5rem; }
+  .team-heading p, .intro-heading p, .coach-gallery-heading p, .daily-media-heading-actions p, .coach-feature-copy > p, .coach-feature-copy li { font-size: 1rem; line-height: 1.65; }
+  .coach-feature-photo { aspect-ratio: auto; height: 19rem; }
+  .coach-feature-photo img { height: 100%; width: 100%; object-fit: contain; object-position: center top; }
+  .coach-feature-copy { padding: 1rem; }
+  .coach-name-row > span, .coach-credentials span { font-size: 0.875rem; }
+  .coach-feature-copy > p:first-child { display: none; }
+  .coach-feature-role { display: none; }
+  .hero-copy { min-height: 0; }
+  .hero h1 { font-size: 2.25rem; line-height: 1.25; margin: 1.5rem 0; }
+  .hero-copy-bottom p, .contact-grid p { font-size: 1rem; }
+  .booking-standalone-title { grid-template-columns: 1fr; gap: 0.25rem; }
+  .booking-standalone-title > small { justify-self: start; font-size: 0.875rem; text-align: left; }
+}
+@media (max-width: 350px) {
+  .mobile-site-nav.content-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }

@@ -1,10 +1,6 @@
-import { BookingForm } from "./BookingForm";
 import {
-  bookingCreateUrl,
-  bookingResultPath,
   bookingStatusPath,
   resolveBookingApiBaseUrl,
-  resolveBookingScriptSrc,
 } from "./booking-config";
 import { siteConfiguration } from "./site-config";
 import { publicWechatEntryUrls } from "./wechat-entry";
@@ -17,10 +13,6 @@ const bookingApiBaseUrl = resolveBookingApiBaseUrl(
     required: process.env.GITHUB_PAGES === "true",
   },
 );
-const formEndpoint = bookingApiBaseUrl
-  ? bookingCreateUrl(bookingApiBaseUrl)
-  : "";
-const bookingScriptSrc = resolveBookingScriptSrc(basePath);
 const wechatEntryUrls = publicWechatEntryUrls(siteConfiguration.siteUrl);
 
 const values = [
@@ -59,6 +51,8 @@ const featuredCoaches = [
       "2026 李宁杯中国匹克球巡回赛呼和浩特站（CPC-1000）公开组男子单打第一名",
       "2026 WPC 海南站 4.0 男子双打冠军",
       "2025 CPC600 兰威杯男子单打冠军",
+      "2026 CPC600 鹤壁浚县站男子双打冠军",
+      "2026 CPC600 河北石家庄站混合双打冠军",
     ],
   },
   {
@@ -286,6 +280,7 @@ export default function Home() {
           </span>
         </a>
         <nav className="nav-links" aria-label="主要导航">
+          <a href="#daily-moments">每日动态</a>
           <a href="#about">匹克球</a>
           <a href="#venue">场地</a>
           <a href="#team">团队</a>
@@ -297,22 +292,17 @@ export default function Home() {
           data-preserve-public-channel
           href={`${basePath}/booking/`}
         >
-          预约体验
+          预约场地
           <span aria-hidden="true">↗</span>
         </a>
       </header>
 
-      <details className="mobile-site-nav">
-        <summary>浏览目录</summary>
-        <nav aria-label="手机页面目录">
-          <a href="#home">首页</a>
-          <a href="#daily-moments">今日 / 往日球场</a>
-          <a href="#team">教练</a>
-          <a href="#honors">荣誉</a>
-          <a data-preserve-public-channel href={`${basePath}/booking/`}>预约</a>
-          <a href="#contact">联系</a>
-        </nav>
-      </details>
+      <nav className="mobile-site-nav content-shortcuts" aria-label="手机页面目录">
+        <a href="#daily-moments">每日动态</a>
+        <a href="#team">教练团队</a>
+        <a href="#honors">赛事荣誉</a>
+        <a href="#contact">到馆联系</a>
+      </nav>
 
       <section className="hero section-shell" id="home">
         <div className="hero-copy">
@@ -365,11 +355,13 @@ export default function Home() {
             <h2 data-homepage-media-title>今日球场</h2>
           </div>
           <div className="daily-media-heading-actions">
-            <p>每天更新球场里的好回合、好照片和新鲜动态。</p>
+            <p>好回合值得回看。没有今日更新时，自动展示最近的球场动态。</p>
             <button data-homepage-media-today hidden type="button">回到最新</button>
           </div>
         </div>
         <div className="daily-media-date-track" data-homepage-media-dates hidden />
+        <p className="daily-media-status" data-homepage-media-status role="status" hidden />
+        <button className="daily-media-retry" data-homepage-media-retry hidden type="button">重新加载动态</button>
         <div className="daily-media-grid" data-homepage-media-list>
           <p className="daily-media-empty" data-homepage-media-empty>今日内容更新后将在这里呈现，也可浏览往日球场。</p>
         </div>
@@ -415,7 +407,7 @@ export default function Home() {
               <span>感觉不到打扰。</span>
             </h2>
             <p>
-              11 片场地按小时开放预约。你可以选择散客拼场，也可以选择包场，
+              11 片场地按整小时计费。你可以选择散客拼场，也可以选择包场，
               在线查看可用时段后直接提交。
             </p>
           </div>
@@ -462,9 +454,7 @@ export default function Home() {
         </div>
         <div className="team-heading">
           <h2>
-            好教练不替你击球，
-            <br />
-            <span>只让每一拍更像你。</span>
+            认识我们的<span>教练团队</span>
           </h2>
           <p>具体课程内容、时间与适合人群，请联系球馆确认。</p>
         </div>
@@ -576,7 +566,7 @@ export default function Home() {
             <p>FIELD NOTES</p>
             <h2>赛场与荣誉影像</h2>
           </div>
-          <p>将比赛动作、领奖时刻和证书分开呈现，快速看清每位教练的赛场经历。</p>
+          <p>比赛中的专注、领奖时的喜悦，都在这里。</p>
         </div>
         <div className="coach-gallery honor-media-track" aria-label="教练赛场与荣誉照片画廊">
           {coachGallery.map((item) => (
@@ -635,30 +625,8 @@ export default function Home() {
         </section>
       </section>
 
-      <section className="booking-section" id="booking">
-        <div className="section-shell">
-          <div className="section-kicker light">
-            <span>05</span>
-            <p>预约体验</p>
-          </div>
-          <BookingForm
-            apiBaseUrl={bookingApiBaseUrl}
-            formEndpoint={formEndpoint}
-            publicScheduleScriptSrc={`${basePath}/public-schedule.js`}
-            resultPath={bookingResultPath(basePath)}
-            scriptSrc={bookingScriptSrc}
-            statusPath={bookingStatusPath(basePath)}
-          />
-          <div className="booking-status-entry">
-            <span>已经提交过预约？</span>
-            <a data-preserve-public-channel href={bookingStatusPath(basePath)}>
-              查询状态、取消或回应改期 →
-            </a>
-          </div>
-        </div>
-      </section>
-
       <section className="contact section-shell" id="contact">
+        <span id="booking" aria-hidden="true" />
         <div className="section-kicker">
           <span>06</span>
           <p>联系我们</p>
@@ -694,7 +662,7 @@ export default function Home() {
             <div>
               <span>负责人 MANAGER</span>
               <p>刘华</p>
-              <small>球馆运营与预约协调</small>
+            <small>球馆运营与预约协调</small>
             </div>
             <div>
               <span>营业时间 OPENING</span>
@@ -703,6 +671,7 @@ export default function Home() {
             </div>
           </div>
         </div>
+        <a className="text-link" data-preserve-public-channel href={bookingStatusPath(basePath)}>已预约？查询、取消或回应改期 →</a>
       </section>
 
       <footer className="site-footer section-shell">

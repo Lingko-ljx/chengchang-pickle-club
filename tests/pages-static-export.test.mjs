@@ -17,7 +17,7 @@ const cloudbaseEnvId =
 const prefixed = (pathname) => `${basePath}${pathname}`;
 
 test("exports the real booking form without a framework client runtime", async () => {
-  const html = await readFile(
+  let html = await readFile(
     new URL("../out/index.html", import.meta.url),
     "utf8",
   );
@@ -70,6 +70,9 @@ test("exports the real booking form without a framework client runtime", async (
   assert.doesNotMatch(html, /澄场|CHENGCHANG|上海市徐汇区|社交媒体|演示资料|毛之谦|荣誉留待书写|暂为空/);
   assert.ok(html.includes(`${prefixed("/_next/")}`));
   if (basePath) assert.doesNotMatch(html, /(?:href|src)="\/_next\//);
+  const homeHtml = html;
+  assert.doesNotMatch(homeHtml, /id="booking-form"|data-booking-form-client|data-public-schedule-client/);
+  html = await readFile(new URL("../out/booking/index.html", import.meta.url), "utf8");
   assert.ok(html.includes(`action="${apiBaseUrl}/v1/bookings"`));
   assert.ok(
     html.includes(
@@ -87,7 +90,7 @@ test("exports the real booking form without a framework client runtime", async (
   assert.match(html, /name="session_id"/);
   assert.match(html, /name="end_time"/);
   assert.match(html, /北京时间/);
-  assert.match(html, /09:00 — 22:00/);
+  assert.match(homeHtml, /09:00 — 22:00/);
   assert.match(html, /name="idempotency_key"/);
   assert.match(
     html,
@@ -103,12 +106,13 @@ test("exports the real booking form without a framework client runtime", async (
   assert.ok(publicScheduleConsentTag);
   assert.doesNotMatch(publicScheduleConsentTag, /\brequired\b/i);
   assert.match(html, /<input(?=[^>]*name="hide_public_name")(?=[^>]*type="checkbox")(?=[^>]*value="true")[^>]*>/i);
-  assert.match(html, /我不想公开完整姓名，仅显示脱敏称呼/);
+  assert.match(html, /不公开我的完整姓名/);
   assert.match(html, /手机号、预约编号和备注不会公开/);
   assert.match(html, /备注与姓名公开设置/);
   assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.ok(html.includes(`src="${prefixed("/booking-form.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/public-schedule.js")}"`));
+  html = homeHtml;
   assert.ok(html.includes(`src="${prefixed("/homepage-media.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/honor-media.js")}"`));
   assert.ok(html.includes(`src="${prefixed("/wechat-entry.js")}"`));
@@ -130,11 +134,9 @@ test("exports the real booking form without a framework client runtime", async (
   assert.match(html, /<meta property="og:image:alt" content="[^"]+"/);
 
   const scriptTags = html.match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
-  assert.equal(scriptTags.length, 5);
-  assert.ok(scriptTags.some((script) => /data-booking-form-client/.test(script)));
+  assert.equal(scriptTags.length, 3);
   assert.ok(scriptTags.some((script) => /data-homepage-media-client/.test(script)));
   assert.ok(scriptTags.some((script) => /data-honor-media-client/.test(script)));
-  assert.ok(scriptTags.some((script) => /data-public-schedule-client/.test(script)));
   assert.ok(scriptTags.some((script) => /data-wechat-entry-client/.test(script)));
 });
 

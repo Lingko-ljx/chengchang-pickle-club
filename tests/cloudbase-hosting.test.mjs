@@ -69,6 +69,9 @@ test("deployed page smoke requires real public/admin configuration and only appr
   const fetchImpl = async (url) => {
     urls.push(url);
     if (url === configuration.siteUrl) {
+      return htmlResponse('<a href="/booking/">预约</a><script data-homepage-media-client></script><script data-honor-media-client></script>');
+    }
+    if (url === configuration.siteUrl + "booking/") {
       return htmlResponse(`<!doctype html>
         <link rel="stylesheet" href="/_next/static/chunks/site.css">
         <form action="${configuration.apiBaseUrl}/v1/bookings"
@@ -93,6 +96,7 @@ test("deployed page smoke requires real public/admin configuration and only appr
 
   assert.deepEqual(urls, [
     "https://booking-staging.example/",
+    "https://booking-staging.example/booking/",
     "https://booking-staging.example/admin/",
   ]);
 });

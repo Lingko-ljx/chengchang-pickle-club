@@ -10,17 +10,21 @@ async function readEnhancement() {
 
 function eventTarget(properties = {}) {
   const listeners = {};
+  const attributes = {};
   return {
-    ...properties,
     addEventListener(name, handler) {
-      listeners[name] = handler;
+      (listeners[name] ??= []).push(handler);
     },
     fire(name, event = {}) {
-      if (listeners[name]) listeners[name](event);
+      for (const handler of listeners[name] ?? []) handler(event);
     },
     listener(name) {
-      return listeners[name];
+      return listeners[name]?.[0];
     },
+    dispatchEvent(event) { this.fire(event.type, event); },
+    setAttribute(name, value) { attributes[name] = String(value); },
+    getAttribute(name) { return attributes[name] ?? null; },
+    ...properties,
   };
 }
 
@@ -83,6 +87,8 @@ function createStorage(options = {}) {
 }
 
 function loadEnhancement(source, options = {}) {
+  const quickDates = eventTarget({hidden: true});
+  const quickDays = [0, 1, 2].map(() => eventTarget());
   const fallbackOptions = [
     option("", "请选择开始时间"),
     option("09:00", "09:00"),
@@ -233,6 +239,7 @@ function loadEnhancement(source, options = {}) {
     if (options.sendThrows) throw new Error("send failed");
     this.body = body;
     this.sent = true;
+    this.timeoutAtSend = this.timeout;
   };
   XMLHttpRequest.prototype.respond = function (status, body = "") {
     this.status = status;
@@ -253,6 +260,8 @@ function loadEnhancement(source, options = {}) {
         return option("", "");
       },
       getElementById(id) {
+        if (options.quickDates && id === "booking-quick-dates") return quickDates;
+        if (options.quickDates && /^booking-day-[012]$/.test(id)) return quickDays[Number(id.slice(-1))];
         const elements = {
           "booking-date": date,
           "booking-end-time": endTime,
@@ -269,15 +278,18 @@ function loadEnhancement(source, options = {}) {
       },
     },
     window: {
+      Event: class { constructor(type) { this.type = type; } },
       JSON,
       XMLHttpRequest,
       location,
       sessionStorage: storage,
     },
     XMLHttpRequest,
+    Date: options.now ? class extends Date { constructor(...args) { super(...(args.length ? args : [options.now])); } } : Date,
   });
 
   return {
+    quickDates, quickDays,
     controls: {
       consent,
       date,
@@ -732,6 +744,45 @@ test("synchronous XHR setup failures leave the native POST unprevented", async (
     assert.equal(page.resetCount(), 0, entry.name);
     assert.equal(page.submitButton.disabled, false, entry.name);
   }
+});
+
+test("query timeout restores controls and submission timeout keeps a retry-safe form", async () => {
+  const source = await readEnhancement();
+  const page = loadEnhancement(source, { date: "2026-08-10" });
+  page.controls.date.fire("change");
+  assert.equal(page.request().timeoutAtSend, 15000);
+  page.request().ontimeout();
+  assert.equal(page.controls.startTime.disabled, false);
+  const key = page.controls.idempotencyKey.value;
+  const values = page.form.elements.map(control => control.value);
+  page.submit();
+  assert.equal(page.request(1).timeoutAtSend, 30000);
+  page.request(1).ontimeout();
+  assert.equal(page.submitButton.disabled, false);
+  assert.equal(page.resetCount(), 0);
+  assert.equal(page.location.href, "");
+  assert.deepEqual(page.form.elements.map(control => control.value), values);
+  page.submit();
+  assert.equal(page.controls.idempotencyKey.value, key);
+  assert.match(page.request(2).body, new RegExp(`idempotency_key=${key}`));
+});
+
+test("quick dates follow Beijing midnight and share the date change event", async () => {
+  const page = loadEnhancement(await readEnhancement(), {quickDates: true, now: "2026-09-06T16:10:00Z"});
+  assert.equal(page.controls.date.value, "2026-09-07");
+  assert.equal(page.quickDates.hidden, false);
+  assert.equal(page.quickDays[0].getAttribute("aria-pressed"), "true");
+  let scheduleUpdates = 0;
+  page.controls.date.addEventListener("change", () => scheduleUpdates++);
+  page.quickDays[1].fire("click");
+  assert.equal(page.controls.date.value, "2026-09-08");
+  assert.equal(page.quickDays[1].getAttribute("aria-pressed"), "true");
+  assert.equal(page.quickDays[0].getAttribute("aria-pressed"), "false");
+  assert.match(page.request(1).url, /date=2026-09-08$/);
+  assert.equal(scheduleUpdates, 1);
+  page.controls.date.value = "2026-09-20";
+  page.controls.date.fire("change");
+  assert.ok(page.quickDays.every(button => button.getAttribute("aria-pressed") === "false"));
 });
 
 test("missing DOM enhancement APIs leave native date and time submission untouched", async () => {

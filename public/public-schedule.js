@@ -93,6 +93,7 @@
     activeGeneration = generation;
     request = new XMLHttpRequest();
     request.open("GET", endpoint + "?date=" + encodeURIComponent(date), true);
+    request.timeout = 15000;
     request.setRequestHeader("Accept", "application/json");
     request.onreadystatechange = function () {
       var body;

@@ -6,6 +6,7 @@ import {
 } from "./config.ts";
 import { runAdminLoginFlow } from "./login-flow.ts";
 import { uploadHomepageMedia, uploadHonorMedia } from "./media-upload.ts";
+import { schedulingEndOptions, nextHonorSortOrder } from "./form-helpers.ts";
 import {
   bookingActionsFor,
   bookingRecordActionsFor,
@@ -184,6 +185,15 @@ function startAdmin() {
   timeBlockStart.value = initialTimeBlockWindow.startTime;
   timeBlockEnd.value = initialTimeBlockWindow.endTime;
   timeBlockCourt.value = "01";
+  const syncEnd = (start: HTMLSelectElement, end: HTMLSelectElement, duration: 30 | 60, current = end.value) => {
+    const result = schedulingEndOptions(start.value, current, duration);
+    setSelectOptions(end, result.options);
+    end.value = result.selected;
+  };
+  syncEnd(staffReservationStart, staffReservationEnd, 60);
+  syncEnd(timeBlockStart, timeBlockEnd, 30);
+  staffReservationStart.addEventListener("change", () => syncEnd(staffReservationStart, staffReservationEnd, 60));
+  timeBlockStart.addEventListener("change", () => syncEnd(timeBlockStart, timeBlockEnd, 30));
   const recordFrom = required<HTMLInputElement>("admin-filter-from");
   const recordTo = required<HTMLInputElement>("admin-filter-to");
   const applyRecordRange = (preset: "today" | "7" | "30" | "all") => {
@@ -282,7 +292,7 @@ function startAdmin() {
     const window = nextAdminSchedulingWindow(new Date(), 60, selectedDate.value || shanghaiDate());
     staffReservationDate.value = window.date;
     staffReservationStart.value = window.startTime;
-    staffReservationEnd.value = window.endTime;
+    syncEnd(staffReservationStart, staffReservationEnd, 60, window.endTime);
     staffReservationCourt.value = "01";
   };
   const editStaffReservation = (booking: AdminBooking) => {
@@ -291,7 +301,7 @@ function startAdmin() {
     required<HTMLInputElement>("admin-staff-reservation-title").value = booking.staffReservationTitle ?? "";
     staffReservationDate.value = booking.date;
     staffReservationStart.value = shanghaiTime(booking.startAt);
-    staffReservationEnd.value = shanghaiTime(booking.endAt);
+    syncEnd(staffReservationStart, staffReservationEnd, 60, shanghaiTime(booking.endAt));
     staffReservationCourt.value = booking.courtId ?? "01";
     required("admin-staff-reservation-form-title").textContent = "修改单位占场";
     staffReservationSubmit.textContent = "保存修改";
@@ -307,7 +317,7 @@ function startAdmin() {
     const window = nextAdminSchedulingWindow(new Date(), 30, selectedDate.value || shanghaiDate());
     timeBlockDate.value = window.date;
     timeBlockStart.value = window.startTime;
-    timeBlockEnd.value = window.endTime;
+    syncEnd(timeBlockStart, timeBlockEnd, 30, window.endTime);
     timeBlockCourt.value = "01";
     timeBlockDate.disabled = false;
     timeBlockCourt.disabled = false;
@@ -317,7 +327,7 @@ function startAdmin() {
     timeBlockDate.value = block.date;
     timeBlockCourt.value = block.courtId;
     timeBlockStart.value = block.startTime;
-    timeBlockEnd.value = block.endTime;
+    syncEnd(timeBlockStart, timeBlockEnd, 30, block.endTime);
     timeBlockReason.value = block.reason ?? "";
     timeBlockDate.disabled = true;
     timeBlockCourt.disabled = true;
@@ -403,12 +413,13 @@ function startAdmin() {
     editingHonor = null;
     required<HTMLFormElement>("admin-honor-upload-form").reset();
     required<HTMLInputElement>("admin-honor-year").value = shanghaiDate().slice(0, 4);
-    required<HTMLInputElement>("admin-honor-sort").value = String(honorManifest.items.length + 1);
+    required<HTMLInputElement>("admin-honor-sort").value = String(nextHonorSortOrder(honorManifest.items));
     required<HTMLInputElement>("admin-honor-file").required = true;
     required("admin-honor-form-title").textContent = "新增荣誉素材";
     honorSubmit.textContent = "上传并发布";
     honorCancelEdit.hidden = true;
   };
+  required<HTMLInputElement>("admin-honor-year").value = shanghaiDate().slice(0, 4);
   const editHonor = (item: AdminHonorMediaItem) => {
     editingHonor = item;
     required<HTMLInputElement>("admin-honor-file").required = false;
@@ -433,6 +444,8 @@ function startAdmin() {
   const refreshHonors = async () => {
     try {
       honorManifest = await api.getHonorMedia() as AdminHonorMediaManifest;
+      const sortInput = required<HTMLInputElement>("admin-honor-sort");
+      if (!editingHonor && !sortInput.value) sortInput.value = String(nextHonorSortOrder(honorManifest.items));
       renderHonors();
     } catch (error) {
       renderHonorMediaAdmin(required("admin-honor-list"), { version: 0, items: [] }, () => undefined);
@@ -587,6 +600,12 @@ function startAdmin() {
     renderBookingList(required("admin-booking-list"), bookings, onSelect, booking.id);
     renderCustomerHistory(required("admin-customer-history"), booking, [], "loading");
     renderActions();
+    if (window.matchMedia?.("(max-width: 860px)").matches) {
+      required("admin-booking-detail").scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+    }
     loadSelectedAudits()
       .catch((error) => showMessage(String(error), true));
     loadSelectedCustomerHistory().catch(() => undefined);

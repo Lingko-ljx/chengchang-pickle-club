@@ -56,6 +56,11 @@ export default function BookingPage() {
           查询预约
         </a>
       </header>
+      <nav className="booking-page-shortcuts section-shell" aria-label="预约页导航">
+        <a href="#booking-form">填写预约</a>
+        <a href="#public-schedule">看看谁来打球</a>
+        <a href="tel:+8613807917663">电话联系</a>
+      </nav>
 
       <section className="booking-section booking-standalone-section">
         <div className="section-shell">

@@ -151,7 +151,7 @@ test("the booking form defaults to full-name visibility with a clear optional op
   assert.match(bookingFormSource, /name="public_schedule_consent_version"[\s\S]*type="hidden"[\s\S]*value="2"/);
   assert.match(bookingFormSource, /name="hide_public_name"[\s\S]*type="checkbox"[\s\S]*value="true"/);
   assert.match(bookingFormSource, /知悉姓名默认公开/);
-  assert.match(bookingFormSource, /我不想公开完整姓名，仅显示脱敏称呼/);
+  assert.match(bookingFormSource, /不公开我的完整姓名/);
   assert.match(bookingFormSource, /手机号、预约编号和备注不会公开/);
   assert.match(bookingFormSource, /备注与姓名公开设置/);
   assert.match(bookingFormSource, /maxLength=\{40\}/);

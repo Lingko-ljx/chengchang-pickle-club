@@ -398,6 +398,7 @@
     try {
       request = new XMLHttpRequest();
       request.open("GET", availabilityUrl + "?date=" + encodeURIComponent(requestedDate), true);
+      request.timeout = 15000;
       request.setRequestHeader("Accept", "application/json");
       request.onreadystatechange = function () {
         var parsed;
@@ -470,7 +471,7 @@
     } else if (status === 400) {
       showError("预约信息未通过校验，请检查日期、开始和结束时间后重试。");
     } else {
-      showError("提交未成功，表单内容已保留，请检查网络后重试。");
+      showError("暂未收到确认，表单内容已保留。请重试或查询预约，勿重复填写新单。");
     }
   }
 
@@ -494,6 +495,7 @@
     try {
       request = new XMLHttpRequest();
       request.open("POST", form.action, true);
+      request.timeout = 30000;
       request.setRequestHeader("Accept", "application/json");
       request.setRequestHeader("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
       body = serializeForm();
@@ -555,6 +557,36 @@
   ensureIdempotencyKey();
   renderEndOptions();
   dateInput.addEventListener("change", fetchAvailability);
+  var quickDates = document.getElementById("booking-quick-dates");
+  if (quickDates && window.Event) {
+    var syncQuickDates = function () {
+      var today = beijingDate();
+      var index;
+      for (index = 0; index < 3; index += 1) {
+        var button = document.getElementById("booking-day-" + index);
+        var date = new Date(today + "T00:00:00Z");
+        date.setUTCDate(date.getUTCDate() + index);
+        if (button) {
+          button.setAttribute("data-date", date.toISOString().slice(0, 10));
+          button.setAttribute("aria-pressed", String(dateInput.value === date.toISOString().slice(0, 10)));
+        }
+      }
+    };
+    var bindQuickDate = function (index) {
+      var button = document.getElementById("booking-day-" + index);
+      if (button) button.addEventListener("click", function () {
+        syncQuickDates();
+        dateInput.value = button.getAttribute("data-date");
+        dateInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+      });
+    };
+    bindQuickDate(0);
+    bindQuickDate(1);
+    bindQuickDate(2);
+    dateInput.addEventListener("change", syncQuickDates);
+    syncQuickDates();
+    quickDates.hidden = false;
+  }
   startSelect.addEventListener("change", renderEndOptions);
   endSelect.addEventListener("change", syncCanonicalSessionId);
   partySizeSelect.addEventListener("change", filterWindows);

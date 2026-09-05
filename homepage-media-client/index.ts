@@ -132,10 +132,14 @@ function mediaNode(documentRef: Document, item: PublicHomepageMediaItem): HTMLEl
 export function renderHomepageMedia(container: HTMLElement, items: PublicHomepageMediaItem[]): void {
   const documentRef = container.ownerDocument;
   const list = container.querySelector<HTMLElement>("[data-homepage-media-list]");
-  if (!list || items.length === 0) {
-    return;
-  }
+  if (!list) return;
   list.replaceChildren();
+  if (items.length === 0) {
+    const empty = documentRef.createElement("p");
+    empty.className = "daily-media-empty";
+    empty.textContent = "这一天暂无可展示的动态，可以选择其他日期。";
+    list.append(empty);
+  }
   for (const item of items) {
     const card = documentRef.createElement("article");
     card.className = `daily-media-card${item.pinned ? " is-pinned" : ""}`;
@@ -158,8 +162,8 @@ export function renderHomepageMedia(container: HTMLElement, items: PublicHomepag
 }
 
 function dateLabel(value: string): string {
-  const [, month, day] = value.split("-");
-  return `${Number(month)}月${Number(day)}日`;
+  const [year, month, day] = value.split("-");
+  return `${year}年${Number(month)}月${Number(day)}日`;
 }
 
 function renderDateChoices(
@@ -172,16 +176,20 @@ function renderDateChoices(
   if (!track) return;
   track.replaceChildren();
   const documentRef = container.ownerDocument;
+  const label = documentRef.createElement("label");
+  label.textContent = "翻看往日球场 ";
+  const select = documentRef.createElement("select");
+  select.setAttribute("aria-label", "选择球场动态日期");
   for (const date of dates) {
-    const button = documentRef.createElement("button");
-    button.type = "button";
-    button.className = "daily-media-date-chip";
-    button.dataset.mediaDate = date;
-    button.textContent = dateLabel(date);
-    button.setAttribute("aria-pressed", String(date === selectedDate));
-    button.addEventListener("click", () => onSelect(date));
-    track.append(button);
+    const option = documentRef.createElement("option");
+    option.value = date;
+    option.textContent = dateLabel(date);
+    select.append(option);
   }
+  select.value = selectedDate;
+  select.addEventListener("change", () => onSelect(select.value));
+  label.append(select);
+  track.append(label);
   track.hidden = dates.length <= 1;
 }
 
@@ -205,49 +213,79 @@ function sanitizedDates(value: unknown): string[] {
   return [...new Set(value.filter((date): date is string => typeof date === "string" && validCalendarDate(date)))].sort().reverse();
 }
 
-export async function loadHomepageMedia(documentRef: Document = document): Promise<void> {
+export async function loadHomepageMedia(documentRef: Document = document, fetchImpl: typeof fetch = fetch): Promise<void> {
   const container = documentRef.querySelector<HTMLElement>("[data-homepage-media]");
   if (!container) return;
   const apiBase = container.dataset.apiBase;
   if (!apiBase) {
     return;
   }
-  try {
-    const today = beijingDate(new Date());
-    const endpoint = `${apiBase.replace(/\/$/u, "")}/v1/homepage-media`;
-    const request = async (date?: string): Promise<HomepageMediaPayload> => {
-      const response = await fetch(`${endpoint}${date ? `?date=${encodeURIComponent(date)}` : ""}`, {
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) throw new Error("MEDIA_UNAVAILABLE");
-      const responseBody = await response.json() as { data?: unknown };
-      const data = responseBody.data;
-      return Array.isArray(data) ? { items: data } : extractPayload(data);
-    };
-    const firstPayload = await request();
-    const firstItems = sanitizePublicMediaItems(firstPayload.items);
-    const localGroups = groupHomepageMediaByDate(firstItems);
-    const dates = sanitizedDates(firstPayload.availableDates);
-    const selectedDate = typeof firstPayload.selectedDate === "string" && validCalendarDate(firstPayload.selectedDate)
-      ? firstPayload.selectedDate
-      : defaultHomepageMediaDate(localGroups, today);
-    const renderSelection = async (date: string, initialItems?: PublicHomepageMediaItem[]) => {
-      const selection = initialItems ?? sanitizePublicMediaItems((await request(date)).items);
-      renderHomepageMedia(container, selection.filter((item) => item.mediaDate === date || selection.length <= 6));
-      updateDailyHeading(container, date, today);
-      renderDateChoices(container, dates.length > 0 ? dates : [...localGroups.keys()], date, (nextDate) => void renderSelection(nextDate));
-    };
-    if (selectedDate) {
-      await renderSelection(selectedDate, firstItems.filter((item) => item.mediaDate === selectedDate));
-      const todayButton = container.querySelector<HTMLButtonElement>("[data-homepage-media-today]");
-      todayButton?.addEventListener("click", () => {
-        const target = dates.includes(today) ? today : dates[0];
-        if (target) void renderSelection(target);
-      });
+  const status = container.querySelector<HTMLElement>("[data-homepage-media-status]");
+  const retry = container.querySelector<HTMLButtonElement>("[data-homepage-media-retry]");
+  const todayButton = container.querySelector<HTMLButtonElement>("[data-homepage-media-today]");
+  let generation = 0;
+  let dates: string[] = [];
+  let lastSelection: string | undefined;
+  let failedSelection: string | undefined;
+  const showStatus = (message: string, error = false) => {
+    if (status) { status.textContent = message; status.hidden = !message; }
+    if (retry) retry.hidden = !error;
+  };
+  const today = beijingDate(new Date());
+  const endpoint = `${apiBase.replace(/\/$/u, "")}/v1/homepage-media`;
+  const request = async (date?: string): Promise<HomepageMediaPayload> => {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        (async () => {
+          const response = await fetchImpl(`${endpoint}${date ? `?date=${encodeURIComponent(date)}` : ""}`, {
+            headers: { Accept: "application/json" },
+            signal: controller?.signal,
+          });
+          if (!response.ok) throw new Error("MEDIA_UNAVAILABLE");
+          const responseBody = await response.json() as { data?: unknown };
+          return Array.isArray(responseBody.data) ? { items: responseBody.data } : extractPayload(responseBody.data);
+        })(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => { controller?.abort(); reject(new Error("MEDIA_TIMEOUT")); }, 15000);
+        }),
+      ]);
+    } finally { clearTimeout(timer); }
+  };
+  const renderSelection = async (date?: string) => {
+    const current = ++generation;
+    container.setAttribute("aria-busy", "true");
+    showStatus("正在读取球场动态…");
+    try {
+      const payload = await request(date);
+      if (current !== generation) return;
+      const items = sanitizePublicMediaItems(payload.items);
+      const groups = groupHomepageMediaByDate(items);
+      const receivedDates = sanitizedDates(payload.availableDates);
+      dates = [...new Set([...dates, ...receivedDates, ...groups.keys()])].sort().reverse();
+      const selected = date ?? (typeof payload.selectedDate === "string" && validCalendarDate(payload.selectedDate)
+        ? payload.selectedDate : defaultHomepageMediaDate(groups, today));
+      renderHomepageMedia(container, selected ? items.filter((item) => item.mediaDate === selected) : []);
+      if (selected) {
+        lastSelection = selected;
+        updateDailyHeading(container, selected, today);
+        renderDateChoices(container, dates, selected, (next) => void renderSelection(next));
+      }
+      if (todayButton) todayButton.hidden = !selected || selected === (dates.includes(today) ? today : dates[0]);
+      showStatus("");
+    } catch {
+      if (current !== generation) return;
+      failedSelection = date;
+      if (lastSelection) renderDateChoices(container, dates, lastSelection, (next) => void renderSelection(next));
+      showStatus(lastSelection ? "未能加载所选日期，仍显示上次内容。请重试。" : "动态暂时未能加载，请重试。", true);
+    } finally {
+      if (current === generation) container.setAttribute("aria-busy", "false");
     }
-  } catch {
-    // The static no-JavaScript message remains visible when the media service is unavailable.
-  }
+  };
+  if (retry) retry.onclick = () => void renderSelection(failedSelection);
+  if (todayButton) todayButton.onclick = () => void renderSelection(dates.includes(today) ? today : dates[0]);
+  await renderSelection();
 }
 
 if (typeof document !== "undefined") {

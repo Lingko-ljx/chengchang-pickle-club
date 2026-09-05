@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolvePagesBasePath } from "../app/site-config.ts";
 
-async function render() {
+async function render(pathname = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", {
+    new Request(`http://localhost${pathname}`, {
       headers: { accept: "text/html" },
     }),
     {
@@ -28,7 +28,11 @@ test("server renders the real booking form and current venue contract", async ()
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
-  const html = await response.text();
+  const homeHtml = await response.text();
+  assert.doesNotMatch(homeHtml, /id="booking-form"|data-booking-form-client|data-public-schedule-client/);
+  const bookingResponse = await render("/booking");
+  assert.equal(bookingResponse.status, 200);
+  let html = await bookingResponse.text();
   const basePath = resolvePagesBasePath(process.env.PAGES_BASE_PATH);
   const apiBaseUrl = process.env.NEXT_PUBLIC_BOOKING_API_BASE_URL;
   assert.ok(apiBaseUrl, "configured rendering requires a booking API base URL");
@@ -85,28 +89,31 @@ test("server renders the real booking form and current venue contract", async ()
   assert.match(html, />09:00<\/option>/);
   assert.match(html, />09:30<\/option>/);
   assert.match(html, /北京时间/);
-  assert.match(html, /整小时计费/);
-  assert.match(html, /09:00 — 22:00/);
-  assert.match(html, /11 片/);
+  assert.match(homeHtml, /整小时计费/);
+  assert.match(homeHtml, /09:00 — 22:00/);
+  assert.match(homeHtml, /11 片/);
   assert.match(html, /空余时段自动确认/);
   assert.match(html, /id="public-schedule"/);
   assert.match(html, new RegExp(`data-public-schedule-url="${apiBaseUrl}/v1/public-schedule"`));
   assert.match(html, /<script[^>]+data-public-schedule-client[^>]+defer/);
   assert.match(html, /知悉姓名默认公开/);
-  assert.match(html, /我不想公开完整姓名，仅显示脱敏称呼/);
+  assert.match(html, /不公开我的完整姓名/);
   assert.match(html, /手机号、预约编号和备注不会公开/);
   assert.match(html, /备注与姓名公开设置/);
   assert.match(html, /<input(?=[^>]*name="name")(?=[^>]*maxlength="40")[^>]*>/i);
   assert.doesNotMatch(html, /处理预约并与我联系；首页/);
   assert.doesNotMatch(html, /Formspree|07:00 — 23:00|1—8|六片/);
   assert.match(html, /<script[^>]+data-booking-form-client[^>]+defer/);
+  assert.match(html, /id="booking-quick-dates"/);
+  assert.match(html, /id="booking-day-1"[^>]*>明天/);
+  html = homeHtml;
   assert.match(html, /data-homepage-media(?:="")?/);
   assert.match(html, /data-homepage-media-list(?:="")?/);
   assert.match(html, /<script[^>]+data-homepage-media-client[^>]+defer/);
   assert.match(html, /data-honor-media(?:="")?/);
   assert.match(html, /data-honor-media-list(?:="")?/);
   assert.match(html, /<script[^>]+data-honor-media-client[^>]+defer/);
-  assert.match(html, /class="mobile-site-nav"/);
+  assert.match(html, /class="mobile-site-nav content-shortcuts"/);
   assert.match(html, /<script[^>]+data-wechat-entry-client[^>]+defer/);
   assert.match(html, /data-public-channel-page="booking"/);
   assert.match(html, /data-wechat-menu-booking-url=/);

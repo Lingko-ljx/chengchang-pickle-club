@@ -102,20 +102,25 @@ async function html(fetchImpl, url, timeoutMs) {
 const forbiddenStaticContent =
   /\/_next\/static\/chunks\/[^"'<>\s]*\.m?js(?:[?#][^"'<>\s]*)?|self\.__next|__next_f|modulepreload|BOOKING_ADMIN_USER_IDS|BOOKING_SES_SECRET|TENCENTCLOUD_SECRET|PHONE_HASH_SALT|RATE_LIMIT_SALT|IDEMPOTENCY_SALT|AKID[A-Za-z0-9]+|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY/i;
 
-function verifyRootHtml(body, configuration) {
+function verifyBookingHtml(body, configuration) {
   if (
     !body.includes(`action="${configuration.apiBaseUrl}/v1/bookings"`) ||
     !body.includes(
       `data-availability-url="${configuration.apiBaseUrl}/v1/availability/windows"`,
     ) ||
     !/\bdata-booking-form-client(?:\s|=|>)/i.test(body) ||
-    !/\bdata-homepage-media-client(?:\s|=|>)/i.test(body) ||
-    !/\bdata-honor-media-client(?:\s|=|>)/i.test(body) ||
     !/\bdata-public-schedule-client(?:\s|=|>)/i.test(body) ||
     forbiddenStaticContent.test(body)
   ) {
-    throw new Error("INVALID_ROOT_HTML");
+    throw new Error("INVALID_BOOKING_HTML");
   }
+}
+
+function verifyRootHtml(body) {
+  if (!/\bdata-homepage-media-client(?:\s|=|>)/i.test(body) ||
+      !/\bdata-honor-media-client(?:\s|=|>)/i.test(body) ||
+      !body.includes('href="/booking/"') || body.includes('id="booking-form"') ||
+      forbiddenStaticContent.test(body)) throw new Error("INVALID_ROOT_HTML");
 }
 
 function verifyAdminHtml(body, configuration) {
@@ -136,6 +141,8 @@ export async function verifyCloudBaseHosting(configuration, options = {}) {
     async () => {
       const root = await html(fetchImpl, configuration.siteUrl, requestTimeoutMs);
       verifyRootHtml(root, configuration);
+      const booking = await html(fetchImpl, new URL("booking/", configuration.siteUrl).toString(), requestTimeoutMs);
+      verifyBookingHtml(booking, configuration);
       const admin = await html(
         fetchImpl,
         new URL("admin/", configuration.siteUrl).toString(),

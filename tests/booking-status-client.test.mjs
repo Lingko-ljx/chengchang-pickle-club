@@ -285,8 +285,10 @@ test("customer actions retain the verified phone only in memory and carry action
   const source = await readClient("booking-status");
   const page = loadStatusClient(source);
   lookup(page).respond(200, JSON.stringify({ data: bookingFixture }));
+  assert.equal(page.request(0).timeout, 15000);
 
   page.elements["booking-status-cancel"].fire("click");
+  assert.equal(page.request(1).timeout, 30000);
   assert.equal(
     page.request(1).url,
     "https://booking.example/api/v1/bookings/BOOK-42/cancel",

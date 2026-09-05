@@ -89,6 +89,6 @@ test("daily moments exposes today and archive controls in a compact mobile track
   assert.match(pageSource, /data-homepage-media-empty/);
   assert.match(pageSource, /今日球场/);
   assert.match(pageSource, /往日球场/);
-  assert.match(globalStyles, /@media\s*\(max-width:\s*620px\)[\s\S]*\.daily-media-grid\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*auto;[^}]*scroll-snap-type:\s*x mandatory;/s);
-  assert.match(globalStyles, /\.daily-media-date-track\s*\{[^}]*overflow-x:\s*auto;/s);
+  assert.match(globalStyles, /\.daily-media-grid\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s);
+  assert.match(globalStyles, /\.daily-media-date-track\s*\{[^}]*overflow-x:\s*visible;/s);
 });

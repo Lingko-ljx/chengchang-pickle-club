@@ -157,6 +157,7 @@
     try {
       request = new XMLHttpRequest();
       request.open("POST", url, true);
+      request.timeout = /\/lookup$/.test(url) ? 15000 : 30000;
       request.setRequestHeader("Accept", "application/json");
       request.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
       request.onreadystatechange = function () {

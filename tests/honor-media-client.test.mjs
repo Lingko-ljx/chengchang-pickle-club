@@ -77,8 +77,8 @@ test("homepage provides an independent honor manifest target with static fallbac
 });
 
 test("mobile users get a native sticky directory with stable section links", () => {
-  assert.match(pageSource, /className="mobile-site-nav"/);
-  assert.match(pageSource, /<summary>浏览目录<\/summary>/);
+  assert.match(pageSource, /<nav className="mobile-site-nav content-shortcuts"/);
+  assert.match(globalStyles, /\.mobile-site-nav\.content-shortcuts\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/s);
   for (const target of ["#home", "#daily-moments", "#team", "#honors", "#contact"]) {
     assert.match(pageSource, new RegExp(`href="${target}"`));
   }
